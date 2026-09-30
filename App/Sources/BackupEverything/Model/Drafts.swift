@@ -19,6 +19,79 @@ enum SourceKindChoice: String, CaseIterable, Identifiable {
     }
 }
 
+enum StepKindChoice: String, CaseIterable, Identifiable {
+    case manual
+    case command
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .manual: "Ручной шаг"
+        case .command: "Команда"
+        }
+    }
+}
+
+struct StepDraft: Identifiable, Equatable {
+    var id: UUID
+    var name: String
+    var kindChoice: StepKindChoice
+    var instructions = ""
+    var watchPath = "~/Downloads"
+    var filePattern = ""
+    var includeInCopy = true
+    var command = ""
+    var timeoutMinutes = 60
+
+    init(new kindChoice: StepKindChoice) {
+        id = UUID()
+        name = kindChoice.title
+        self.kindChoice = kindChoice
+    }
+
+    init(_ step: SourceStep) {
+        id = step.id
+        name = step.name
+        switch step.kind {
+        case let .manual(instructions, watchPath, filePattern, includeInCopy):
+            kindChoice = .manual
+            self.instructions = instructions
+            self.watchPath = watchPath
+            self.filePattern = filePattern
+            self.includeInCopy = includeInCopy
+        case let .command(command, timeoutSeconds):
+            kindChoice = .command
+            self.command = command
+            timeoutMinutes = max(1, timeoutSeconds / 60)
+        }
+    }
+
+    var problem: String? {
+        if trimmed(name).isEmpty { return "укажите название." }
+        switch kindChoice {
+        case .manual where trimmed(watchPath).isEmpty: return "укажите папку, куда попадает файл."
+        case .manual where trimmed(filePattern).isEmpty: return "укажите маску файла, например manifest-*.json."
+        case .command where trimmed(command).isEmpty: return "укажите команду."
+        default: return nil
+        }
+    }
+
+    func build() -> SourceStep {
+        let kind: StepKind = switch kindChoice {
+        case .manual:
+            .manual(instructions: instructions, watchPath: trimmed(watchPath), filePattern: trimmed(filePattern), includeInCopy: includeInCopy)
+        case .command:
+            .command(command: command, timeoutSeconds: max(1, timeoutMinutes) * 60)
+        }
+        return SourceStep(id: id, name: trimmed(name), kind: kind)
+    }
+
+    private func trimmed(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct SourceDraft {
     private var base: Source
 
@@ -40,7 +113,7 @@ struct SourceDraft {
     var filePattern = ""
     var fileMode = FileMode.single
     var removeOriginal = true
-    var steps: [SourceStep] = []
+    var steps: [StepDraft] = []
 
     init(_ source: Source) {
         base = source
@@ -69,22 +142,36 @@ struct SourceDraft {
             self.removeOriginal = removeOriginal
         case let .steps(steps):
             kindChoice = .steps
-            self.steps = steps
+            self.steps = steps.map(StepDraft.init)
         }
     }
 
     var id: UUID { base.id }
 
     var problem: String? {
+        kindProblem ?? (trimmed(name).isEmpty ? "Укажите название." : nil)
+    }
+
+    private var kindProblem: String? {
         switch kindChoice {
-        case .folder where trimmed(folderPath).isEmpty: return "Укажите папку или файл источника."
-        case .command where trimmed(command).isEmpty: return "Укажите команду."
-        case .manualExport where trimmed(watchPath).isEmpty: return "Укажите папку, куда попадает экспорт."
-        case .manualExport where trimmed(filePattern).isEmpty: return "Укажите маску файла, например Passwords*.csv."
-        case .steps where steps.isEmpty: return "Добавьте хотя бы один шаг."
-        default: break
+        case .folder:
+            return trimmed(folderPath).isEmpty ? "Укажите папку или файл источника." : nil
+        case .command:
+            return trimmed(command).isEmpty ? "Укажите команду." : nil
+        case .manualExport:
+            if trimmed(watchPath).isEmpty { return "Укажите папку, куда попадает экспорт." }
+            return trimmed(filePattern).isEmpty ? "Укажите маску файла, например Passwords*.csv." : nil
+        case .steps:
+            if steps.isEmpty { return "Добавьте хотя бы один шаг." }
+            for (index, step) in steps.enumerated() {
+                if let problem = step.problem { return "Шаг \(index + 1): \(problem)" }
+            }
+            return nil
         }
-        return trimmed(name).isEmpty ? "Укажите название." : nil
+    }
+
+    var firstStepIsManual: Bool {
+        kindChoice == .steps && steps.first?.kindChoice == .manual
     }
 
     var hasChanges: Bool { build() != base }
@@ -114,7 +201,7 @@ struct SourceDraft {
                 removeOriginal: removeOriginal
             )
         case .steps:
-            source.kind = .steps(steps: steps)
+            source.kind = .steps(steps: steps.map { $0.build() })
         }
         return source
     }

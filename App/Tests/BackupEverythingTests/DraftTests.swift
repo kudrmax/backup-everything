@@ -106,10 +106,37 @@ struct DraftTests {
         #expect(draft.build().icon == nil)
     }
 
-    @Test func stepChainWithoutStepsCannotBeSaved() {
+    @Test func stepChainExplainsWhatIsMissing() {
         var draft = SourceDraft(source(.steps(steps: [])))
         #expect(draft.problem == "Добавьте хотя бы один шаг.")
-        draft.steps = [SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 60))]
+
+        draft.steps = [StepDraft(new: .manual), StepDraft(new: .command)]
+        #expect(draft.steps.map(\.name) == ["Ручной шаг", "Команда"])
+        #expect(draft.firstStepIsManual)
+        #expect(draft.problem == "Шаг 1: укажите маску файла, например manifest-*.json.")
+        draft.steps[0].filePattern = " manifest-*.json "
+        #expect(draft.problem == "Шаг 2: укажите команду.")
+        draft.steps[1].command = "echo hi"
+        draft.steps[1].name = "  "
+        #expect(draft.problem == "Шаг 2: укажите название.")
+        draft.steps[1].name = " Скачать "
+        draft.steps[0].watchPath = ""
+        #expect(draft.problem == "Шаг 1: укажите папку, куда попадает файл.")
+        draft.steps[0].watchPath = "~/Downloads"
         #expect(draft.problem == nil)
+
+        #expect(draft.build().kind == .steps(steps: [
+            SourceStep(id: draft.steps[0].id, name: "Ручной шаг", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: true)),
+            SourceStep(id: draft.steps[1].id, name: "Скачать", kind: .command(command: "echo hi", timeoutSeconds: 3600)),
+        ]))
+    }
+
+    @Test func stepDraftKeepsBothFormsWhileTheKindIsSwitched() {
+        var step = StepDraft(SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 1800)))
+        #expect(step.timeoutMinutes == 30)
+        step.kindChoice = .manual
+        step.filePattern = "x-*.zip"
+        step.kindChoice = .command
+        #expect(step.build().kind == .command(command: "echo hi", timeoutSeconds: 1800))
     }
 }

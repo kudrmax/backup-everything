@@ -213,6 +213,10 @@ final class AppModel {
         return max(due, sourceState.retryAfter ?? due)
     }
 
+    func chain(of sourceId: UUID) -> ChainState? {
+        state.sourceState(sourceId).chain
+    }
+
     func stage(of source: Source) -> SourceStage? {
         activity.stage(of: source.id)
     }

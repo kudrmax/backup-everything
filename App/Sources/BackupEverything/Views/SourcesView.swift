@@ -144,7 +144,7 @@ struct SourceEditor: View {
                 .padding(.bottom, 4)
         } content: {
             SettingsSection(title: "Как часто и куда", isProminent: true) {
-                SettingsRow(title: draft.kindChoice == .manualExport ? "Напоминать об экспорте" : "Как часто") {
+                SettingsRow(title: draft.kindChoice == .manualExport || draft.firstStepIsManual ? "Напоминать об экспорте" : "Как часто") {
                     Picker("", selection: $draft.schedule) {
                         ForEach(Schedule.allCases, id: \.self) { Text(Texts.schedule($0)).tag($0) }
                     }
@@ -275,13 +275,7 @@ struct SourceEditor: View {
                 }
             }
         case .steps:
-            SettingsSection(title: "Что бэкапить · тип «По шагам»: шаги выполняются по очереди") {
-                ForEach(Array(draft.steps.enumerated()), id: \.element.id) { index, step in
-                    SettingsRow(title: "\(index + 1). \(step.name)") {
-                        Text(step.isManual ? "Ручной шаг" : "Команда").foregroundStyle(.secondary)
-                    }
-                }
-            }
+            StepsEditor(steps: $draft.steps, currentIndex: isNew ? nil : model.chain(of: draft.id)?.stepIndex)
         }
     }
 
@@ -296,7 +290,7 @@ struct SourceEditor: View {
     }
 
     private var conflictWarning: String? {
-        guard draft.kindChoice == .manualExport else { return nil }
+        guard draft.kindChoice == .manualExport || draft.kindChoice == .steps else { return nil }
         let conflicts = model.maskConflicts(for: draft.build())
         guard !conflicts.isEmpty else { return nil }
         return "Маска пересекается с источником «\(conflicts.map(\.name).joined(separator: "», «"))» в той же папке."
