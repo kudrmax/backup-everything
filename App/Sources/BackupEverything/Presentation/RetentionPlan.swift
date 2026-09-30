@@ -29,10 +29,10 @@ struct RetentionStage: Equatable, Identifiable {
     var effect: String {
         guard isKept else { return "не используется" }
         switch unit {
-        case .day: "хранятся все копии"
-        case .week: "остаётся одна в неделю"
-        case .month: "остаётся одна в месяц"
-        case .year: "остаётся одна в год"
+        case .day: return "хранятся все копии"
+        case .week: return "остаётся одна в неделю"
+        case .month: return "остаётся одна в месяц"
+        case .year: return "остаётся одна в год"
         }
     }
 
