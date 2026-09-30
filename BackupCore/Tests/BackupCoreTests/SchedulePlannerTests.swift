@@ -102,4 +102,10 @@ struct SchedulePlannerTests {
         let config = Config(sources: [source], destinations: [])
         #expect(planner.dueAutomaticSources(config: config, state: AppState(), now: now).isEmpty)
     }
+
+    @Test func sourceThatHasNeverRunIsNotSeverelyOverdue() {
+        let source = Fixtures.source(schedule: .daily, destinations: [cloud], createdAt: created)
+        #expect(!planner.isSeverelyOverdue(source, state: SourceState(), now: now))
+        #expect(planner.isDue(source, state: SourceState(), now: now))
+    }
 }

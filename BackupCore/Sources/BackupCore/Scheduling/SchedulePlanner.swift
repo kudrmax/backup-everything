@@ -22,7 +22,8 @@ public struct SchedulePlanner: Sendable {
     }
 
     public func isSeverelyOverdue(_ source: Source, state: SourceState, now: Date) -> Bool {
-        guard let due = dueDate(for: source, state: state),
+        guard state.lastRun != nil,
+              let due = dueDate(for: source, state: state),
               let first = source.schedule.nextDue(after: due, calendar: calendar),
               let second = source.schedule.nextDue(after: first, calendar: calendar) else { return false }
         return now > second

@@ -21,6 +21,7 @@ final class AppModel {
     private(set) var activeOperations = 0
     private(set) var problem: String?
     private(set) var activity = ActivityTracker()
+    private(set) var unavailableDestinations: Set<UUID> = []
 
     private enum ActivityEvent {
         case progress(RunProgress)
@@ -107,6 +108,7 @@ final class AppModel {
             templates = store.loadTemplates()
             report = try await coordinator.statusReport()
             problem = nil
+            refreshAvailability()
         } catch {
             problem = error.localizedDescription
         }
@@ -258,6 +260,17 @@ final class AppModel {
         await refresh()
         activityFeed.yield(.settled)
         onChange()
+    }
+
+    private func refreshAvailability() {
+        let destinations = config.destinations
+        Task {
+            var unavailable: Set<UUID> = []
+            for destination in destinations where !(await isAvailable(destination)) {
+                unavailable.insert(destination.id)
+            }
+            unavailableDestinations = unavailable
+        }
     }
 
     private func handle(_ event: ActivityEvent) {

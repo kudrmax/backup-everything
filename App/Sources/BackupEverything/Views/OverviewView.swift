@@ -56,14 +56,11 @@ struct OverviewHeader: View {
                 ProgressView().controlSize(.small)
                 Text(model.currentSourceName ?? "проверка…").foregroundStyle(.blue)
             }
-            Button {
+            Button("Запустить всё", systemImage: "play.fill") {
                 Task { await model.runAll() }
-            } label: {
-                Image(systemName: "play.fill")
             }
-            .buttonStyle(.borderless)
+            .labelStyle(.titleAndIcon)
             .disabled(model.isWorking)
-            .help("Запустить всё")
         }
     }
 }
@@ -320,13 +317,23 @@ struct DestinationStrip: View {
         HStack(spacing: 18) {
             ForEach(model.config.destinations) { destination in
                 let problem = problem(of: destination)
+                let isOffline = model.unavailableDestinations.contains(destination.id)
                 HStack(spacing: 6) {
                     Image(systemName: StatusStyle.symbol(for: destination.kind))
+                        .overlay(alignment: .bottomTrailing) {
+                            if isOffline {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .background(Circle().fill(.background).padding(-1))
+                                    .offset(x: 5, y: 4)
+                            }
+                        }
                     Text(problem.map { "\(destination.name) · \($0)" } ?? destination.name)
+                        .padding(.leading, isOffline ? 3 : 0)
                 }
                 .font(.callout)
-                .foregroundStyle(problem == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
-                .hoverTip(details(of: destination))
+                .foregroundStyle(style(problem: problem, isOffline: isOffline))
+                .hoverTip(details(of: destination, isOffline: isOffline))
             }
         }
         .padding(.horizontal, 4)
@@ -343,8 +350,13 @@ struct DestinationStrip: View {
         return nil
     }
 
-    private func details(of destination: Destination) -> String {
-        var lines: [String] = []
+    private func style(problem: String?, isOffline: Bool) -> AnyShapeStyle {
+        if problem != nil { return AnyShapeStyle(.orange) }
+        return isOffline ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary)
+    }
+
+    private func details(of destination: Destination, isOffline: Bool) -> String {
+        var lines = [isOffline ? "Сейчас не подключено" : "Доступно"]
         let waiting = model.waitingSources(for: destination)
         if let caughtUp = model.lastCaughtUp(destination) {
             lines.append("Получило всё: \(Texts.relative(caughtUp))")
