@@ -260,7 +260,7 @@ struct SourceRow: View {
                 action("Инструкция", symbol: "book") { showsInstructions = true }
             }
             if let original = SourceLinks.original(of: source) {
-                action("Открыть оригинал", symbol: "folder") { model.reveal(original) }
+                action("Открыть оригинал в Finder", symbol: "folder") { model.reveal(original) }
             }
             copyAction
             action("Изменить", symbol: "pencil", perform: edit)
@@ -277,7 +277,7 @@ struct SourceRow: View {
                 if let folder = place.folder { model.reveal(folder) }
             }
             .disabled(place.folder == nil)
-            .help(place.unavailableReason.map { "Открыть копию: \($0.lowercased())" } ?? "Открыть копию")
+            .hoverTip(place.unavailableReason.map { "Открыть копию: \($0.lowercased())" } ?? "Открыть копию в Finder")
         } else if places.count > 1 {
             Menu {
                 ForEach(places) { place in
@@ -292,7 +292,8 @@ struct SourceRow: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Открыть копию")
+            .pointerStyle(.link)
+            .hoverTip("Открыть копию в Finder")
         }
     }
 
@@ -302,7 +303,8 @@ struct SourceRow: View {
                 .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
         }
-        .help(title)
+        .pointerStyle(.link)
+        .hoverTip(title)
     }
 
     private func deliveringName(_ stage: SourceStage) -> String? {
