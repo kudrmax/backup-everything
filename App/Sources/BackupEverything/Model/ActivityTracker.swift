@@ -11,6 +11,7 @@ struct ActivityTracker {
     private var stages: [UUID: SourceStage] = [:]
     private var starts: [UUID: Date] = [:]
     private var statuses: [UUID: String] = [:]
+    private var steps: [UUID: (index: Int, count: Int)] = [:]
 
     func stage(of sourceId: UUID) -> SourceStage? {
         stages[sourceId]
@@ -22,6 +23,10 @@ struct ActivityTracker {
 
     func status(of sourceId: UUID) -> String? {
         statuses[sourceId]
+    }
+
+    func step(of sourceId: UUID) -> (index: Int, count: Int)? {
+        steps[sourceId]
     }
 
     var active: Set<UUID> {
@@ -47,6 +52,8 @@ struct ActivityTracker {
             starts[sourceId] = starts[sourceId] ?? date
         case let .status(sourceId, text):
             statuses[sourceId] = text
+        case let .step(sourceId, index, count):
+            steps[sourceId] = (index, count)
         case let .delivering(sourceId, destinationId):
             stages[sourceId] = .delivering(destinationId: destinationId)
             starts[sourceId] = starts[sourceId] ?? date
@@ -55,6 +62,7 @@ struct ActivityTracker {
             stages[sourceId] = nil
             starts[sourceId] = nil
             statuses[sourceId] = nil
+            steps[sourceId] = nil
         }
     }
 
@@ -62,5 +70,6 @@ struct ActivityTracker {
         stages = [:]
         starts = [:]
         statuses = [:]
+        steps = [:]
     }
 }

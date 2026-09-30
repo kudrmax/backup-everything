@@ -4,6 +4,7 @@ public enum RunProgress: Sendable, Equatable {
     case queued(sourceIds: [UUID])
     case collecting(sourceId: UUID)
     case status(sourceId: UUID, text: String)
+    case step(sourceId: UUID, index: Int, count: Int)
     case delivering(sourceId: UUID, destinationId: UUID)
     case finished(sourceId: UUID)
 }

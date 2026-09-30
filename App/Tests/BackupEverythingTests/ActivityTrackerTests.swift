@@ -103,4 +103,16 @@ struct ActivityTrackerTests {
         #expect(RunTiming.tip(elapsed: 960, usual: 1320) == "Идёт 16 мин\nВ прошлый раз заняло 22 мин")
         #expect(RunTiming.tip(elapsed: 960, usual: nil) == "Идёт 16 мин\nСколько займёт, станет известно после первого запуска")
     }
+
+    @Test func trackerRemembersWhichStepIsRunning() {
+        let id = UUID()
+        var tracker = ActivityTracker()
+        tracker.apply(.collecting(sourceId: id))
+        #expect(tracker.step(of: id) == nil)
+        tracker.apply(.step(sourceId: id, index: 1, count: 2))
+        #expect(tracker.step(of: id)?.index == 1)
+        #expect(tracker.step(of: id)?.count == 2)
+        tracker.apply(.finished(sourceId: id))
+        #expect(tracker.step(of: id) == nil)
+    }
 }
