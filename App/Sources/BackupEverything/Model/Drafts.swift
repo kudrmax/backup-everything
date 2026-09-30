@@ -24,7 +24,9 @@ struct SourceDraft {
     var schedule: Schedule
     var retention: RetentionRules
     var destinationIds: Set<UUID>
+    var description: String
     var instructions: String
+    var icon: String?
     var enabled: Bool
     var kindChoice: SourceKindChoice
 
@@ -43,7 +45,9 @@ struct SourceDraft {
         schedule = source.schedule
         retention = source.retention
         destinationIds = Set(source.destinationIds)
+        description = source.description
         instructions = source.instructions
+        icon = source.icon
         enabled = source.enabled
         switch source.kind {
         case let .folder(path, excludes):
@@ -85,7 +89,9 @@ struct SourceDraft {
         source.retention = retention
         source.destinationIds = base.destinationIds.filter(destinationIds.contains)
             + destinationIds.subtracting(base.destinationIds).sorted { $0.uuidString < $1.uuidString }
+        source.description = trimmed(description)
         source.instructions = instructions
+        source.icon = icon
         source.enabled = enabled
         switch kindChoice {
         case .folder:

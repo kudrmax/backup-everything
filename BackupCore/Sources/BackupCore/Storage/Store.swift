@@ -28,6 +28,7 @@ public struct Store: Sendable {
     public var stateURL: URL { dataDirectory.appendingPathComponent("state.json") }
     public var historyDirectory: URL { dataDirectory.appendingPathComponent("history", isDirectory: true) }
     public var templatesDirectory: URL { dataDirectory.appendingPathComponent("templates", isDirectory: true) }
+    public var iconsDirectory: URL { dataDirectory.appendingPathComponent("icons", isDirectory: true) }
 
     public var hasConfig: Bool {
         FileManager.default.fileExists(atPath: configURL.path)

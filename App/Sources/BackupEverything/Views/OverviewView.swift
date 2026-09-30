@@ -104,13 +104,17 @@ struct SourceRow: View {
         HStack(spacing: 14) {
             stateIcon(status, stage)
                 .frame(width: 18)
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(source.name)
-                    .fontWeight(.medium)
-                    .foregroundStyle(source.enabled ? .primary : .secondary)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                note(status, stage)
+            HStack(spacing: 9) {
+                SourceIcon(icon: source.icon, symbol: StatusStyle.symbol(for: source.kind))
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(source.name)
+                        .fontWeight(.medium)
+                        .foregroundStyle(source.enabled ? .primary : .secondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .hoverTip(source.description)
+                    note(status, stage)
+                }
             }
             if canPickUp(status) {
                 Button("Забрать") {

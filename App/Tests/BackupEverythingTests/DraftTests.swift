@@ -87,4 +87,18 @@ struct DraftTests {
         draft.isPeriodic = true
         #expect(draft.hasChanges)
     }
+
+    @Test func sourceDraftCarriesDescriptionAndIcon() {
+        var original = source(.folder(path: "~/Obsidian", excludes: []))
+        original.description = "Все заметки"
+        original.icon = "a.png"
+        var draft = SourceDraft(original)
+        #expect(draft.build() == original)
+
+        draft.description = "  Заметки и настройки \n"
+        draft.icon = nil
+        #expect(draft.hasChanges)
+        #expect(draft.build().description == "Заметки и настройки")
+        #expect(draft.build().icon == nil)
+    }
 }

@@ -8,6 +8,7 @@ public struct ConfigEditor: Sendable {
         kind: SourceKind,
         schedule: Schedule = .daily,
         retention: RetentionRules = .standard,
+        description: String = "",
         instructions: String = "",
         now: Date,
         in config: Config
@@ -18,6 +19,7 @@ public struct ConfigEditor: Sendable {
             kind: kind,
             schedule: schedule,
             retention: retention,
+            description: description,
             instructions: instructions,
             createdAt: now
         )

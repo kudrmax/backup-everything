@@ -312,9 +312,7 @@ struct CopiesRow: View {
                 withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: StatusStyle.symbol(for: source.kind))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
+                    SourceIcon(source)
                     Text(source.name).fontWeight(.medium).lineLimit(1)
                     Text(snapshots.isEmpty ? "копий ещё нет" : Texts.copies(snapshots.count))
                         .font(.callout)

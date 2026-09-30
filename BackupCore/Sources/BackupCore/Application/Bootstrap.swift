@@ -1,6 +1,7 @@
 import Foundation
 
 public struct Bootstrap: Sendable {
+    public static let selfSourceDescription = "Настройки, история и шаблоны самого приложения. Нужны, чтобы восстановить его на другом Mac."
     public static let selfSourceName = "Настройки Backup Everything"
 
     private let store: Store
@@ -23,7 +24,7 @@ public struct Bootstrap: Sendable {
             slug: Slug.make(from: Self.selfSourceName, existing: []),
             kind: .folder(path: store.dataDirectory.path, excludes: []),
             schedule: .daily,
-            instructions: "Настройки, история и шаблоны приложения. Выберите назначения, чтобы их можно было восстановить.",
+            description: Self.selfSourceDescription,
             createdAt: now
         )
         try store.saveConfig(Config(sources: [selfSource]))

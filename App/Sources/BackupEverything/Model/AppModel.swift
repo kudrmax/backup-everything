@@ -1,3 +1,4 @@
+import AppKit
 import BackupCore
 import Foundation
 import Observation
@@ -32,6 +33,8 @@ final class AppModel {
     @ObservationIgnored var onChange: () -> Void = {}
 
     @ObservationIgnored private let store: Store
+    @ObservationIgnored private let icons: IconStore
+    @ObservationIgnored private var iconCache: [String: NSImage] = [:]
     @ObservationIgnored private let workDirectory: URL
     @ObservationIgnored private let coordinator: BackupCoordinator
     @ObservationIgnored private let stores: DefaultDestinationStoreFactory
@@ -45,6 +48,7 @@ final class AppModel {
 
     init(dataDirectory: URL, workDirectory: URL) {
         store = Store(dataDirectory: dataDirectory)
+        icons = IconStore(directory: store.iconsDirectory)
         self.workDirectory = workDirectory
         let (events, feed) = AsyncStream.makeStream(of: ActivityEvent.self)
         activityEvents = events
@@ -70,6 +74,7 @@ final class AppModel {
             config = try store.loadConfig()
             state = try store.loadState()
             templates = store.loadTemplates()
+            dropUnusedIcons()
         } catch {
             problem = error.localizedDescription
         }
@@ -129,6 +134,7 @@ final class AppModel {
             kind: template.kind,
             schedule: template.schedule,
             retention: template.retention,
+            description: template.description,
             instructions: template.instructions,
             now: Date(),
             in: config
@@ -137,10 +143,37 @@ final class AppModel {
 
     func save(_ source: Source) async {
         await edit { self.editor.save(source, in: &$0) }
+        dropUnusedIcons()
     }
 
     func delete(_ source: Source) async {
         await edit { self.editor.removeSource(source.id, from: &$0) }
+        dropUnusedIcons()
+    }
+
+    func importIcon(from file: URL) -> String? {
+        guard let png = IconImporter.pngData(from: file) else {
+            problem = "Не удалось прочитать картинку «\(file.lastPathComponent)»."
+            return nil
+        }
+        do {
+            return try icons.add(png)
+        } catch {
+            problem = error.localizedDescription
+            return nil
+        }
+    }
+
+    func iconImage(_ name: String?) -> NSImage? {
+        guard let name else { return nil }
+        if let cached = iconCache[name] { return cached }
+        let image = NSImage(contentsOf: icons.url(for: name))
+        iconCache[name] = image
+        return image
+    }
+
+    private func dropUnusedIcons() {
+        icons.removeUnused(keeping: Set(config.sources.compactMap(\.icon)))
     }
 
     func save(_ destination: Destination) async {

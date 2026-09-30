@@ -11,7 +11,8 @@ enum BundledTemplates {
         kind: .folder(path: "~/Documents/Obsidian", excludes: [".trash", ".obsidian/workspace*.json"]),
         schedule: .daily,
         retention: .standard,
-        instructions: "Укажите путь к папке хранилища Obsidian. Копируются все заметки и настройки, кроме корзины и состояния окон."
+        description: "Все заметки и настройки хранилища, кроме корзины и состояния окон.",
+        instructions: "Укажите путь к папке своего хранилища Obsidian."
     )
 
     private static let github = SourceTemplate(
@@ -30,13 +31,12 @@ enum BundledTemplates {
         ),
         schedule: .weekly,
         retention: RetentionRules(daily: 0, weekly: 4, monthly: 6, yearly: 0),
+        description: "Все твои репозитории. Каждый сохраняется одним файлом .bundle со всей историей. Восстановление: git clone имя.bundle",
         instructions: """
         Один раз выполните в терминале:
 
         1. `brew install gh`
         2. `gh auth login`
-
-        Каждый репозиторий сохраняется одним файлом `.bundle` со всей историей. Восстановление: `git clone имя.bundle`.
 
         Чтобы бэкапить только часть репозиториев, замените `gh repo list …` на `printf '%s\\n' owner/repo1 owner/repo2`.
         """
@@ -57,14 +57,13 @@ enum BundledTemplates {
         ),
         schedule: .weekly,
         retention: RetentionRules(daily: 0, weekly: 8, monthly: 12, yearly: 0),
+        description: "Все записи хранилища паролей одним файлом JSON. Экспорт не зашифрован — направляйте его только в назначения, которым доверяете.",
         instructions: """
         Один раз выполните в терминале:
 
         1. `brew install bitwarden-cli`
         2. `bw login`
         3. `security add-generic-password -s backup-everything-bitwarden -a bitwarden -w` — введите мастер-пароль, он сохранится в Связке ключей.
-
-        Экспорт не зашифрован. Направляйте его только в назначения, которым доверяете.
         """
     )
 
@@ -74,12 +73,13 @@ enum BundledTemplates {
         kind: .manualExport(watchPath: downloads, filePattern: "Passwords*.csv", fileMode: .single, removeOriginal: true),
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 12, yearly: 0),
+        description: "Все пароли из приложения «Пароли» одним файлом CSV. Файл не зашифрован — направляйте его только в назначения, которым доверяете.",
         instructions: """
         1. Откройте приложение «Пароли».
         2. Файл → Экспортировать все пароли в файл…
         3. Сохраните файл в «Загрузки», не меняя имя.
 
-        Файл не зашифрован. Приложение заберёт его из «Загрузок» само.
+        Приложение заберёт его из «Загрузок» само.
         """
     )
 
@@ -89,6 +89,7 @@ enum BundledTemplates {
         kind: .manualExport(watchPath: downloads, filePattern: "takeout-*.zip", fileMode: .multiple, removeOriginal: true),
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 3, yearly: 0),
+        description: "Все фото и видео из Google Фото — архивы Google Takeout.",
         instructions: """
         1. Откройте https://takeout.google.com
         2. Нажмите «Отменить выбор» и отметьте только Google Фото.
@@ -104,6 +105,7 @@ enum BundledTemplates {
         kind: .manualExport(watchPath: downloads, filePattern: "data-*.zip", fileMode: .single, removeOriginal: true),
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 12, yearly: 0),
+        description: "Все чаты и данные аккаунта Claude одним архивом.",
         instructions: """
         1. Откройте https://claude.ai → Settings → Privacy → Export data.
         2. Дождитесь письма со ссылкой и скачайте архив в «Загрузки».
@@ -118,6 +120,7 @@ enum BundledTemplates {
         kind: .manualExport(watchPath: downloads, filePattern: "", fileMode: .single, removeOriginal: true),
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 24, yearly: 0),
+        description: "Выгрузка операций из приложения финансов на iPhone в CSV.",
         instructions: """
         1. В приложении на iPhone откройте экспорт данных в CSV.
         2. Отправьте файл на Mac через AirDrop — он попадёт в «Загрузки».

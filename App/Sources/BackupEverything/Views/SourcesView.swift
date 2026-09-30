@@ -11,9 +11,7 @@ struct SourcesView: View {
     var body: some View {
         EditorLayout(items: model.config.sources, selection: $selection) { source in
             HStack(spacing: 8) {
-                Image(systemName: source.enabled ? StatusStyle.symbol(for: source.kind) : "pause.circle")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
+                SourceIcon(source)
                 Text(source.name)
             }
             .foregroundStyle(source.enabled ? .primary : .secondary)
@@ -105,16 +103,27 @@ struct SourceEditor: View {
     var body: some View {
         EditorPage {
             EditorHeader(name: $draft.name, prompt: "Название") {
-                Image(systemName: symbol).foregroundStyle(.secondary)
+                Button {
+                    if let file = IconImporter.chooseFile(), let icon = model.importIcon(from: file) { draft.icon = icon }
+                } label: {
+                    SourceIcon(icon: draft.icon, symbol: symbol, size: 22)
+                }
+                .buttonStyle(.plain)
+                .help("Выбрать значок")
             } accessory: {
                 Toggle("Включён", isOn: $draft.enabled)
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .labelsHidden()
                     .help(draft.enabled ? "Включён" : "Выключен")
-                if !isNew {
+                if !isNew || draft.icon != nil {
                     Menu {
-                        Button("Удалить…", role: .destructive) { confirmsDeletion = true }
+                        if draft.icon != nil {
+                            Button("Убрать значок") { draft.icon = nil }
+                        }
+                        if !isNew {
+                            Button("Удалить источник…", role: .destructive) { confirmsDeletion = true }
+                        }
                     } label: {
                         Image(systemName: "ellipsis")
                     }
@@ -123,10 +132,16 @@ struct SourceEditor: View {
                     .fixedSize()
                 }
             }
+            TextField("", text: $draft.description, prompt: Text("Описание: что здесь бэкапится"), axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 32)
+                .padding(.top, -8)
+                .padding(.bottom, 4)
         } content: {
-            kindCard
-            SettingsCard {
-                SettingsRow(title: draft.kindChoice == .manualExport ? "Напоминать об экспорте" : "Запускать") {
+            SettingsSection(title: "Как часто и куда", isProminent: true) {
+                SettingsRow(title: draft.kindChoice == .manualExport ? "Напоминать об экспорте" : "Как часто") {
                     Picker("", selection: $draft.schedule) {
                         ForEach(Schedule.allCases, id: \.self) { Text(Texts.schedule($0)).tag($0) }
                     }
@@ -149,7 +164,8 @@ struct SourceEditor: View {
                     }
                 }
             }
-            SettingsCard {
+            kindCard
+            SettingsSection(title: "Дополнительно") {
                 DisclosureRow(title: "Хранить", summary: Texts.retention(draft.retention)) {
                     retentionStepper("Дней", value: $draft.retention.daily, range: 0...365)
                     retentionStepper("Недель", value: $draft.retention.weekly, range: 0...104)
@@ -208,7 +224,7 @@ struct SourceEditor: View {
     private var kindCard: some View {
         switch draft.kindChoice {
         case .folder:
-            SettingsCard {
+            SettingsSection(title: "Что бэкапить") {
                 SettingsRow(title: "Папка или файл") {
                     PathField(path: $draft.folderPath, allowsFiles: true)
                 }
@@ -220,7 +236,7 @@ struct SourceEditor: View {
                 }
             }
         case .command:
-            SettingsCard {
+            SettingsSection(title: "Что бэкапить: результат команды") {
                 CodeEditor(text: $draft.command, minHeight: 130)
                     .padding(10)
                 SettingsRow(
@@ -231,7 +247,7 @@ struct SourceEditor: View {
                 }
             }
         case .manualExport:
-            SettingsCard {
+            SettingsSection(title: "Что бэкапить: файл, который ты выгружаешь сам") {
                 SettingsRow(title: "Куда попадает файл") {
                     PathField(path: $draft.watchPath)
                 }

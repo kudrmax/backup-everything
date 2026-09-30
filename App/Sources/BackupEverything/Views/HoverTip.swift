@@ -11,7 +11,7 @@ private struct HoverTip: ViewModifier {
         content
             .onHover { isInside in
                 pending?.cancel()
-                guard isInside else {
+                guard isInside, !text.isEmpty else {
                     isShown = false
                     return
                 }

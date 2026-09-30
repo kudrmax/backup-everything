@@ -101,7 +101,24 @@ struct EditorHeader<Icon: View, Accessory: View>: View {
     }
 }
 
+struct SettingsSection<Content: View>: View {
+    let title: String
+    var isProminent = false
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(isProminent ? .headline : .callout)
+                .foregroundStyle(isProminent ? .primary : .secondary)
+                .padding(.horizontal, 14)
+            SettingsCard(isProminent: isProminent) { content }
+        }
+    }
+}
+
 struct SettingsCard<Content: View>: View {
+    var isProminent = false
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -114,7 +131,8 @@ struct SettingsCard<Content: View>: View {
             }
         }
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
+        .background(isProminent ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isProminent ? AnyShapeStyle(.tint.opacity(0.55)) : AnyShapeStyle(.separator)))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
