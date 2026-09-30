@@ -123,6 +123,11 @@ public struct ManualExportInbox: Sendable {
             .max { $0.collectedAt < $1.collectedAt }
     }
 
+    public func sourceIds() -> [UUID] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: pendingRoot.path)) ?? []
+        return names.compactMap(UUID.init(uuidString:))
+    }
+
     public func removePackage(for sourceId: UUID, toTrash: Bool) throws {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: sourceDirectory(sourceId).path) else { return }

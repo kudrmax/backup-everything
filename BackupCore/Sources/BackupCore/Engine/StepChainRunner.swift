@@ -106,6 +106,11 @@ public struct StepChainRunner: Sendable {
         return currentStepScan(source, chain: chain, lastPickup: lastPickup, now: now)
     }
 
+    public func sourceIds() -> [UUID] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: chainsRoot.path)) ?? []
+        return names.compactMap(UUID.init(uuidString:))
+    }
+
     public func discard(sourceId: UUID) throws {
         let fileManager = FileManager.default
         let folders = folders(sourceId)

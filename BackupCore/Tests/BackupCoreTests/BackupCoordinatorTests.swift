@@ -576,4 +576,27 @@ struct BackupCoordinatorTests {
         #expect(try await coordinator.tick().runs.count == 1)
         #expect(temp.names(in: "work/chains/\(source.id.uuidString)/input") == ["manifest-b.json"])
     }
+
+    @Test func workFilesOfDeletedSourcesGoToTheTrash() async throws {
+        defer { temp.remove() }
+        let kept = claude([cloud])
+        let gone = UUID()
+        let goneExport = UUID()
+        try store.saveConfig(Config(sources: [kept], destinations: [cloud]))
+        var state = AppState()
+        state.updateSource(kept.id) {
+            $0.chain = ChainState(stepIndex: 1, stepId: kept.steps[1].id, startedAt: start, stepEnteredAt: start, failure: "ждёт повтора")
+        }
+        try store.saveState(state)
+        try temp.file("work/chains/\(kept.id.uuidString)/input/manifest-kept.json", "{}")
+        try temp.file("work/chains/\(gone.uuidString)/input/manifest-old.json", "{}")
+        try temp.file("work/pending/\(goneExport.uuidString)/2026-09-27_100000/archive.zip", "zip")
+        try temp.directory("work/pending/.incoming-\(UUID().uuidString)")
+
+        _ = try await coordinator.tick()
+
+        #expect(temp.names(in: "trash") == ["archive.zip", "manifest-old.json"])
+        #expect(temp.names(in: "work/chains") == [kept.id.uuidString])
+        #expect(temp.names(in: "work/pending").count == 1)
+    }
 }

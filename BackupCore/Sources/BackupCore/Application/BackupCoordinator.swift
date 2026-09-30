@@ -89,6 +89,7 @@ public actor BackupCoordinator {
         let config = try store.loadConfig()
         var state = try store.loadState()
         reducer.dropOrphans(config: config, state: &state)
+        forgetRemovedSources(config)
         let now = time.now
         let debtorsBefore = Set(state.debts.map(\.destinationId))
         var runs: [RunRecord] = []
@@ -203,6 +204,16 @@ public actor BackupCoordinator {
             state.updateDestination(destination.id) { $0.lastVerified = now }
         }
         return notices
+    }
+
+    private func forgetRemovedSources(_ config: Config) {
+        let known = Set(config.sources.map(\.id))
+        for id in chains.sourceIds() where !known.contains(id) {
+            try? chains.discard(sourceId: id)
+        }
+        for id in inbox.sourceIds() where !known.contains(id) {
+            try? inbox.removePackage(for: id, toTrash: true)
+        }
     }
 
     private func announce(_ sources: [Source]) {
