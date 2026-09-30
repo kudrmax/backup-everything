@@ -137,7 +137,7 @@ final class AppModel {
 
     func newSource(from template: SourceTemplate?) -> Source {
         guard let template else {
-            return editor.makeSource(name: "Новый источник", kind: .folder(path: "", excludes: []), now: Date(), in: config)
+            return editor.makeSource(name: "", kind: .folder(path: "", excludes: []), now: Date(), in: config)
         }
         return editor.makeSource(
             name: template.name,

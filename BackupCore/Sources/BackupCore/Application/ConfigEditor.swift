@@ -26,11 +26,13 @@ public struct ConfigEditor: Sendable {
     }
 
     public func save(_ source: Source, in config: inout Config) {
+        var updated = source
         guard let index = config.sources.firstIndex(where: { $0.id == source.id }) else {
-            config.sources.append(source)
+            updated.slug = Slug.make(from: source.name, existing: Set(config.sources.map(\.slug)))
+            config.sources.append(updated)
             return
         }
-        var updated = source
+        updated.name = config.sources[index].name
         updated.slug = config.sources[index].slug
         config.sources[index] = updated
     }

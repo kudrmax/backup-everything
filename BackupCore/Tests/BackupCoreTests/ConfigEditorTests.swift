@@ -23,15 +23,25 @@ struct ConfigEditorTests {
         #expect(second.retention == .standard)
     }
 
-    @Test func savingExistingSourceReplacesItAndKeepsItsSlug() {
+    @Test func savedSourceKeepsItsNameAndSlug() {
         var config = Config()
         var source = editor.makeSource(name: "Obsidian", kind: .folder(path: "/a", excludes: []), now: now, in: config)
         editor.save(source, in: &config)
         source.name = "Заметки"
         source.slug = "tampered"
+        source.kind = .folder(path: "/b", excludes: [])
         editor.save(source, in: &config)
-        #expect(config.sources.map(\.name) == ["Заметки"])
+        #expect(config.sources.map(\.name) == ["Obsidian"])
         #expect(config.sources.map(\.slug) == ["obsidian"])
+        #expect(config.sources.map(\.kind) == [.folder(path: "/b", excludes: [])])
+    }
+
+    @Test func folderOfCopiesIsNamedAfterTheNameTheSourceIsFirstSavedWith() {
+        var config = Config(sources: [Fixtures.source(name: "Anki")])
+        var source = editor.makeSource(name: "Новый источник", kind: .folder(path: "/a", excludes: []), now: now, in: config)
+        source.name = "Anki"
+        editor.save(source, in: &config)
+        #expect(config.sources.map(\.slug) == ["anki", "anki-2"])
     }
 
     @Test func removingDestinationDetachesItFromSources() {

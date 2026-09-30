@@ -105,7 +105,7 @@ struct SourceEditor: View {
 
     var body: some View {
         EditorPage {
-            EditorHeader(name: $draft.name, prompt: "Название") {
+            EditorHeader(name: $draft.name, prompt: "Название", isNameEditable: isNew) {
                 Button {
                     if let file = IconImporter.chooseFile(), let icon = model.importIcon(from: file) { draft.icon = icon }
                 } label: {

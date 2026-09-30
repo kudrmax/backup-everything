@@ -85,6 +85,7 @@ struct EditorPage<Header: View, Content: View, SaveBar: View>: View {
 struct EditorHeader<Icon: View, Accessory: View>: View {
     @Binding var name: String
     let prompt: String
+    var isNameEditable = true
     @ViewBuilder let icon: Icon
     @ViewBuilder let accessory: Accessory
 
@@ -93,9 +94,16 @@ struct EditorHeader<Icon: View, Accessory: View>: View {
             icon
                 .font(.title3)
                 .frame(width: 30)
-            TextField("", text: $name, prompt: Text(prompt))
-                .textFieldStyle(.plain)
-                .font(.title2.weight(.semibold))
+            if isNameEditable {
+                TextField("", text: $name, prompt: Text(prompt))
+                    .textFieldStyle(.plain)
+                    .font(.title2.weight(.semibold))
+            } else {
+                Text(name)
+                    .font(.title2.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help("Название задаётся при добавлении и не меняется: по нему названа папка с копиями")
+            }
             accessory
         }
     }
