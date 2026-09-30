@@ -97,6 +97,7 @@ struct SourceRow: View {
 
     @State private var isHovered = false
     @State private var showsInstructions = false
+    @State private var shownError: String?
 
     var body: some View {
         let status = model.status(of: source)
@@ -143,6 +144,9 @@ struct SourceRow: View {
         .background(isHovered ? AnyShapeStyle(.quaternary.opacity(0.6)) : AnyShapeStyle(.clear))
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+        .sheet(isPresented: Binding(get: { shownError != nil }, set: { if !$0 { shownError = nil } })) {
+            ErrorSheet(title: source.name, message: shownError ?? "")
+        }
         .sheet(isPresented: $showsInstructions) {
             InstructionsSheet(title: source.name, text: source.instructions)
         }
@@ -180,6 +184,19 @@ struct SourceRow: View {
                 .font(.callout)
                 .foregroundStyle(.blue)
                 .lineLimit(1)
+        } else if let note = status.note, let error = status.errorMessage {
+            Button {
+                shownError = error
+            } label: {
+                Text(note)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .hoverTip("Нажми, чтобы открыть и скопировать ошибку")
         } else if let note = status.note {
             Text(note)
                 .font(.callout)
@@ -231,6 +248,9 @@ struct SourceRow: View {
             Menu {
                 if !source.instructions.isEmpty {
                     Button("Инструкция") { showsInstructions = true }
+                }
+                if let error = model.status(of: source).errorMessage {
+                    Button("Показать ошибку") { shownError = error }
                 }
                 Button("Изменить", action: edit)
             } label: {

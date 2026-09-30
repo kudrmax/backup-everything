@@ -38,6 +38,19 @@ struct RunRow: View {
                 ForEach(run.deliveries, id: \.destinationId) { delivery in
                     detail(delivery.destinationName, Texts.outcome(delivery.outcome))
                 }
+                if let failure = run.collectError ?? run.firstFailure {
+                    HStack(alignment: .top) {
+                        Text(failure)
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        CopyButton(text: failure)
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help("Скопировать ошибку")
+                    }
+                }
                 if let details = run.details {
                     Text(details)
                         .font(.callout.monospaced())

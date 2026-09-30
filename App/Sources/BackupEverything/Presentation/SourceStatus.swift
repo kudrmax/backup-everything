@@ -50,6 +50,11 @@ enum SourceStatus: Equatable {
         }
     }
 
+    var errorMessage: String? {
+        guard case let .failed(message) = self else { return nil }
+        return message
+    }
+
     var note: String? {
         switch self {
         case .ok, .neverRun: nil

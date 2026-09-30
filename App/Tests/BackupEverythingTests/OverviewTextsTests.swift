@@ -44,6 +44,8 @@ struct OverviewTextsTests {
         #expect(SourceStatus.neverRun.note == nil)
         #expect(SourceStatus.disabled.note == "выключен")
         #expect(SourceStatus.failed("диск отвалился").note == "диск отвалился")
+        #expect(SourceStatus.failed("Команда завершилась с кодом 1. fatal: early EOF").errorMessage == "Команда завершилась с кодом 1. fatal: early EOF")
+        #expect(SourceStatus.overdue.errorMessage == nil)
         #expect(SourceStatus.failed("Не найден путь источника: /Users/max/Obsidian").note == "Не найден путь источника")
         #expect(SourceStatus.failed("Команда завершилась с кодом 1. gh: run gh auth login").note == "Команда завершилась с кодом 1")
         #expect(SourceStatus.failed("rclone завершился с ошибкой: quota exceeded").note == "rclone завершился с ошибкой")
