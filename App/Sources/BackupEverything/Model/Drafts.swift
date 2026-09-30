@@ -1,11 +1,38 @@
 import BackupCore
 import Foundation
 
-enum SourceKindChoice: String, CaseIterable, Identifiable {
+enum StepKindChoice: String, CaseIterable, Identifiable {
     case folder
     case command
-    case manualExport
-    case steps
+    case file
+    case device
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .folder: "Скопировать папку"
+        case .command: "Выполнить команду"
+        case .file: "Получить файл от тебя"
+        case .device: "Подключить устройство"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .folder: "folder"
+        case .command: "terminal"
+        case .file: "square.and.arrow.down"
+        case .device: "cable.connector"
+        }
+    }
+}
+
+/// С чего начать пустой источник. «Папка на устройстве» сразу даёт два шага.
+enum SourceStart: String, CaseIterable, Identifiable {
+    case folder
+    case command
+    case file
     case device
 
     var id: String { rawValue }
@@ -14,23 +41,17 @@ enum SourceKindChoice: String, CaseIterable, Identifiable {
         switch self {
         case .folder: "Папка"
         case .command: "Команда"
-        case .manualExport: "Ручной экспорт"
-        case .steps: "По шагам"
-        case .device: "Подключаемое устройство"
+        case .file: "Файл, который выгружаешь сам"
+        case .device: "Папка на подключаемом устройстве"
         }
     }
-}
 
-enum StepKindChoice: String, CaseIterable, Identifiable {
-    case manual
-    case command
-
-    var id: String { rawValue }
-
-    var title: String {
+    var steps: [StepDraft] {
         switch self {
-        case .manual: "Ручной шаг"
-        case .command: "Команда"
+        case .folder: [StepDraft(new: .folder)]
+        case .command: [StepDraft(new: .command)]
+        case .file: [StepDraft(new: .file)]
+        case .device: [StepDraft(new: .device), StepDraft(new: .folder)]
         }
     }
 }
@@ -39,12 +60,17 @@ struct StepDraft: Identifiable, Equatable {
     var id: UUID
     var name: String
     var kindChoice: StepKindChoice
+    var folderPath = ""
+    var excludesText = ""
+    var command = ""
+    var timeoutMinutes = 60
     var instructions = ""
     var watchPath = "~/Downloads"
     var filePattern = ""
+    var fileMode = FileMode.single
     var includeInCopy = true
-    var command = ""
-    var timeoutMinutes = 60
+    var removeOriginal = true
+    var devicePath = ""
 
     init(new kindChoice: StepKindChoice) {
         id = UUID()
@@ -56,35 +82,62 @@ struct StepDraft: Identifiable, Equatable {
         id = step.id
         name = step.name
         switch step.kind {
-        case let .manual(instructions, watchPath, filePattern, includeInCopy):
-            kindChoice = .manual
-            self.instructions = instructions
-            self.watchPath = watchPath
-            self.filePattern = filePattern
-            self.includeInCopy = includeInCopy
+        case let .folder(path, excludes):
+            kindChoice = .folder
+            folderPath = path
+            excludesText = excludes.joined(separator: "\n")
         case let .command(command, timeoutSeconds):
             kindChoice = .command
             self.command = command
             timeoutMinutes = max(1, timeoutSeconds / 60)
+        case let .file(instructions, watchPath, filePattern, fileMode, includeInCopy, removeOriginal):
+            kindChoice = .file
+            self.instructions = instructions
+            self.watchPath = watchPath
+            self.filePattern = filePattern
+            self.fileMode = fileMode
+            self.includeInCopy = includeInCopy
+            self.removeOriginal = removeOriginal
+        case let .device(instructions, path):
+            kindChoice = .device
+            self.instructions = instructions
+            devicePath = path
         }
     }
 
     var problem: String? {
         if trimmed(name).isEmpty { return "укажите название." }
         switch kindChoice {
-        case .manual where trimmed(watchPath).isEmpty: return "укажите папку, куда попадает файл."
-        case .manual where trimmed(filePattern).isEmpty: return "укажите маску файла, например manifest-*.json."
+        case .folder where trimmed(folderPath).isEmpty: return "укажите папку или файл."
         case .command where trimmed(command).isEmpty: return "укажите команду."
+        case .file where trimmed(watchPath).isEmpty: return "укажите папку, куда попадает файл."
+        case .file where trimmed(filePattern).isEmpty: return "укажите маску файла, например manifest-*.json."
+        case .device where trimmed(devicePath).isEmpty: return "укажите путь на устройстве."
         default: return nil
         }
     }
 
+    var excludes: [String] {
+        excludesText.split(separator: "\n").map { trimmed(String($0)) }.filter { !$0.isEmpty }
+    }
+
     func build() -> SourceStep {
         let kind: StepKind = switch kindChoice {
-        case .manual:
-            .manual(instructions: instructions, watchPath: trimmed(watchPath), filePattern: trimmed(filePattern), includeInCopy: includeInCopy)
+        case .folder:
+            .folder(path: trimmed(folderPath), excludes: excludes)
         case .command:
             .command(command: command, timeoutSeconds: max(1, timeoutMinutes) * 60)
+        case .file:
+            .file(
+                instructions: instructions,
+                watchPath: trimmed(watchPath),
+                filePattern: trimmed(filePattern),
+                fileMode: fileMode,
+                includeInCopy: includeInCopy,
+                removeOriginal: removeOriginal
+            )
+        case .device:
+            .device(instructions: instructions, path: trimmed(devicePath))
         }
         return SourceStep(id: id, name: trimmed(name), kind: kind)
     }
@@ -105,17 +158,7 @@ struct SourceDraft {
     var instructions: String
     var icon: String?
     var enabled: Bool
-    var kindChoice: SourceKindChoice
-
-    var folderPath = ""
-    var excludesText = ""
-    var command = ""
-    var timeoutMinutes = 60
-    var watchPath = "~/Downloads"
-    var filePattern = ""
-    var fileMode = FileMode.single
-    var removeOriginal = true
-    var steps: [StepDraft] = []
+    var steps: [StepDraft]
 
     init(_ source: Source) {
         base = source
@@ -127,62 +170,26 @@ struct SourceDraft {
         instructions = source.instructions
         icon = source.icon
         enabled = source.enabled
-        switch source.kind {
-        case let .folder(path, excludes):
-            kindChoice = .folder
-            folderPath = path
-            excludesText = excludes.joined(separator: "\n")
-        case let .command(command, timeoutSeconds):
-            kindChoice = .command
-            self.command = command
-            timeoutMinutes = max(1, timeoutSeconds / 60)
-        case let .manualExport(watchPath, filePattern, fileMode, removeOriginal):
-            kindChoice = .manualExport
-            self.watchPath = watchPath
-            self.filePattern = filePattern
-            self.fileMode = fileMode
-            self.removeOriginal = removeOriginal
-        case let .steps(steps):
-            kindChoice = .steps
-            self.steps = steps.map(StepDraft.init)
-        case let .device(path, excludes):
-            kindChoice = .device
-            folderPath = path
-            excludesText = excludes.joined(separator: "\n")
-        }
+        steps = source.steps.map(StepDraft.init)
     }
 
     var id: UUID { base.id }
 
     var problem: String? {
-        kindProblem ?? (trimmed(name).isEmpty ? "Укажите название." : nil)
-    }
-
-    private var kindProblem: String? {
-        switch kindChoice {
-        case .folder:
-            return trimmed(folderPath).isEmpty ? "Укажите папку или файл источника." : nil
-        case .device:
-            return trimmed(folderPath).isEmpty ? "Укажите папку на устройстве." : nil
-        case .command:
-            return trimmed(command).isEmpty ? "Укажите команду." : nil
-        case .manualExport:
-            if trimmed(watchPath).isEmpty { return "Укажите папку, куда попадает экспорт." }
-            return trimmed(filePattern).isEmpty ? "Укажите маску файла, например Passwords*.csv." : nil
-        case .steps:
-            if steps.isEmpty { return "Добавьте хотя бы один шаг." }
-            for (index, step) in steps.enumerated() {
-                if let problem = step.problem { return "Шаг \(index + 1): \(problem)" }
+        if steps.isEmpty { return "Добавьте хотя бы один шаг." }
+        for (index, step) in resolvedSteps.enumerated() {
+            if let problem = step.problem {
+                return steps.count == 1 ? problem.prefix(1).uppercased() + problem.dropFirst() : "Шаг \(index + 1): \(problem)"
             }
-            return nil
         }
-    }
-
-    var firstStepIsManual: Bool {
-        kindChoice == .steps && steps.first?.kindChoice == .manual
+        return trimmed(name).isEmpty ? "Укажите название." : nil
     }
 
     var hasChanges: Bool { build() != base }
+
+    var symbol: String {
+        steps.count == 1 ? steps[0].kindChoice.symbol : "list.number"
+    }
 
     func build() -> Source {
         var source = base
@@ -195,28 +202,19 @@ struct SourceDraft {
         source.instructions = instructions
         source.icon = icon
         source.enabled = enabled
-        switch kindChoice {
-        case .folder:
-            source.kind = .folder(path: trimmed(folderPath), excludes: excludes)
-        case .device:
-            source.kind = .device(path: trimmed(folderPath), excludes: excludes)
-        case .command:
-            source.kind = .command(command: command, timeoutSeconds: max(1, timeoutMinutes) * 60)
-        case .manualExport:
-            source.kind = .manualExport(
-                watchPath: trimmed(watchPath),
-                filePattern: trimmed(filePattern),
-                fileMode: fileMode,
-                removeOriginal: removeOriginal
-            )
-        case .steps:
-            source.kind = .steps(steps: steps.map { $0.build() })
-        }
+        source.steps = resolvedSteps.map { $0.build() }
         return source
     }
 
-    private var excludes: [String] {
-        excludesText.split(separator: "\n").map { trimmed(String($0)) }.filter { !$0.isEmpty }
+    /// Устройство без своего пути ждёт папку следующего шага: обычно это одна и та же папка на устройстве.
+    private var resolvedSteps: [StepDraft] {
+        steps.enumerated().map { index, step in
+            guard step.kindChoice == .device, step.devicePath.trimmingCharacters(in: .whitespaces).isEmpty,
+                  let folder = steps[(index + 1)...].first(where: { $0.kindChoice == .folder }) else { return step }
+            var resolved = step
+            resolved.devicePath = folder.folderPath
+            return resolved
+        }
     }
 
     private func trimmed(_ text: String) -> String {

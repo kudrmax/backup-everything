@@ -11,16 +11,6 @@ enum Texts {
         }
     }
 
-    static func kind(_ kind: SourceKind) -> String {
-        switch kind {
-        case .folder: "Папка"
-        case .command: "Команда"
-        case .manualExport: "Ручной экспорт"
-        case .steps: "По шагам"
-        case .device: "Подключаемое устройство"
-        }
-    }
-
     static func trigger(_ trigger: RunTrigger) -> String {
         switch trigger {
         case .scheduled: "По расписанию"

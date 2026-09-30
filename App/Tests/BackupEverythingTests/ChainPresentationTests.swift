@@ -11,10 +11,10 @@ struct ChainPresentationTests {
         Source(
             name: "Claude",
             slug: "claude",
-            kind: .steps(steps: [
-                SourceStep(name: "Запросить экспорт", kind: .manual(instructions: "Скачайте манифест.", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: false)),
+            steps: [
+                SourceStep(name: "Запросить экспорт", kind: .file(instructions: "Скачайте манифест.", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
                 SourceStep(name: "Скачать архивы", kind: .command(command: "true", timeoutSeconds: 60)),
-            ]),
+            ],
             schedule: .monthly,
             destinationIds: [cloud.id],
             instructions: "Экспорт в два шага.",
@@ -23,7 +23,7 @@ struct ChainPresentationTests {
     }
 
     private var folder: Source {
-        Source(name: "Obsidian", slug: "obsidian", kind: .folder(path: "~/Obsidian", excludes: []), schedule: .daily, createdAt: now)
+        Source(name: "Obsidian", slug: "obsidian", steps: [.folder("~/Obsidian", excludes: [])], schedule: .daily, createdAt: now)
     }
 
     @Test func positionIsShownOnlyForStepChains() {
@@ -57,7 +57,7 @@ struct ChainPresentationTests {
         let interrupted = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now)
         let failed = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "x")
         var commandFirst = source
-        commandFirst.kind = .steps(steps: source.steps.reversed())
+        commandFirst.steps = source.steps.reversed()
 
         #expect(ChainPosition.canRunNow(folder, chain: nil))
         #expect(ChainPosition.canRunNow(source, chain: waitingForManifest))

@@ -7,7 +7,7 @@ struct NextBackupTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
     private func source(_ schedule: Schedule, enabled: Bool = true) -> Source {
-        Source(name: "Obsidian", slug: "obsidian", kind: .folder(path: "~/Obsidian", excludes: []), schedule: schedule, enabled: enabled, createdAt: now)
+        Source(name: "Obsidian", slug: "obsidian", steps: [.folder("~/Obsidian", excludes: [])], schedule: schedule, enabled: enabled, createdAt: now)
     }
 
     @Test func futureIsShortAndCoarse() {

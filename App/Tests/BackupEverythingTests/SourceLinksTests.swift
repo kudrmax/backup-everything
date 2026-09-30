@@ -8,21 +8,21 @@ struct SourceLinksTests {
     private let laptop = Destination(name: "Папка на ноуте", kind: .localFolder(path: "~/Files/Backups"))
     private let cloud = Destination(name: "Google Drive", kind: .rclone(remote: "gdrive", path: "backups"))
 
-    private func source(_ kind: SourceKind, to destinations: [Destination]) -> Source {
-        Source(name: "Anki", slug: "anki", kind: kind, schedule: .weekly, destinationIds: destinations.map(\.id), createdAt: now)
+    private func source(_ steps: [SourceStep], to destinations: [Destination]) -> Source {
+        Source(name: "Anki", slug: "anki", steps: steps, schedule: .weekly, destinationIds: destinations.map(\.id), createdAt: now)
     }
 
-    @Test func onlyAFolderSourceHasAnOriginalToOpen() {
+    @Test func originalIsTheFirstFolderTheSourceCopies() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        #expect(SourceLinks.original(of: source(.folder(path: "~/Anki", excludes: []), to: []))?.path == "\(home)/Anki")
-        #expect(SourceLinks.original(of: source(.folder(path: "", excludes: []), to: [])) == nil)
-        #expect(SourceLinks.original(of: source(.command(command: "true", timeoutSeconds: 60), to: [])) == nil)
-        #expect(SourceLinks.original(of: source(.steps(steps: []), to: [])) == nil)
-        #expect(SourceLinks.original(of: source(.manualExport(watchPath: "~/Downloads", filePattern: "*.csv", fileMode: .single, removeOriginal: true), to: [])) == nil)
+        #expect(SourceLinks.original(of: source([.folder("~/Anki")], to: []))?.path == "\(home)/Anki")
+        #expect(SourceLinks.original(of: source([.device("/Volumes/PB"), .folder("/Volumes/PB/Books")], to: []))?.path == "/Volumes/PB/Books")
+        #expect(SourceLinks.original(of: source([.folder("")], to: [])) == nil)
+        #expect(SourceLinks.original(of: source([.command("true", timeoutSeconds: 60)], to: [])) == nil)
+        #expect(SourceLinks.original(of: source([.file("*.csv", in: "~/Downloads")], to: [])) == nil)
     }
 
     @Test func copyOpensTheLatestDeliveredSnapshotOnLocalDestinations() {
-        let anki = source(.folder(path: "~/Anki", excludes: []), to: [laptop, cloud])
+        let anki = source([.folder("~/Anki")], to: [laptop, cloud])
         let config = Config(sources: [anki], destinations: [laptop, cloud])
         var state = AppState()
         #expect(SourceLinks.copies(of: anki, config: config, state: state) == [

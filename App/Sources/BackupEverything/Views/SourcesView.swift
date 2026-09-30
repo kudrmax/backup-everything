@@ -21,8 +21,8 @@ struct SourcesView: View {
                     Button(template.name) { start(model.newSource(from: template), as: nil) }
                 }
             }
-            Section("Пустой, выбрать тип") {
-                ForEach(SourceKindChoice.allCases) { choice in
+            Section("Пустой — с чего начать") {
+                ForEach(SourceStart.allCases) { choice in
                     Button(choice.title) { start(model.newSource(from: nil), as: choice) }
                 }
             }
@@ -53,9 +53,9 @@ struct SourcesView: View {
         }
     }
 
-    private func start(_ source: Source, as choice: SourceKindChoice?) {
+    private func start(_ source: Source, as choice: SourceStart?) {
         var newDraft = SourceDraft(source)
-        if let choice { newDraft.kindChoice = choice }
+        if let choice { newDraft.steps = choice.steps }
         selection = nil
         draft = newDraft
         isNew = true
@@ -146,7 +146,7 @@ struct SourceEditor: View {
                 .padding(.bottom, 4)
         } content: {
             SettingsSection(title: "Как часто и куда", isProminent: true) {
-                SettingsRow(title: draft.kindChoice == .manualExport || draft.firstStepIsManual ? "Напоминать об экспорте" : draft.kindChoice == .device ? "Напоминать подключить" : "Как часто") {
+                SettingsRow(title: "Как часто") {
                     Picker("", selection: $draft.schedule) {
                         ForEach(Schedule.allCases, id: \.self) { Text(Texts.schedule($0)).tag($0) }
                     }
@@ -156,7 +156,7 @@ struct SourceEditor: View {
                 }
                 if !isNew, let saved = model.config.source(draft.id) {
                     SettingsRow(title: "Следующий бэкап") {
-                        Text(NextBackup.detail(saved, nextDue: model.nextDue(of: saved), isWaiting: model.isWaitingForFile(saved)))
+                        Text(NextBackup.detail(saved, nextDue: model.nextDue(of: saved), isWaiting: model.isWaitingForPerson(saved)))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -176,12 +176,7 @@ struct SourceEditor: View {
                     }
                 }
             }
-            kindCard
-            if draft.kindChoice == .manualExport {
-                SettingsSection(title: "Инструкция: как выгружать файл") {
-                    instructionsEditor.padding(10)
-                }
-            }
+            StepsEditor(steps: $draft.steps, currentIndex: isNew ? nil : model.chain(of: draft.id)?.stepIndex)
             SettingsSection(title: "Дополнительно") {
                 DisclosureRow(title: "Хранить копии", summary: RetentionPlan.summary(draft.retention)) {
                     RetentionEditor(rules: $draft.retention, showCopies: isNew ? nil : {
@@ -189,10 +184,8 @@ struct SourceEditor: View {
                         Task { previews = await model.retentionPreview(for: source) }
                     })
                 }
-                if draft.kindChoice != .manualExport {
-                    DisclosureRow(title: "Инструкция", summary: instructionsSummary) {
-                        instructionsEditor
-                    }
+                DisclosureRow(title: "Инструкция: как настроить один раз", summary: instructionsSummary) {
+                    instructionsEditor
                 }
             }
         } saveBar: {
@@ -214,13 +207,7 @@ struct SourceEditor: View {
     }
 
     private var symbol: String {
-        switch draft.kindChoice {
-        case .folder: "folder"
-        case .command: "terminal"
-        case .manualExport: "square.and.arrow.down"
-        case .steps: "list.number"
-        case .device: "cable.connector"
-        }
+        draft.symbol
     }
 
     private var instructionsEditor: some View {
@@ -232,93 +219,13 @@ struct SourceEditor: View {
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
     }
 
-    @ViewBuilder
-    private var kindCard: some View {
-        switch draft.kindChoice {
-        case .folder:
-            SettingsSection(title: "Что бэкапить · тип «Папка»") {
-                SettingsRow(title: "Папка или файл") {
-                    PathField(path: $draft.folderPath, allowsFiles: true)
-                }
-                DisclosureRow(title: "Не копировать", summary: excludesSummary) {
-                    CodeEditor(text: $draft.excludesText, minHeight: 60)
-                    Text("По одной маске в строке, например *.tmp")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        case .command:
-            SettingsSection(title: "Что бэкапить · тип «Команда»: результат команды") {
-                CodeEditor(text: $draft.command, minHeight: 130)
-                    .padding(10)
-                SettingsRow(
-                    title: "Останавливать через",
-                    tip: "Команда должна сложить результат в папку $BACKUP_OUTPUT_DIR.\nДля временных файлов есть $BACKUP_SCRATCH_DIR."
-                ) {
-                    Stepper("\(draft.timeoutMinutes) мин", value: $draft.timeoutMinutes, in: 1...720)
-                    .pointing()
-                }
-            }
-        case .manualExport:
-            SettingsSection(title: "Что бэкапить · тип «Ручной экспорт»: файл, который ты выгружаешь сам") {
-                SettingsRow(title: "Куда попадает файл") {
-                    PathField(path: $draft.watchPath)
-                }
-                SettingsRow(title: "Маска файла") {
-                    TextField("", text: $draft.filePattern, prompt: Text("например, takeout-*.zip"))
-                        .textFieldStyle(.plain)
-                        .multilineTextAlignment(.trailing)
-                        .font(.body.monospaced())
-                }
-                SettingsRow(title: "Файлов в одном экспорте") {
-                    Picker("", selection: $draft.fileMode) {
-                        Text("Один — забирать сразу").tag(FileMode.single)
-                        Text("Несколько — ждать «Забрать»").tag(FileMode.multiple)
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .pointing()
-                }
-                SettingsRow(title: "После бэкапа убирать файл в Корзину") {
-                    Toggle("", isOn: $draft.removeOriginal)
-                        .toggleStyle(.switch)
-                        .pointing()
-                        .controlSize(.small)
-                        .labelsHidden()
-                }
-            }
-        case .device:
-            SettingsSection(title: "Что бэкапить · тип «Подключаемое устройство»: папка на устройстве, которое подключают кабелем") {
-                SettingsRow(
-                    title: "Папка на устройстве",
-                    tip: "Подключите устройство, чтобы выбрать папку.\nПока устройство не подключено, бэкап ждёт его, а не падает с ошибкой."
-                ) {
-                    PathField(path: $draft.folderPath)
-                }
-                DisclosureRow(title: "Не копировать", summary: excludesSummary) {
-                    CodeEditor(text: $draft.excludesText, minHeight: 60)
-                    Text("По одной маске в строке, например *.tmp")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        case .steps:
-            StepsEditor(steps: $draft.steps, currentIndex: isNew ? nil : model.chain(of: draft.id)?.stepIndex)
-        }
-    }
-
-    private var excludesSummary: String {
-        let masks = draft.excludesText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        return masks.isEmpty ? "ничего" : masks.joined(separator: ", ")
-    }
-
     private var instructionsSummary: String {
         let firstLine = draft.instructions.split(separator: "\n").first.map(String.init) ?? ""
         return firstLine.isEmpty ? "нет" : firstLine
     }
 
     private var conflictWarning: String? {
-        guard draft.kindChoice == .manualExport || draft.kindChoice == .steps else { return nil }
+        guard draft.steps.contains(where: { $0.kindChoice == .file }) else { return nil }
         let conflicts = model.maskConflicts(for: draft.build())
         guard !conflicts.isEmpty else { return nil }
         return "Маска пересекается с источником «\(conflicts.map(\.name).joined(separator: "», «"))» в той же папке."

@@ -106,7 +106,7 @@ struct SourceRow: View {
             stateIcon(status, stage)
                 .frame(width: 18)
             HStack(spacing: 9) {
-                SourceIcon(icon: source.icon, symbol: StatusStyle.symbol(for: source.kind))
+                SourceIcon(icon: source.icon, symbol: StatusStyle.symbol(for: source))
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(source.name)
                         .fontWeight(.medium)
@@ -246,11 +246,11 @@ struct SourceRow: View {
     @ViewBuilder
     private var nextColumn: some View {
         if model.runStartedAt(of: source) == nil,
-           let note = NextBackup.note(source, nextDue: model.nextDue(of: source), isWaiting: model.isWaitingForFile(source)) {
+           let note = NextBackup.note(source, nextDue: model.nextDue(of: source), isWaiting: model.isWaitingForPerson(source)) {
             Text("→ \(note)")
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
-                .hoverTip("Следующий бэкап: \(NextBackup.detail(source, nextDue: model.nextDue(of: source), isWaiting: model.isWaitingForFile(source)))")
+                .hoverTip("Следующий бэкап: \(NextBackup.detail(source, nextDue: model.nextDue(of: source), isWaiting: model.isWaitingForPerson(source)))")
         } else {
             Color.clear
         }
@@ -264,8 +264,8 @@ struct SourceRow: View {
     private var hoverActions: some View {
         let chain = model.chain(of: source.id)
         return HStack(spacing: 4) {
-            if model.isWaitingForFile(source) {
-                action("Отменить ожидание файла", symbol: "xmark.circle") {
+            if model.isWaitingForPerson(source) {
+                action("Отменить: больше не ждать", symbol: "xmark.circle") {
                     Task { await model.cancelWaiting(source) }
                 }
             } else if ChainPosition.canRunNow(source, chain: chain) {
@@ -295,7 +295,7 @@ struct SourceRow: View {
 
     private func runTitle(_ chain: ChainState?) -> String {
         if chain?.failure != nil { return "Повторить шаг" }
-        if source.deliversFromPending && chain == nil { return "Запустить: ждать файл экспорта" }
+        if source.needsHuman && chain == nil { return "Запустить: ждать файл экспорта" }
         return "Запустить"
     }
 
@@ -346,7 +346,7 @@ struct SourceRow: View {
         var lines = ["Последний бэкап: \(model.lastBackup(of: source).map(Texts.dateTime) ?? "ещё не было")"]
         if source.enabled {
             if let due = model.nextDue(of: source) {
-                let prefix = source.isManualExport || source.steps.first?.isManual == true ? "Экспорт пора делать" : "Следующий"
+                let prefix = source.steps.first?.needsHuman == true ? "Напомнит" : "Следующий"
                 lines.append("\(prefix): \(due <= Date() ? "уже пора" : Texts.dateTime(due))")
             } else {
                 lines.append("Следующий: только вручную")

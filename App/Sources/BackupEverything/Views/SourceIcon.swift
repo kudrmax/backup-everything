@@ -9,7 +9,7 @@ struct SourceIcon: View {
 
     init(_ source: Source, size: CGFloat = 18) {
         icon = source.icon
-        symbol = source.enabled ? StatusStyle.symbol(for: source.kind) : "pause.circle"
+        symbol = source.enabled ? StatusStyle.symbol(for: source) : "pause.circle"
         self.size = size
     }
 

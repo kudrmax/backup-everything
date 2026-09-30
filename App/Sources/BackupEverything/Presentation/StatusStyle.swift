@@ -27,12 +27,12 @@ enum StatusStyle {
         }
     }
 
-    static func symbol(for kind: SourceKind) -> String {
-        switch kind {
+    static func symbol(for source: Source) -> String {
+        guard source.steps.count == 1 else { return "list.number" }
+        return switch source.steps[0].kind {
         case .folder: "folder"
         case .command: "terminal"
-        case .manualExport: "square.and.arrow.down"
-        case .steps: "list.number"
+        case .file: "square.and.arrow.down"
         case .device: "cable.connector"
         }
     }

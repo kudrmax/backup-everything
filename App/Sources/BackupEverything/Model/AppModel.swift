@@ -111,8 +111,12 @@ final class AppModel {
         await perform { try await self.coordinator.cancelWaiting(sourceId: source.id) }
     }
 
-    func isWaitingForFile(_ source: Source) -> Bool {
-        state.sourceState(source.id).armedAt != nil
+    /// Запуск начат кнопкой и ждёт человека: только такое ожидание можно отменить.
+    func isWaitingForPerson(_ source: Source) -> Bool {
+        let sourceState = state.sourceState(source.id)
+        guard let chain = sourceState.chain else { return sourceState.armedAt != nil }
+        guard chain.startedBy == .button, chain.failure == nil, chain.stepIndex < source.steps.count else { return false }
+        return source.steps[chain.stepIndex].needsHuman
     }
 
     func restartChain(_ source: Source) async {
@@ -145,11 +149,11 @@ final class AppModel {
 
     func newSource(from template: SourceTemplate?) -> Source {
         guard let template else {
-            return editor.makeSource(name: "", kind: .folder(path: "", excludes: []), now: Date(), in: config)
+            return editor.makeSource(name: "", steps: [.folder("")], now: Date(), in: config)
         }
         return editor.makeSource(
             name: template.name,
-            kind: template.kind,
+            steps: template.steps.map { SourceStep(name: $0.name, kind: $0.kind) },
             schedule: template.schedule,
             retention: template.retention,
             description: template.description,

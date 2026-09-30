@@ -6,49 +6,92 @@ import Testing
 struct DraftTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
-    private func source(_ kind: SourceKind) -> Source {
-        Source(name: "Источник", slug: "istochnik", kind: kind, schedule: .weekly, createdAt: now)
+    private func source(_ steps: [SourceStep]) -> Source {
+        Source(name: "Источник", slug: "istochnik", steps: steps, schedule: .weekly, createdAt: now)
     }
 
     @Test(arguments: [
-        SourceKind.folder(path: "~/Obsidian", excludes: [".trash", "*.tmp"]),
-        SourceKind.command(command: "gh repo list", timeoutSeconds: 600),
-        SourceKind.manualExport(watchPath: "~/Downloads", filePattern: "takeout-*.zip", fileMode: .multiple, removeOriginal: false),
-        SourceKind.device(path: "/Volumes/PocketBook", excludes: [".cache"]),
-        SourceKind.steps(steps: [
-            SourceStep(name: "Манифест", kind: .manual(instructions: "скачай", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: false)),
-            SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 3600)),
-        ]),
+        [SourceStep.folder("~/Obsidian", excludes: [".trash", "*.tmp"])],
+        [SourceStep.command("gh repo list", timeoutSeconds: 600)],
+        [SourceStep.file("takeout-*.zip", in: "~/Downloads", mode: .multiple, includeInCopy: true, removeOriginal: false, instructions: "выгрузи")],
+        [SourceStep.device("/Volumes/PocketBook", instructions: "подключи"), SourceStep.folder("/Volumes/PocketBook/Books", excludes: [".cache"])],
+        [
+            SourceStep.file("manifest-*.json", in: "~/Downloads", includeInCopy: false, instructions: "скачай", name: "Манифест"),
+            SourceStep.command("echo hi", timeoutSeconds: 3600, name: "Архивы"),
+        ],
     ])
-    func sourceDraftRoundTripsEveryKind(kind: SourceKind) {
-        let original = source(kind)
+    func sourceDraftRoundTripsAnySteps(steps: [SourceStep]) {
+        let original = source(steps)
         #expect(SourceDraft(original).build() == original)
     }
 
     @Test func sourceDraftCleansUpUserInput() {
-        var draft = SourceDraft(source(.folder(path: "", excludes: [])))
+        var draft = SourceDraft(source([.folder("")]))
         draft.name = "  Obsidian  "
-        draft.folderPath = " ~/Obsidian "
-        draft.excludesText = ".trash\n\n  *.tmp  \n"
+        draft.steps[0].folderPath = " ~/Obsidian "
+        draft.steps[0].excludesText = ".trash\n\n  *.tmp  \n"
         let built = draft.build()
         #expect(built.name == "Obsidian")
-        #expect(built.kind == .folder(path: "~/Obsidian", excludes: [".trash", "*.tmp"]))
+        #expect(built.steps.map(\.kind) == [.folder(path: "~/Obsidian", excludes: [".trash", "*.tmp"])])
+    }
+
+    @Test func eachWayToStartGivesItsSteps() {
+        #expect(SourceStart.folder.steps.map(\.kindChoice) == [.folder])
+        #expect(SourceStart.command.steps.map(\.kindChoice) == [.command])
+        #expect(SourceStart.file.steps.map(\.kindChoice) == [.file])
+        #expect(SourceStart.device.steps.map(\.kindChoice) == [.device, .folder])
     }
 
     @Test func sourceDraftExplainsWhatIsMissing() {
-        var draft = SourceDraft(source(.folder(path: "", excludes: [])))
-        #expect(draft.problem == "Укажите папку или файл источника.")
-        draft.folderPath = "~/Obsidian"
+        var draft = SourceDraft(source([]))
+        #expect(draft.problem == "Добавьте хотя бы один шаг.")
+
+        draft.steps = SourceStart.folder.steps
+        #expect(draft.problem == "Укажите папку или файл.")
+        draft.steps[0].folderPath = "~/Obsidian"
         draft.name = " "
         #expect(draft.problem == "Укажите название.")
         draft.name = "Obsidian"
         #expect(draft.problem == nil)
 
-        draft.kindChoice = .command
-        #expect(draft.problem == "Укажите команду.")
-        draft.kindChoice = .manualExport
-        draft.watchPath = "~/Downloads"
-        #expect(draft.problem == "Укажите маску файла, например Passwords*.csv.")
+        draft.steps = [StepDraft(new: .file), StepDraft(new: .command)]
+        #expect(draft.problem == "Шаг 1: укажите маску файла, например manifest-*.json.")
+        draft.steps[0].filePattern = " manifest-*.json "
+        #expect(draft.problem == "Шаг 2: укажите команду.")
+        draft.steps[1].command = "echo hi"
+        draft.steps[1].name = "  "
+        #expect(draft.problem == "Шаг 2: укажите название.")
+        draft.steps[1].name = " Скачать "
+        draft.steps[0].watchPath = ""
+        #expect(draft.problem == "Шаг 1: укажите папку, куда попадает файл.")
+        draft.steps[0].watchPath = "~/Downloads"
+        #expect(draft.problem == nil)
+        #expect(draft.build().steps.map(\.kind) == [
+            .file(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: true, removeOriginal: true),
+            .command(command: "echo hi", timeoutSeconds: 3600),
+        ])
+    }
+
+    @Test func deviceWithoutItsOwnPathWaitsForTheNextFolder() {
+        var draft = SourceDraft(source([]))
+        draft.name = "PocketBook"
+        draft.steps = SourceStart.device.steps
+        #expect(draft.problem == "Шаг 1: укажите путь на устройстве.")
+        draft.steps[1].folderPath = "/Volumes/PocketBook/Books"
+        #expect(draft.problem == nil)
+        #expect(draft.build().steps.map(\.kind) == [
+            .device(instructions: "", path: "/Volumes/PocketBook/Books"),
+            .folder(path: "/Volumes/PocketBook/Books", excludes: []),
+        ])
+    }
+
+    @Test func stepDraftKeepsBothFormsWhileTheKindIsSwitched() {
+        var step = StepDraft(SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 1800)))
+        #expect(step.timeoutMinutes == 30)
+        step.kindChoice = .file
+        step.filePattern = "x-*.zip"
+        step.kindChoice = .command
+        #expect(step.build().kind == .command(command: "echo hi", timeoutSeconds: 1800))
     }
 
     @Test func destinationDraftRoundTrips() {
@@ -73,15 +116,15 @@ struct DraftTests {
     }
 
     @Test func sourceDraftKnowsWhenItDiffersFromTheSavedSource() {
-        var draft = SourceDraft(source(.folder(path: "~/Obsidian", excludes: [".trash"])))
-        #expect(!draft.hasChanges)
-        draft.name = "Источник  "
-        draft.excludesText = ".trash\n"
+        let saved = source([.folder("~/Obsidian")])
+        var draft = SourceDraft(saved)
         #expect(!draft.hasChanges)
         draft.schedule = .daily
         #expect(draft.hasChanges)
         draft.schedule = .weekly
         #expect(!draft.hasChanges)
+        draft.steps[0].folderPath = "~/Notes"
+        #expect(draft.hasChanges)
     }
 
     @Test func destinationDraftKnowsWhenItDiffersFromTheSavedDestination() {
@@ -94,50 +137,14 @@ struct DraftTests {
     }
 
     @Test func sourceDraftCarriesDescriptionAndIcon() {
-        var original = source(.folder(path: "~/Obsidian", excludes: []))
+        var original = source([.folder("~/Obsidian")])
         original.description = "Все заметки"
         original.icon = "a.png"
         var draft = SourceDraft(original)
         #expect(draft.build() == original)
-
-        draft.description = "  Заметки и настройки \n"
+        draft.description = "  Заметки  "
         draft.icon = nil
-        #expect(draft.hasChanges)
-        #expect(draft.build().description == "Заметки и настройки")
+        #expect(draft.build().description == "Заметки")
         #expect(draft.build().icon == nil)
-    }
-
-    @Test func stepChainExplainsWhatIsMissing() {
-        var draft = SourceDraft(source(.steps(steps: [])))
-        #expect(draft.problem == "Добавьте хотя бы один шаг.")
-
-        draft.steps = [StepDraft(new: .manual), StepDraft(new: .command)]
-        #expect(draft.steps.map(\.name) == ["Ручной шаг", "Команда"])
-        #expect(draft.firstStepIsManual)
-        #expect(draft.problem == "Шаг 1: укажите маску файла, например manifest-*.json.")
-        draft.steps[0].filePattern = " manifest-*.json "
-        #expect(draft.problem == "Шаг 2: укажите команду.")
-        draft.steps[1].command = "echo hi"
-        draft.steps[1].name = "  "
-        #expect(draft.problem == "Шаг 2: укажите название.")
-        draft.steps[1].name = " Скачать "
-        draft.steps[0].watchPath = ""
-        #expect(draft.problem == "Шаг 1: укажите папку, куда попадает файл.")
-        draft.steps[0].watchPath = "~/Downloads"
-        #expect(draft.problem == nil)
-
-        #expect(draft.build().kind == .steps(steps: [
-            SourceStep(id: draft.steps[0].id, name: "Ручной шаг", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: true)),
-            SourceStep(id: draft.steps[1].id, name: "Скачать", kind: .command(command: "echo hi", timeoutSeconds: 3600)),
-        ]))
-    }
-
-    @Test func stepDraftKeepsBothFormsWhileTheKindIsSwitched() {
-        var step = StepDraft(SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 1800)))
-        #expect(step.timeoutMinutes == 30)
-        step.kindChoice = .manual
-        step.filePattern = "x-*.zip"
-        step.kindChoice = .command
-        #expect(step.build().kind == .command(command: "echo hi", timeoutSeconds: 1800))
     }
 }

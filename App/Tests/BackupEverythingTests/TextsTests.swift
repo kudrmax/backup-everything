@@ -9,7 +9,7 @@ struct TextsTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
     private func source(_ name: String) -> Source {
-        Source(name: name, slug: name.lowercased(), kind: .folder(path: "/a", excludes: []), schedule: .daily, createdAt: now)
+        Source(name: name, slug: name.lowercased(), steps: [.folder("/a", excludes: [])], schedule: .daily, createdAt: now)
     }
 
     @Test func menuListsOneLinePerProblemWithErrorsFirst() {
