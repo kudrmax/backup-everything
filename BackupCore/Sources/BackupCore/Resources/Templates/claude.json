@@ -1,0 +1,8 @@
+{
+  "id": "claude",
+  "name": "Claude",
+  "kind": { "manualExport": { "watchPath": "~/Downloads", "filePattern": "data-*.zip", "fileMode": "single", "removeOriginal": true } },
+  "schedule": "monthly",
+  "retention": { "daily": 0, "weekly": 0, "monthly": 12, "yearly": 0 },
+  "instructions": "1. Откройте https://claude.ai → Settings → Privacy → Export data.\n2. Дождитесь письма со ссылкой и скачайте архив в «Загрузки».\n\nЕсли имя архива не начинается с `data-`, поправьте маску файла в настройках источника."
+}

@@ -1,0 +1,8 @@
+{
+  "id": "bitwarden",
+  "name": "Bitwarden",
+  "kind": { "command": { "command": "set -euo pipefail\nexport BW_PASSWORD=\"$(security find-generic-password -s backup-everything-bitwarden -w)\"\nexport BW_SESSION=\"$(bw unlock --raw --passwordenv BW_PASSWORD)\"\nbw sync\nbw export --format json --output \"$BACKUP_OUTPUT_DIR/bitwarden.json\"", "timeoutSeconds": 300 } },
+  "schedule": "weekly",
+  "retention": { "daily": 0, "weekly": 8, "monthly": 12, "yearly": 0 },
+  "instructions": "Один раз выполните в терминале:\n\n1. `brew install bitwarden-cli`\n2. `bw login`\n3. `security add-generic-password -s backup-everything-bitwarden -a bitwarden -w` — введите мастер-пароль, он сохранится в Связке ключей.\n\nЭкспорт не зашифрован. Направляйте его только в назначения, которым доверяете."
+}

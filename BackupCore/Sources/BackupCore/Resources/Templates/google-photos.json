@@ -1,0 +1,8 @@
+{
+  "id": "google-photos",
+  "name": "Google Photos",
+  "kind": { "manualExport": { "watchPath": "~/Downloads", "filePattern": "takeout-*.zip", "fileMode": "multiple", "removeOriginal": true } },
+  "schedule": "monthly",
+  "retention": { "daily": 0, "weekly": 0, "monthly": 3, "yearly": 0 },
+  "instructions": "1. Откройте https://takeout.google.com\n2. Нажмите «Отменить выбор» и отметьте только Google Фото.\n3. Формат .zip, размер частей 50 ГБ, «Создать экспорт».\n4. Когда придёт письмо, скачайте все части в «Загрузки».\n5. Когда все части скачаны, нажмите «Готово, забрать»."
+}

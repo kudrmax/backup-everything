@@ -8,7 +8,10 @@ let package = Package(
         .library(name: "BackupCore", targets: ["BackupCore"]),
     ],
     targets: [
-        .target(name: "BackupCore"),
+        .target(
+            name: "BackupCore",
+            resources: [.copy("Resources/Templates")]
+        ),
         .testTarget(
             name: "BackupCoreTests",
             dependencies: ["BackupCore"]
