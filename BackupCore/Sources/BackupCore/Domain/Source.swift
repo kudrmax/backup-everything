@@ -10,6 +10,7 @@ public enum SourceKind: Codable, Sendable, Equatable {
     case command(command: String, timeoutSeconds: Int)
     case manualExport(watchPath: String, filePattern: String, fileMode: FileMode, removeOriginal: Bool)
     case steps(steps: [SourceStep])
+    case device(path: String, excludes: [String])
 }
 
 public struct Source: Codable, Sendable, Equatable, Identifiable {
@@ -85,13 +86,18 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         return false
     }
 
+    public var isDevice: Bool {
+        if case .device = kind { return true }
+        return false
+    }
+
     public var deliversFromPending: Bool {
         isManualExport || isStepChain
     }
 
     public var watchedFiles: [WatchedFile] {
         switch kind {
-        case .folder, .command:
+        case .folder, .command, .device:
             []
         case let .manualExport(watchPath, filePattern, _, _):
             [WatchedFile(watchPath: watchPath, filePattern: filePattern)]

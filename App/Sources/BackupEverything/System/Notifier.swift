@@ -25,6 +25,10 @@ final class Notifier {
 
     private static func text(for notice: Notice) -> (String, String) {
         switch notice {
+        case let .deviceDue(_, sourceName):
+            ("Пора подключить устройство", "Подключите «\(sourceName)» кабелем — бэкап начнётся сам.")
+        case let .deviceCanBeUnplugged(_, sourceName):
+            ("Можно отключать", "Бэкап «\(sourceName)» готов, устройство можно отключить.")
         case let .manualExportDue(_, sourceName):
             ("Пора сделать экспорт", "\(sourceName): откройте Backup Everything, там инструкция.")
         case let .connectDestination(_, destinationName):

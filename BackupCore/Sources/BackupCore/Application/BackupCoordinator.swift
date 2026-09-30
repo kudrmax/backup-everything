@@ -104,7 +104,7 @@ public actor BackupCoordinator {
         let retryableSourceIds = Set(planner.retryableDebts(state: state, now: now).map(\.sourceId))
         var catchUps: [Source] = []
         for source in config.sources where source.enabled && !dueIds.contains(source.id) {
-            guard retryableSourceIds.contains(source.id) else { continue }
+            guard retryableSourceIds.contains(source.id), !source.isDevice || isConnected(source) else { continue }
             if source.deliversFromPending, inbox.pendingPackage(for: source.id) == nil {
                 state.debts.removeAll { $0.sourceId == source.id }
                 continue
@@ -123,11 +123,19 @@ public actor BackupCoordinator {
         for source in due {
             try await execute(source, config.destinations(of: source), .scheduled, state: &state, runs: &runs)
         }
+        var unplugNotices: [Notice] = []
+        for source in config.sources where source.enabled && source.isDevice {
+            let sourceState = state.sourceState(source.id)
+            let destinations = config.destinations(of: source)
+            guard !destinations.isEmpty, isConnected(source), planner.awaitsFile(source, state: sourceState, now: now) else { continue }
+            if let retryAfter = sourceState.retryAfter, retryAfter > now, sourceState.armedAt == nil { continue }
+            try await copyDevice(source, destinations, .scheduled, state: &state, runs: &runs, notices: &unplugNotices)
+        }
         for source in config.sources where source.enabled && source.isStepChain {
             try await advanceChain(source, config: config, mode: .tick, state: &state, runs: &runs)
         }
 
-        let notices = missing + (await closingNotices(config: config, state: &state, runs: runs, debtorsBefore: debtorsBefore))
+        let notices = missing + unplugNotices + (await closingNotices(config: config, state: &state, runs: runs, debtorsBefore: debtorsBefore))
         try store.saveState(state)
         return TickResult(runs: runs, notices: notices)
     }
@@ -139,6 +147,16 @@ public actor BackupCoordinator {
         guard let source = config.source(sourceId) else { return TickResult() }
         let destinations = config.destinations(of: source)
         guard !destinations.isEmpty else { return TickResult() }
+        if source.isDevice {
+            guard isConnected(source) else {
+                state.updateSource(source.id) { $0.armedAt = $0.armedAt ?? self.time.now }
+                try store.saveState(state)
+                return TickResult()
+            }
+            var unplugNotices: [Notice] = []
+            try await copyDevice(source, destinations, .manual, state: &state, runs: &runs, notices: &unplugNotices)
+            return TickResult(runs: runs, notices: unplugNotices + failureNotices(runs))
+        }
         if source.deliversFromPending, state.sourceState(source.id).chain == nil {
             state.updateSource(source.id) { $0.armedAt = $0.armedAt ?? self.time.now }
             try store.saveState(state)
@@ -157,7 +175,12 @@ public actor BackupCoordinator {
         let config = try store.loadConfig()
         var state = try store.loadState()
         var runs: [RunRecord] = []
-        let sources = config.sources.filter { $0.enabled && !$0.deliversFromPending && !config.destinations(of: $0).isEmpty }
+        let sources = config.sources.filter { source in
+            source.enabled
+                && !source.deliversFromPending
+                && (!source.isDevice || isConnected(source))
+                && !config.destinations(of: source).isEmpty
+        }
         announce(sources)
         for source in sources {
             try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
@@ -212,6 +235,26 @@ public actor BackupCoordinator {
             state.updateDestination(destination.id) { $0.lastVerified = now }
         }
         return notices
+    }
+
+    private func isConnected(_ source: Source) -> Bool {
+        guard case let .device(path, _) = source.kind else { return false }
+        return FileManager.default.fileExists(atPath: Paths.url(path).path)
+    }
+
+    private func copyDevice(
+        _ source: Source,
+        _ destinations: [Destination],
+        _ trigger: RunTrigger,
+        state: inout AppState,
+        runs: inout [RunRecord],
+        notices: inout [Notice]
+    ) async throws {
+        state.updateSource(source.id) { $0.armedAt = nil }
+        try store.saveState(state)
+        try await execute(source, destinations, trigger, state: &state, runs: &runs)
+        guard let run = runs.last, run.sourceId == source.id, run.collectError == nil else { return }
+        notices.append(.deviceCanBeUnplugged(sourceId: source.id, sourceName: source.name))
     }
 
     private func forgetRemovedSources(_ config: Config) {
@@ -395,6 +438,10 @@ public actor BackupCoordinator {
                 if let source = config.source(sourceId) {
                     notices.append(.manualExportDue(sourceId: sourceId, sourceName: source.name))
                 }
+            case let .deviceDue(sourceId):
+                if let source = config.source(sourceId) {
+                    notices.append(.deviceDue(sourceId: sourceId, sourceName: source.name))
+                }
             case let .connectDestination(destinationId):
                 if let destination = config.destination(destinationId) {
                     notices.append(.connectDestination(destinationId: destinationId, destinationName: destination.name))
@@ -430,6 +477,14 @@ public actor BackupCoordinator {
             let since = sourceState.lastPickup ?? source.createdAt
             scans[source.id] = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: since, now: now)
         }
-        return reporter.report(config: config, state: state, now: now, unavailableDestinations: unavailable, inboxScans: scans)
+        let connected = Set(config.sources.filter { $0.isDevice && isConnected($0) }.map(\.id))
+        return reporter.report(
+            config: config,
+            state: state,
+            now: now,
+            unavailableDestinations: unavailable,
+            inboxScans: scans,
+            connectedDevices: connected
+        )
     }
 }

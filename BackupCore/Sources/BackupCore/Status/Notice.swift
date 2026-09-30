@@ -2,6 +2,8 @@ import Foundation
 
 public enum Notice: Sendable, Equatable {
     case manualExportDue(sourceId: UUID, sourceName: String)
+    case deviceDue(sourceId: UUID, sourceName: String)
+    case deviceCanBeUnplugged(sourceId: UUID, sourceName: String)
     case connectDestination(destinationId: UUID, destinationName: String)
     case runFailed(sourceId: UUID, sourceName: String, message: String)
     case destinationCaughtUp(destinationId: UUID, destinationName: String)

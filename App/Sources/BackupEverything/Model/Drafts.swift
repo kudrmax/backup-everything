@@ -6,6 +6,7 @@ enum SourceKindChoice: String, CaseIterable, Identifiable {
     case command
     case manualExport
     case steps
+    case device
 
     var id: String { rawValue }
 
@@ -15,6 +16,7 @@ enum SourceKindChoice: String, CaseIterable, Identifiable {
         case .command: "Команда"
         case .manualExport: "Ручной экспорт"
         case .steps: "По шагам"
+        case .device: "Подключаемое устройство"
         }
     }
 }
@@ -143,6 +145,10 @@ struct SourceDraft {
         case let .steps(steps):
             kindChoice = .steps
             self.steps = steps.map(StepDraft.init)
+        case let .device(path, excludes):
+            kindChoice = .device
+            folderPath = path
+            excludesText = excludes.joined(separator: "\n")
         }
     }
 
@@ -156,6 +162,8 @@ struct SourceDraft {
         switch kindChoice {
         case .folder:
             return trimmed(folderPath).isEmpty ? "Укажите папку или файл источника." : nil
+        case .device:
+            return trimmed(folderPath).isEmpty ? "Укажите папку на устройстве." : nil
         case .command:
             return trimmed(command).isEmpty ? "Укажите команду." : nil
         case .manualExport:
@@ -189,8 +197,9 @@ struct SourceDraft {
         source.enabled = enabled
         switch kindChoice {
         case .folder:
-            let excludes = excludesText.split(separator: "\n").map { trimmed(String($0)) }.filter { !$0.isEmpty }
             source.kind = .folder(path: trimmed(folderPath), excludes: excludes)
+        case .device:
+            source.kind = .device(path: trimmed(folderPath), excludes: excludes)
         case .command:
             source.kind = .command(command: command, timeoutSeconds: max(1, timeoutMinutes) * 60)
         case .manualExport:
@@ -204,6 +213,10 @@ struct SourceDraft {
             source.kind = .steps(steps: steps.map { $0.build() })
         }
         return source
+    }
+
+    private var excludes: [String] {
+        excludesText.split(separator: "\n").map { trimmed(String($0)) }.filter { !$0.isEmpty }
     }
 
     private func trimmed(_ text: String) -> String {

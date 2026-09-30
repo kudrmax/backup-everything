@@ -21,7 +21,7 @@ public struct DefaultSourceProviderFactory: SourceProviderFactory {
 
     public func provider(for source: Source) -> any SourceProvider {
         switch source.kind {
-        case let .folder(path, excludes):
+        case let .folder(path, excludes), let .device(path, excludes):
             FolderSource(path: path, excludes: excludes)
         case let .command(command, timeoutSeconds):
             CommandSource(command: command, timeoutSeconds: timeoutSeconds, stagingRoot: stagingRoot, runner: runner)

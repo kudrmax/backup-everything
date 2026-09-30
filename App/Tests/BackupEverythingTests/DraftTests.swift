@@ -14,6 +14,7 @@ struct DraftTests {
         SourceKind.folder(path: "~/Obsidian", excludes: [".trash", "*.tmp"]),
         SourceKind.command(command: "gh repo list", timeoutSeconds: 600),
         SourceKind.manualExport(watchPath: "~/Downloads", filePattern: "takeout-*.zip", fileMode: .multiple, removeOriginal: false),
+        SourceKind.device(path: "/Volumes/PocketBook", excludes: [".cache"]),
         SourceKind.steps(steps: [
             SourceStep(name: "Манифест", kind: .manual(instructions: "скачай", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: false)),
             SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 3600)),

@@ -58,6 +58,10 @@ struct OverviewTextsTests {
         #expect(SourceStatus.awaitingFile.note == "ждёт файл")
         #expect(SourceStatus.waiting.note == "ждёт файл")
         #expect(SourceStatus.waiting.severity == .ok)
+        #expect(SourceStatus.deviceDue.note == "пора подключить")
+        #expect(SourceStatus.deviceDue.severity == .attention)
+        #expect(SourceStatus.waitingForDevice.note == "ждёт подключения")
+        #expect(SourceStatus.waitingForDevice.severity == .ok)
         #expect(SourceStatus.noDestinations.note == "не выбрано, куда бэкапить")
         #expect(SourceStatus.overdue.note == "давно не было бэкапа")
     }

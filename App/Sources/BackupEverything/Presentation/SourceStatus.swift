@@ -9,7 +9,9 @@ enum SourceStatus: Equatable {
     case filesFound(count: Int, bytes: Int64, downloading: Bool)
     case awaitingFile
     case exportDue
+    case deviceDue
     case waiting
+    case waitingForDevice
     case neverRun
     case ok
 
@@ -26,6 +28,8 @@ enum SourceStatus: Equatable {
             case let .manualExportDue(id) where id == source.id: found.append(.exportDue)
             case let .stepAwaitingFile(id) where id == source.id: found.append(.awaitingFile)
             case let .waitingForFile(id) where id == source.id: found.append(.waiting)
+            case let .deviceDue(id) where id == source.id: found.append(.deviceDue)
+            case let .waitingForDevice(id) where id == source.id: found.append(.waitingForDevice)
             default: break
             }
         }
@@ -35,8 +39,8 @@ enum SourceStatus: Equatable {
     var severity: OverallStatus {
         switch self {
         case .failed, .overdue: .error
-        case .noDestinations, .filesFound, .awaitingFile, .exportDue: .attention
-        case .waiting, .disabled, .neverRun, .ok: .ok
+        case .noDestinations, .filesFound, .awaitingFile, .exportDue, .deviceDue: .attention
+        case .waiting, .waitingForDevice, .disabled, .neverRun, .ok: .ok
         }
     }
 
@@ -51,6 +55,8 @@ enum SourceStatus: Equatable {
         case .awaitingFile: "Ждёт файл для следующего шага"
         case .exportDue: "Пора сделать экспорт"
         case .waiting: "Ждёт файл: скачайте его, и бэкап начнётся сам"
+        case .deviceDue: "Пора подключить устройство"
+        case .waitingForDevice: "Ждёт подключения: подключите устройство, и бэкап начнётся сам"
         case .neverRun: "Ещё не запускался"
         case .ok: "В порядке"
         }
@@ -73,6 +79,8 @@ enum SourceStatus: Equatable {
         case .awaitingFile: "ждёт файл"
         case .exportDue: "пора сделать экспорт"
         case .waiting: "ждёт файл"
+        case .deviceDue: "пора подключить"
+        case .waitingForDevice: "ждёт подключения"
         }
     }
 
@@ -83,8 +91,8 @@ enum SourceStatus: Equatable {
         case .noDestinations: 2
         case .filesFound: 3
         case .awaitingFile: 4
-        case .exportDue: 5
-        case .waiting: 6
+        case .exportDue, .deviceDue: 5
+        case .waiting, .waitingForDevice: 6
         case .disabled, .neverRun, .ok: 7
         }
     }

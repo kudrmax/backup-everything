@@ -669,4 +669,66 @@ struct BackupCoordinatorTests {
         #expect(temp.names(in: "work/chains") == [kept.id.uuidString])
         #expect(temp.names(in: "work/pending").count == 1)
     }
+
+    private func pocketBook(_ destinations: [Destination], schedule: Schedule = .monthly) -> Source {
+        Fixtures.source(
+            name: "PocketBook",
+            kind: .device(path: temp.path("PB/Books").path, excludes: []),
+            schedule: schedule,
+            destinations: destinations,
+            createdAt: created
+        )
+    }
+
+    @Test func deviceWaitsUntilPluggedInThenCopiesAndSaysItCanBeUnplugged() async throws {
+        defer { temp.remove() }
+        let source = pocketBook([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        let unplugged = try await coordinator.tick()
+        #expect(unplugged.runs.isEmpty)
+        #expect(unplugged.notices == [.deviceDue(sourceId: source.id, sourceName: "PocketBook")])
+        #expect(try await coordinator.statusReport().items == [.deviceDue(sourceId: source.id)])
+
+        try temp.file("PB/Books/book.epub", "epub")
+        let plugged = try await coordinator.tick()
+        #expect(plugged.runs.map(\.trigger) == [.scheduled])
+        #expect(plugged.notices == [.deviceCanBeUnplugged(sourceId: source.id, sourceName: "PocketBook")])
+        #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub"])
+        #expect(try await coordinator.statusReport().overall == .ok)
+    }
+
+    @Test func runButtonMakesADeviceSourceWaitForTheDevice() async throws {
+        defer { temp.remove() }
+        let source = pocketBook([cloud], schedule: .manual)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(try await coordinator.runNow(sourceId: source.id).runs.isEmpty)
+        let waiting = try await coordinator.statusReport()
+        #expect(waiting.items == [.waitingForDevice(sourceId: source.id)])
+        #expect(waiting.overall == .ok)
+
+        try temp.file("PB/Books/book.epub", "epub")
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.scheduled])
+        #expect(try store.loadState().sourceState(source.id).armedAt == nil)
+        #expect(try await coordinator.tick().runs.isEmpty)
+
+        #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.manual])
+    }
+
+    @Test func unpluggedDeviceIsNotAnErrorWhileItsDiskCatchesUp() async throws {
+        defer { temp.remove() }
+        let source = pocketBook([cloud, disk])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
+        let book = try temp.file("PB/Books/book.epub", "epub")
+        #expect(try await coordinator.tick().runs.count == 1)
+        #expect(try store.loadState().debts.map(\.destinationId) == [disk.id])
+
+        try FileManager.default.removeItem(at: book.deletingLastPathComponent().deletingLastPathComponent())
+        try temp.directory("hdd")
+        time.advance(3600)
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(try await coordinator.statusReport().overall == .ok)
+    }
 }

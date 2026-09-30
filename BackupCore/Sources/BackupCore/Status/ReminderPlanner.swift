@@ -24,6 +24,7 @@ public struct ReminderPlanner: Sendable {
     private func key(for item: AttentionItem) -> String? {
         switch item {
         case let .manualExportDue(sourceId): "manual:\(sourceId.uuidString)"
+        case let .deviceDue(sourceId): "device:\(sourceId.uuidString)"
         case let .connectDestination(destinationId): "connect:\(destinationId.uuidString)"
         default: nil
         }

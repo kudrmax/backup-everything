@@ -17,6 +17,7 @@ enum Texts {
         case .command: "Команда"
         case .manualExport: "Ручной экспорт"
         case .steps: "По шагам"
+        case .device: "Подключаемое устройство"
         }
     }
 

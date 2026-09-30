@@ -11,8 +11,12 @@ struct CopyPlace: Equatable, Identifiable {
 
 enum SourceLinks {
     static func original(of source: Source) -> URL? {
-        guard case let .folder(path, _) = source.kind, !path.isEmpty else { return nil }
-        return AppPaths.expand(path)
+        switch source.kind {
+        case let .folder(path, _) where !path.isEmpty, let .device(path, _) where !path.isEmpty:
+            return AppPaths.expand(path)
+        default:
+            return nil
+        }
     }
 
     static func copies(of source: Source, config: Config, state: AppState) -> [CopyPlace] {

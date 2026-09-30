@@ -146,7 +146,7 @@ struct SourceEditor: View {
                 .padding(.bottom, 4)
         } content: {
             SettingsSection(title: "Как часто и куда", isProminent: true) {
-                SettingsRow(title: draft.kindChoice == .manualExport || draft.firstStepIsManual ? "Напоминать об экспорте" : "Как часто") {
+                SettingsRow(title: draft.kindChoice == .manualExport || draft.firstStepIsManual ? "Напоминать об экспорте" : draft.kindChoice == .device ? "Напоминать подключить" : "Как часто") {
                     Picker("", selection: $draft.schedule) {
                         ForEach(Schedule.allCases, id: \.self) { Text(Texts.schedule($0)).tag($0) }
                     }
@@ -219,6 +219,7 @@ struct SourceEditor: View {
         case .command: "terminal"
         case .manualExport: "square.and.arrow.down"
         case .steps: "list.number"
+        case .device: "cable.connector"
         }
     }
 
@@ -284,6 +285,21 @@ struct SourceEditor: View {
                         .pointing()
                         .controlSize(.small)
                         .labelsHidden()
+                }
+            }
+        case .device:
+            SettingsSection(title: "Что бэкапить · тип «Подключаемое устройство»: папка на устройстве, которое подключают кабелем") {
+                SettingsRow(
+                    title: "Папка на устройстве",
+                    tip: "Подключите устройство, чтобы выбрать папку.\nПока устройство не подключено, бэкап ждёт его, а не падает с ошибкой."
+                ) {
+                    PathField(path: $draft.folderPath)
+                }
+                DisclosureRow(title: "Не копировать", summary: excludesSummary) {
+                    CodeEditor(text: $draft.excludesText, minHeight: 60)
+                    Text("По одной маске в строке, например *.tmp")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
         case .steps:

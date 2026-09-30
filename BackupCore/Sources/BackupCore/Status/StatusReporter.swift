@@ -17,6 +17,8 @@ public enum AttentionItem: Sendable, Equatable {
     case filesAwaitingPickup(sourceId: UUID, fileCount: Int, totalBytes: Int64, downloadInProgress: Bool)
     case stepAwaitingFile(sourceId: UUID)
     case waitingForFile(sourceId: UUID)
+    case deviceDue(sourceId: UUID)
+    case waitingForDevice(sourceId: UUID)
     case noDestinations(sourceId: UUID)
     case destinationUnavailable(destinationId: UUID)
     case connectDestination(destinationId: UUID)
@@ -24,7 +26,7 @@ public enum AttentionItem: Sendable, Equatable {
     public var severity: OverallStatus {
         switch self {
         case .runFailed, .severelyOverdue: .error
-        case .waitingForFile: .ok
+        case .waitingForFile, .waitingForDevice: .ok
         default: .attention
         }
     }
@@ -54,7 +56,8 @@ public struct StatusReporter: Sendable {
         state: AppState,
         now: Date,
         unavailableDestinations: Set<UUID>,
-        inboxScans: [UUID: InboxScan]
+        inboxScans: [UUID: InboxScan],
+        connectedDevices: Set<UUID> = []
     ) -> StatusReport {
         var items: [AttentionItem] = []
         for source in config.sources where source.enabled {
@@ -69,6 +72,16 @@ public struct StatusReporter: Sendable {
             }
             if planner.isSeverelyOverdue(source, state: sourceState, now: now) {
                 items.append(.severelyOverdue(sourceId: source.id))
+            }
+            if source.isDevice {
+                if !connectedDevices.contains(source.id) {
+                    if planner.isDue(source, state: sourceState, now: now) {
+                        items.append(.deviceDue(sourceId: source.id))
+                    } else if sourceState.armedAt != nil {
+                        items.append(.waitingForDevice(sourceId: source.id))
+                    }
+                }
+                continue
             }
             if let heldBack {
                 items.append(.filesAwaitingPickup(

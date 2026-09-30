@@ -177,7 +177,7 @@ struct SourceRow: View {
             }
         } else if !source.enabled {
             Image(systemName: "pause.circle").foregroundStyle(.secondary)
-        } else if status == .waiting {
+        } else if status == .waiting || status == .waitingForDevice {
             Image(systemName: "clock").foregroundStyle(.secondary)
         } else {
             Image(systemName: StatusStyle.symbol(status.severity))

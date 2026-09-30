@@ -33,6 +33,7 @@ enum StatusStyle {
         case .command: "terminal"
         case .manualExport: "square.and.arrow.down"
         case .steps: "list.number"
+        case .device: "cable.connector"
         }
     }
 
