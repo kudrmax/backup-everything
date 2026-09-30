@@ -38,6 +38,7 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
     public var startedAt: Date
     public var finishedAt: Date
     public var snapshotName: String?
+    public var collectedAt: Date?
     public var fileCount: Int?
     public var totalBytes: Int64?
     public var collectError: String?
@@ -52,6 +53,7 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
         startedAt: Date,
         finishedAt: Date,
         snapshotName: String? = nil,
+        collectedAt: Date? = nil,
         fileCount: Int? = nil,
         totalBytes: Int64? = nil,
         collectError: String? = nil,
@@ -65,6 +67,7 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.snapshotName = snapshotName
+        self.collectedAt = collectedAt
         self.fileCount = fileCount
         self.totalBytes = totalBytes
         self.collectError = collectError

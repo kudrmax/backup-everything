@@ -324,6 +324,7 @@ struct BackupCoordinatorTests {
         #expect(result.notices == [.copiesMissing(sourceId: source.id, sourceName: "Obsidian", destinationName: "Cloud")])
         #expect(result.runs.map(\.trigger) == [.catchUp])
         #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_101000"])
+        #expect(try store.loadState().sourceState(source.id).lastSuccess == start.addingTimeInterval(600))
 
         time.advance(600)
         #expect(try await coordinator.tick() == TickResult())

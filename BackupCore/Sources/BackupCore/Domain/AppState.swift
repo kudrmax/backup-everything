@@ -2,12 +2,20 @@ import Foundation
 
 public struct SourceState: Codable, Sendable, Equatable {
     public var lastRun: Date?
+    public var lastSuccess: Date?
     public var lastPickup: Date?
     public var lastError: String?
     public var retryAfter: Date?
 
-    public init(lastRun: Date? = nil, lastPickup: Date? = nil, lastError: String? = nil, retryAfter: Date? = nil) {
+    public init(
+        lastRun: Date? = nil,
+        lastSuccess: Date? = nil,
+        lastPickup: Date? = nil,
+        lastError: String? = nil,
+        retryAfter: Date? = nil
+    ) {
         self.lastRun = lastRun
+        self.lastSuccess = lastSuccess
         self.lastPickup = lastPickup
         self.lastError = lastError
         self.retryAfter = retryAfter

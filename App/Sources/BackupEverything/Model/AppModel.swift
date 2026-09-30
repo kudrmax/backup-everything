@@ -160,11 +160,12 @@ final class AppModel {
     // MARK: Queries
 
     func status(of source: Source) -> SourceStatus {
-        SourceStatus.of(source, report: report, lastRun: state.sourceState(source.id).lastRun)
+        SourceStatus.of(source, report: report, lastRun: lastBackup(of: source))
     }
 
-    func lastRun(of source: Source) -> Date? {
-        state.sourceState(source.id).lastRun
+    func lastBackup(of source: Source) -> Date? {
+        let sourceState = state.sourceState(source.id)
+        return sourceState.lastSuccess ?? sourceState.lastRun
     }
 
     func nextDue(of source: Source) -> Date? {

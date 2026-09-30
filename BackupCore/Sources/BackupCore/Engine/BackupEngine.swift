@@ -76,6 +76,7 @@ public struct BackupEngine: Sendable {
             totalBytes: stats.totalBytes
         )
         record.snapshotName = snapshotName
+        record.collectedAt = payload.collectedAt
         record.fileCount = stats.fileCount
         record.totalBytes = stats.totalBytes
         record.details = payload.details

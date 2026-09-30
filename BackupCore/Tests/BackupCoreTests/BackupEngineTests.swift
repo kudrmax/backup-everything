@@ -42,6 +42,7 @@ struct BackupEngineTests {
         defer { temp.remove() }
         let record = await run()
         #expect(record.snapshotName == name)
+        #expect(record.collectedAt == now)
         #expect(record.fileCount == 1)
         #expect(record.totalBytes == 5)
         #expect(record.details == "log tail")

@@ -122,7 +122,7 @@ struct SourceRow: View {
             }
             Spacer(minLength: 8)
             hoverActions
-            Text(Texts.age(model.lastRun(of: source)))
+            Text(Texts.age(model.lastBackup(of: source)))
                 .font(.callout)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
@@ -226,7 +226,7 @@ struct SourceRow: View {
     }
 
     private var timeDetails: String {
-        var lines = ["Последний бэкап: \(model.lastRun(of: source).map(Texts.dateTime) ?? "ещё не было")"]
+        var lines = ["Последний бэкап: \(model.lastBackup(of: source).map(Texts.dateTime) ?? "ещё не было")"]
         if source.enabled {
             if let due = model.nextDue(of: source) {
                 let prefix = source.isManualExport ? "Экспорт пора делать" : "Следующий"

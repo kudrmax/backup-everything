@@ -25,7 +25,7 @@ struct StateReducerTests {
     @Test func successAdvancesScheduleAndMarksDestinationsCaughtUp() {
         var state = AppState()
         reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil)), (cloud, .delivered(pruned: 1, warning: nil))]), to: &state)
-        #expect(state.sourceState(sourceId) == SourceState(lastRun: started))
+        #expect(state.sourceState(sourceId) == SourceState(lastRun: started, lastSuccess: started))
         #expect(state.debts.isEmpty)
         #expect(state.destinationState(disk).lastCaughtUp == finished)
     }
@@ -57,7 +57,7 @@ struct StateReducerTests {
         state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: lastRun)]
         reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp), to: &state)
         #expect(state.debts.isEmpty)
-        #expect(state.sourceState(sourceId) == SourceState(lastRun: lastRun))
+        #expect(state.sourceState(sourceId) == SourceState(lastRun: lastRun, lastSuccess: started))
         #expect(state.destinationState(disk).lastCaughtUp == finished)
     }
 
@@ -108,5 +108,32 @@ struct StateReducerTests {
         reducer.apply(delivered, to: &state)
         #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: disk) == "2026-09-28_100000")
         #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: cloud) == nil)
+    }
+
+    @Test func lastSuccessFollowsTheFreshestDeliveredCopyIncludingCatchUps() {
+        var state = AppState()
+        var scheduled = record([(disk, .delivered(pruned: 0, warning: nil))])
+        scheduled.collectedAt = started
+        reducer.apply(scheduled, to: &state)
+        #expect(state.sourceState(sourceId).lastSuccess == started)
+
+        let later = started.addingTimeInterval(3600)
+        var catchUp = record([(cloud, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
+        catchUp.collectedAt = later
+        reducer.apply(catchUp, to: &state)
+        #expect(state.sourceState(sourceId).lastSuccess == later)
+        #expect(state.sourceState(sourceId).lastRun == started)
+
+        var stalePackage = record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
+        stalePackage.collectedAt = started.addingTimeInterval(-86_400)
+        reducer.apply(stalePackage, to: &state)
+        #expect(state.sourceState(sourceId).lastSuccess == later)
+    }
+
+    @Test func deferredOrFailedRunsDoNotCountAsSuccess() {
+        var state = AppState()
+        reducer.apply(record([(disk, .unavailable), (cloud, .failed(message: "quota"))]), to: &state)
+        reducer.apply(record([], collectError: "auth"), to: &state)
+        #expect(state.sourceState(sourceId).lastSuccess == nil)
     }
 }
