@@ -72,4 +72,24 @@ struct SourceProviderTests {
         source.finish(payload, deliveredEverywhere: true)
         #expect(statuses.get() == ["1 из 2 · first", "2 из 2 · second"])
     }
+
+    @Test func shellCommandPassesEnvironmentAndReportsFailures() async throws {
+        defer { temp.remove() }
+        let runner = FakeProcessRunner(output: ["1 из 2"]) { call in
+            call.environment["MODE"] == "fail" ? ProcessResult(exitCode: 3, stdout: "out\n", stderr: "boom\n") : ProcessResult(exitCode: 0, stdout: "готово\n")
+        }
+        let shell = ShellCommand(runner: runner)
+        let lines = LockedBox<[String]>([])
+
+        let tail = try await shell.run("echo hi", timeoutSeconds: 30, environment: ["MODE": "ok"]) { lines.set(lines.get() + [$0]) }
+        #expect(tail == "готово")
+        #expect(lines.get() == ["1 из 2"])
+        #expect(runner.calls.first?.arguments == ["-lc", "echo hi"])
+        #expect(runner.calls.first?.executable.path == "/bin/zsh")
+        #expect(runner.calls.first?.timeout == 30)
+
+        await #expect(throws: SourceError.commandFailed(exitCode: 3, output: "out\nboom")) {
+            try await shell.run("echo hi", timeoutSeconds: 30, environment: ["MODE": "fail"]) { _ in }
+        }
+    }
 }
