@@ -79,6 +79,7 @@ public actor BackupCoordinator {
         let now = time.now
         let debtorsBefore = Set(state.debts.map(\.destinationId))
         var runs: [RunRecord] = []
+        let missing = await verifyCopies(config: config, state: &state, now: now)
 
         let due = planner.dueAutomaticSources(config: config, state: state, now: now)
         let dueIds = Set(due.map(\.id))
@@ -105,7 +106,7 @@ public actor BackupCoordinator {
             try await execute(source, config.destinations(of: source), .scheduled, state: &state, runs: &runs)
         }
 
-        let notices = await closingNotices(config: config, state: &state, runs: runs, debtorsBefore: debtorsBefore)
+        let notices = missing + (await closingNotices(config: config, state: &state, runs: runs, debtorsBefore: debtorsBefore))
         try store.saveState(state)
         return TickResult(runs: runs, notices: notices)
     }
@@ -144,6 +145,43 @@ public actor BackupCoordinator {
         guard let source = config.source(sourceId) else { return TickResult() }
         try await pickUp(source, config: config, respectRetryDelay: false, state: &state, runs: &runs)
         return TickResult(runs: runs, notices: failureNotices(runs))
+    }
+
+    private func verifyCopies(config: Config, state: inout AppState, now: Date) async -> [Notice] {
+        var notices: [Notice] = []
+        var history: [RunRecord]?
+        for destination in config.destinations where planner.shouldVerify(destination, state: state, now: now) {
+            let sources = config.sources.filter { source in
+                source.enabled
+                    && source.destinationIds.contains(destination.id)
+                    && state.sourceState(source.id).lastRun != nil
+                    && !state.hasDebt(sourceId: source.id, destinationId: destination.id)
+            }
+            guard !sources.isEmpty else { continue }
+            let destinationStore = stores.store(for: destination)
+            guard await destinationStore.isAvailable() else { continue }
+            for source in sources {
+                guard let present = try? await destinationStore.listSnapshots(sourceSlug: source.slug) else { continue }
+                var expected = state.lastDeliveredSnapshot(sourceId: source.id, destinationId: destination.id)
+                if expected == nil {
+                    if history == nil { history = store.loadRuns() }
+                    expected = history?.first { run in
+                        run.sourceId == source.id && run.deliveries.contains {
+                            $0.destinationId == destination.id && $0.outcome.isDelivered
+                        }
+                    }?.snapshotName
+                }
+                let isIntact = expected.map { name in present.contains { $0.name == name } } ?? !present.isEmpty
+                guard !isIntact else { continue }
+                state.debts.append(Debt(sourceId: source.id, destinationId: destination.id, since: now))
+                state.lastDelivered[AppState.deliveryKey(sourceId: source.id, destinationId: destination.id)] = nil
+                if expected != nil {
+                    notices.append(.copiesMissing(sourceId: source.id, sourceName: source.name, destinationName: destination.name))
+                }
+            }
+            state.updateDestination(destination.id) { $0.lastVerified = now }
+        }
+        return notices
     }
 
     private func announce(_ sources: [Source]) {

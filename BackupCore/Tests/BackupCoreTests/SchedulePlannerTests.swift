@@ -108,4 +108,19 @@ struct SchedulePlannerTests {
         #expect(!planner.isSeverelyOverdue(source, state: SourceState(), now: now))
         #expect(planner.isDue(source, state: SourceState(), now: now))
     }
+
+    @Test func cloudCopiesAreVerifiedOnceADayLocalOnesEveryTime() {
+        let remote = Destination(name: "Drive", kind: .rclone(remote: "gdrive", path: "backups"))
+        var state = AppState()
+        #expect(planner.shouldVerify(remote, state: state, now: now))
+        #expect(planner.shouldVerify(cloud, state: state, now: now))
+
+        state.updateDestination(remote.id) { $0.lastVerified = now.addingTimeInterval(-3600) }
+        state.updateDestination(cloud.id) { $0.lastVerified = now.addingTimeInterval(-3600) }
+        #expect(!planner.shouldVerify(remote, state: state, now: now))
+        #expect(planner.shouldVerify(cloud, state: state, now: now))
+
+        state.updateDestination(remote.id) { $0.lastVerified = now.addingTimeInterval(-86_400) }
+        #expect(planner.shouldVerify(remote, state: state, now: now))
+    }
 }

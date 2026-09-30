@@ -16,9 +16,11 @@ public struct SourceState: Codable, Sendable, Equatable {
 
 public struct DestinationState: Codable, Sendable, Equatable {
     public var lastCaughtUp: Date?
+    public var lastVerified: Date?
 
-    public init(lastCaughtUp: Date? = nil) {
+    public init(lastCaughtUp: Date? = nil, lastVerified: Date? = nil) {
         self.lastCaughtUp = lastCaughtUp
+        self.lastVerified = lastVerified
     }
 }
 
@@ -44,6 +46,7 @@ public struct AppState: Codable, Sendable, Equatable {
     public var destinations: [String: DestinationState]
     public var debts: [Debt]
     public var lastReminders: [String: Date]
+    public var lastDelivered: [String: String]
 
     public init() {
         self.schemaVersion = Self.currentSchemaVersion
@@ -51,6 +54,29 @@ public struct AppState: Codable, Sendable, Equatable {
         self.destinations = [:]
         self.debts = []
         self.lastReminders = [:]
+        self.lastDelivered = [:]
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        sources = try container.decodeIfPresent([String: SourceState].self, forKey: .sources) ?? [:]
+        destinations = try container.decodeIfPresent([String: DestinationState].self, forKey: .destinations) ?? [:]
+        debts = try container.decodeIfPresent([Debt].self, forKey: .debts) ?? []
+        lastReminders = try container.decodeIfPresent([String: Date].self, forKey: .lastReminders) ?? [:]
+        lastDelivered = try container.decodeIfPresent([String: String].self, forKey: .lastDelivered) ?? [:]
+    }
+
+    public static func deliveryKey(sourceId: UUID, destinationId: UUID) -> String {
+        "\(sourceId.uuidString)|\(destinationId.uuidString)"
+    }
+
+    public func lastDeliveredSnapshot(sourceId: UUID, destinationId: UUID) -> String? {
+        lastDelivered[Self.deliveryKey(sourceId: sourceId, destinationId: destinationId)]
+    }
+
+    public func hasDebt(sourceId: UUID, destinationId: UUID) -> Bool {
+        debts.contains { $0.sourceId == sourceId && $0.destinationId == destinationId }
     }
 
     public func sourceState(_ id: UUID) -> SourceState {

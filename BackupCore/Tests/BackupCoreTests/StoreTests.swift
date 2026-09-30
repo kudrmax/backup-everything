@@ -104,4 +104,16 @@ struct StoreTests {
         let finance = try #require(store.loadTemplates().first { $0.id == "ios-finance" })
         #expect(finance.kind == .manualExport(watchPath: "~/Downloads", filePattern: "", fileMode: .single, removeOriginal: true))
     }
+
+    @Test func stateWrittenByOlderVersionStillLoads() throws {
+        defer { temp.remove() }
+        let sourceId = UUID()
+        try temp.file("data/state.json", """
+        {"schemaVersion":1,"sources":{"\(sourceId.uuidString)":{"lastRun":"2026-09-28T10:00:00Z"}},"destinations":{},"debts":[],"lastReminders":{}}
+        """)
+        let state = try store.loadState()
+        #expect(state.sourceState(sourceId).lastRun == Fixtures.date("2026-09-28 10:00:00"))
+        #expect(state.lastDelivered.isEmpty)
+        #expect(temp.names(in: "data") == ["state.json"])
+    }
 }

@@ -18,6 +18,10 @@ public struct StateReducer: Sendable {
             switch delivery.outcome {
             case .delivered:
                 state.debts.removeAll { $0.sourceId == record.sourceId && $0.destinationId == delivery.destinationId }
+                if let snapshotName = record.snapshotName {
+                    let key = AppState.deliveryKey(sourceId: record.sourceId, destinationId: delivery.destinationId)
+                    state.lastDelivered[key] = snapshotName
+                }
             case .unavailable:
                 upsertDebt(record, delivery, attemptedAt: nil, in: &state)
             case .failed:
@@ -45,6 +49,10 @@ public struct StateReducer: Sendable {
         let destinationKeys = Set(config.destinations.map(\.id.uuidString))
         state.sources = state.sources.filter { sourceKeys.contains($0.key) }
         state.destinations = state.destinations.filter { destinationKeys.contains($0.key) }
+        let pairs = Set(config.sources.flatMap { source in
+            source.destinationIds.map { AppState.deliveryKey(sourceId: source.id, destinationId: $0) }
+        })
+        state.lastDelivered = state.lastDelivered.filter { pairs.contains($0.key) }
     }
 
     private func upsertDebt(_ record: RunRecord, _ delivery: Delivery, attemptedAt: Date?, in state: inout AppState) {

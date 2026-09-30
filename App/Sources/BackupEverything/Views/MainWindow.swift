@@ -69,7 +69,7 @@ struct MainWindow: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(minWidth: 860, minHeight: 520)
-        .task { await model.refresh() }
+        .task { await model.tick() }
         .onAppear { NSApp.activate(ignoringOtherApps: true) }
     }
 }

@@ -2,6 +2,7 @@ import Foundation
 
 public struct SchedulePlanner: Sendable {
     public static let retryInterval: TimeInterval = 3600
+    public static let remoteVerificationInterval: TimeInterval = 86_400
 
     private let calendar: Calendar
 
@@ -49,6 +50,12 @@ public struct SchedulePlanner: Sendable {
               let earliestDebt = state.debts(forDestination: destination.id).map(\.since).min() else { return nil }
         let reference = state.destinationState(destination.id).lastCaughtUp ?? earliestDebt
         return calendar.date(byAdding: .day, value: days, to: reference)
+    }
+
+    public func shouldVerify(_ destination: Destination, state: AppState, now: Date) -> Bool {
+        guard case .rclone = destination.kind,
+              let lastVerified = state.destinationState(destination.id).lastVerified else { return true }
+        return lastVerified.addingTimeInterval(Self.remoteVerificationInterval) <= now
     }
 
     public func nextWake(config: Config, state: AppState, now: Date, needsAttention: Bool) -> Date? {

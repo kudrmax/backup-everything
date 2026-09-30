@@ -33,6 +33,8 @@ final class Notifier {
             ("Бэкап не удался", "\(sourceName): \(message)")
         case let .destinationCaughtUp(_, destinationName):
             ("Диск можно отключать", "«\(destinationName)» получил все накопившиеся бэкапы.")
+        case let .copiesMissing(_, sourceName, destinationName):
+            ("Копия пропала", "В «\(destinationName)» не нашлось последней копии «\(sourceName)». Делаю новую.")
         }
     }
 }

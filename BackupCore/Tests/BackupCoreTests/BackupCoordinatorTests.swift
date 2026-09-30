@@ -311,4 +311,70 @@ struct BackupCoordinatorTests {
         _ = try await coordinator.runAllNow()
         #expect(events.get().first == .queued(sourceIds: [first.id, second.id]))
     }
+
+    @Test func deletedCopiesAreNoticedAndRestored() async throws {
+        defer { temp.remove() }
+        let source = vault([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        _ = try await coordinator.tick()
+        try FileManager.default.removeItem(at: temp.path("cloud/obsidian"))
+
+        time.advance(600)
+        let result = try await coordinator.tick()
+        #expect(result.notices == [.copiesMissing(sourceId: source.id, sourceName: "Obsidian", destinationName: "Cloud")])
+        #expect(result.runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_101000"])
+
+        time.advance(600)
+        #expect(try await coordinator.tick() == TickResult())
+    }
+
+    @Test func deletingOnlyTheLatestCopyIsNoticedToo() async throws {
+        defer { temp.remove() }
+        let source = vault([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        _ = try await coordinator.tick()
+        time.advance(86_400)
+        _ = try await coordinator.tick()
+        try FileManager.default.removeItem(at: temp.path("cloud/obsidian/2026-09-29_100000"))
+
+        time.advance(600)
+        let result = try await coordinator.tick()
+        #expect(result.notices == [.copiesMissing(sourceId: source.id, sourceName: "Obsidian", destinationName: "Cloud")])
+        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000", "2026-09-29_101000"])
+    }
+
+    @Test func copiesMadeBeforeTrackingAreVerifiedThroughHistory() async throws {
+        defer { temp.remove() }
+        let source = vault([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        _ = try await coordinator.tick()
+        var legacy = try store.loadState()
+        legacy.lastDelivered = [:]
+        try store.saveState(legacy)
+        try FileManager.default.removeItem(at: temp.path("cloud/obsidian"))
+
+        time.advance(600)
+        let result = try await coordinator.tick()
+        #expect(result.notices == [.copiesMissing(sourceId: source.id, sourceName: "Obsidian", destinationName: "Cloud")])
+    }
+
+    @Test func newlyAttachedDestinationGetsItsCopyRightAway() async throws {
+        defer { temp.remove() }
+        var source = vault([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        _ = try await coordinator.tick()
+
+        try temp.directory("second")
+        let second = Fixtures.localDestination("Second", at: temp.path("second"))
+        source.destinationIds.append(second.id)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud, second]))
+
+        time.advance(600)
+        let result = try await coordinator.tick()
+        #expect(result.notices.isEmpty)
+        #expect(result.runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "second/obsidian") == ["2026-09-28_101000"])
+        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000"])
+    }
 }

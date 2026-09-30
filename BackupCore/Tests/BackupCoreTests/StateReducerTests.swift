@@ -100,4 +100,13 @@ struct StateReducerTests {
         reducer.apply(record([], trigger: .catchUp, collectError: "auth required"), to: &state)
         #expect(state.debts == [Debt(sourceId: sourceId, destinationId: disk, since: started, lastAttempt: finished)])
     }
+
+    @Test func remembersWhichCopyReachedEachDestination() {
+        var state = AppState()
+        var delivered = record([(disk, .delivered(pruned: 0, warning: nil)), (cloud, .unavailable)])
+        delivered.snapshotName = "2026-09-28_100000"
+        reducer.apply(delivered, to: &state)
+        #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: disk) == "2026-09-28_100000")
+        #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: cloud) == nil)
+    }
 }
