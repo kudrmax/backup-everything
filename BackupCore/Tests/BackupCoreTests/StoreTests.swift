@@ -81,15 +81,15 @@ struct StoreTests {
         defer { temp.remove() }
         try store.installBundledTemplates()
         #expect(temp.names(in: "data/templates") == [
-            "apple-passwords.json", "bitwarden.json", "claude.json", "github.json",
+            "apple-passwords.json", "bitwarden.json", "claude-code.json", "claude.json", "github.json",
             "google-photos.json", "ios-finance.json", "obsidian.json",
         ])
-        #expect(store.loadTemplates().count == 7)
+        #expect(store.loadTemplates().count == 8)
 
         try temp.file("data/templates/obsidian.json", "edited by user")
         try store.installBundledTemplates()
         #expect(try String(contentsOf: temp.path("data/templates/obsidian.json"), encoding: .utf8) == "edited by user")
-        #expect(store.loadTemplates().count == 6)
+        #expect(store.loadTemplates().count == 7)
     }
 
     @Test func unreadableConfigIsAnErrorNotAnEmptyConfig() throws {

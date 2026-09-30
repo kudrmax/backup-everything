@@ -1,7 +1,7 @@
 import Foundation
 
 enum BundledTemplates {
-    static let all: [SourceTemplate] = [obsidian, github, bitwarden, applePasswords, googlePhotos, claude, iosFinance]
+    static let all: [SourceTemplate] = [obsidian, github, bitwarden, applePasswords, googlePhotos, claude, claudeCode, iosFinance]
 
     private static let downloads = "~/Downloads"
 
@@ -116,6 +116,39 @@ enum BundledTemplates {
         2. Дождитесь письма со ссылкой и скачайте архив в «Загрузки».
 
         Если имя архива не начинается с `data-`, поправьте маску файла в настройках источника.
+        """
+    )
+
+    private static let claudeCode = SourceTemplate(
+        id: "claude-code",
+        name: "Claude Code",
+        kind: .command(
+            command: #"""
+            set -euo pipefail
+            src="$HOME/.claude"
+
+            # Ссылки в никуда пропускаются, остальные ссылки заменяются настоящими файлами
+            (cd "$src" && find -L . -type l | sed 's|^\.||') > "$BACKUP_SCRATCH_DIR/broken-links"
+
+            rsync -aL --exclude-from="$BACKUP_SCRATCH_DIR/broken-links" \
+              --exclude '/downloads/' --exclude '/cache/' --exclude '/plugins/cache/' --exclude '/plugins/marketplaces/' \
+              --exclude '/telemetry/' --exclude '/statsig/' --exclude '/debug/' --exclude '/shell-snapshots/' \
+              --exclude '/session-env/' --exclude '/sessions/' --exclude '/paste-cache/' --exclude '/ide/' --exclude '/jobs/' \
+              --exclude '/daemon*' --exclude '/backups/' --exclude '/.credentials.json' --exclude '*-cache.json' \
+              --exclude '.DS_Store' --exclude '/.last-cleanup' \
+              "$src/" "$BACKUP_OUTPUT_DIR/dot-claude/" || [ $? -eq 24 ]
+
+            if [ -f "$HOME/.claude.json" ]; then cp "$HOME/.claude.json" "$BACKUP_OUTPUT_DIR/dot-claude.json"; fi
+            """#,
+            timeoutSeconds: 900
+        ),
+        schedule: .weekly,
+        retention: RetentionRules(daily: 0, weekly: 4, monthly: 6, yearly: 0),
+        description: "Настройки, инструкции CLAUDE.md, навыки, память и история сессий Claude Code: папка ~/.claude и файл ~/.claude.json. Кэши и загрузки не копируются. В настройках могут быть ключи MCP-серверов — направляйте только в назначения, которым доверяете.",
+        instructions: """
+        Настраивать ничего не нужно.
+
+        Восстановление: папку `dot-claude` скопировать в `~/.claude`, файл `dot-claude.json` — в `~/.claude.json`, затем войти заново командой `claude /login`.
         """
     )
 
