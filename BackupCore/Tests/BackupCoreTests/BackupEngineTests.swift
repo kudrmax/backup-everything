@@ -15,6 +15,7 @@ struct BackupEngineTests {
     private let diskStore = FakeDestinationStore()
     private let cloudStore = FakeDestinationStore()
     private let provider: FakeSourceProvider
+    private let events = LockedBox<[RunProgress]>([])
     private let source: Source
 
     init() throws {
@@ -31,7 +32,8 @@ struct BackupEngineTests {
             stores: factories,
             retention: RetentionPolicy(timeZone: Fixtures.utc),
             naming: Fixtures.naming,
-            time: FakeTimeSource(now)
+            time: FakeTimeSource(now),
+            progress: { [events] event in events.set(events.get() + [event]) }
         )
         return await engine.run(source: source, destinations: [disk, cloud], trigger: trigger)
     }
@@ -132,5 +134,30 @@ struct BackupEngineTests {
         let record = await run()
         #expect(record.deliveries[1].outcome == .delivered(pruned: 0, warning: nil))
         #expect(cloudStore.snapshots.map(\.name).sorted() == [name, "2026-09-28_200000"])
+    }
+
+    @Test func reportsEachStageOfTheRun() async {
+        defer { temp.remove() }
+        diskStore.available = false
+        _ = await run()
+        #expect(events.get() == [
+            .collecting(sourceId: source.id),
+            .delivering(sourceId: source.id, destinationId: cloud.id),
+            .finished(sourceId: source.id),
+        ])
+    }
+
+    @Test func reportsFinishEvenWhenNothingWasDone() async {
+        defer { temp.remove() }
+        diskStore.available = false
+        cloudStore.available = false
+        _ = await run()
+        #expect(events.get() == [.finished(sourceId: source.id)])
+
+        events.set([])
+        cloudStore.available = true
+        provider.result = .failure(SourceError.emptyResult)
+        _ = await run()
+        #expect(events.get() == [.collecting(sourceId: source.id), .finished(sourceId: source.id)])
     }
 }

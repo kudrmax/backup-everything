@@ -9,6 +9,7 @@ struct BackupCoordinatorTests {
     private let coordinator: BackupCoordinator
     private let cloud: Destination
     private let disk: Destination
+    private let events = LockedBox<[RunProgress]>([])
     private let start = Fixtures.date("2026-09-28 10:00:00")
     private let created = Fixtures.date("2026-09-27 00:00:00")
 
@@ -34,9 +35,18 @@ struct BackupCoordinatorTests {
             stores: stores,
             retention: RetentionPolicy(timeZone: Fixtures.utc),
             naming: Fixtures.naming,
-            time: time
+            time: time,
+            progress: { [events] event in events.set(events.get() + [event]) }
         )
-        coordinator = BackupCoordinator(store: store, engine: engine, inbox: inbox, stores: stores, time: time, calendar: Fixtures.calendar)
+        coordinator = BackupCoordinator(
+            store: store,
+            engine: engine,
+            inbox: inbox,
+            stores: stores,
+            time: time,
+            calendar: Fixtures.calendar,
+            progress: { [events] event in events.set(events.get() + [event]) }
+        )
     }
 
     private func vault(_ destinations: [Destination]) -> Source {
@@ -274,5 +284,31 @@ struct BackupCoordinatorTests {
         #expect(store.loadRuns().isEmpty)
         #expect(try store.loadState().sourceState(source.id).lastRun == nil)
         #expect(try await coordinator.statusReport().items == [.noDestinations(sourceId: source.id)])
+    }
+
+    @Test func announcesTheQueueBeforeRunningIt() async throws {
+        defer { temp.remove() }
+        let first = vault([cloud])
+        let second = Fixtures.source(name: "Второй", kind: .folder(path: temp.path("vault").path, excludes: []), destinations: [cloud], createdAt: created)
+        try store.saveConfig(Config(sources: [first, second], destinations: [cloud]))
+
+        _ = try await coordinator.tick()
+        #expect(events.get() == [
+            .queued(sourceIds: [first.id, second.id]),
+            .collecting(sourceId: first.id),
+            .delivering(sourceId: first.id, destinationId: cloud.id),
+            .finished(sourceId: first.id),
+            .collecting(sourceId: second.id),
+            .delivering(sourceId: second.id, destinationId: cloud.id),
+            .finished(sourceId: second.id),
+        ])
+
+        events.set([])
+        time.advance(60)
+        _ = try await coordinator.tick()
+        #expect(events.get().isEmpty)
+
+        _ = try await coordinator.runAllNow()
+        #expect(events.get().first == .queued(sourceIds: [first.id, second.id]))
     }
 }

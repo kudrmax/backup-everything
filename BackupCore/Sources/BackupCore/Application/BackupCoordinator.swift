@@ -6,6 +6,7 @@ public actor BackupCoordinator {
     private let inbox: ManualExportInbox
     private let stores: any DestinationStoreFactory
     private let time: any TimeSource
+    private let progress: ProgressHandler
     private let planner: SchedulePlanner
     private let reporter: StatusReporter
     private let reminders = ReminderPlanner()
@@ -18,13 +19,15 @@ public actor BackupCoordinator {
         inbox: ManualExportInbox,
         stores: any DestinationStoreFactory,
         time: any TimeSource,
-        calendar: Calendar
+        calendar: Calendar,
+        progress: @escaping ProgressHandler = { _ in }
     ) {
         self.store = store
         self.engine = engine
         self.inbox = inbox
         self.stores = stores
         self.time = time
+        self.progress = progress
         self.planner = SchedulePlanner(calendar: calendar)
         self.reporter = StatusReporter(planner: planner)
     }
@@ -80,12 +83,17 @@ public actor BackupCoordinator {
         let due = planner.dueAutomaticSources(config: config, state: state, now: now)
         let dueIds = Set(due.map(\.id))
         let retryableSourceIds = Set(planner.retryableDebts(state: state, now: now).map(\.sourceId))
+        var catchUps: [Source] = []
         for source in config.sources where source.enabled && !dueIds.contains(source.id) {
             guard retryableSourceIds.contains(source.id) else { continue }
             if source.isManualExport, inbox.pendingPackage(for: source.id) == nil {
                 state.debts.removeAll { $0.sourceId == source.id }
                 continue
             }
+            catchUps.append(source)
+        }
+        announce(catchUps + due)
+        for source in catchUps {
             let debtors = state.debts.filter { $0.sourceId == source.id }.compactMap { config.destination($0.destinationId) }
             try await execute(source, debtors, .catchUp, state: &state, runs: &runs)
         }
@@ -121,10 +129,10 @@ public actor BackupCoordinator {
         let config = try store.loadConfig()
         var state = try store.loadState()
         var runs: [RunRecord] = []
-        for source in config.sources where source.enabled && !source.isManualExport {
-            let destinations = config.destinations(of: source)
-            guard !destinations.isEmpty else { continue }
-            try await execute(source, destinations, .manual, state: &state, runs: &runs)
+        let sources = config.sources.filter { $0.enabled && !$0.isManualExport && !config.destinations(of: $0).isEmpty }
+        announce(sources)
+        for source in sources {
+            try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
         }
         return TickResult(runs: runs, notices: failureNotices(runs))
     }
@@ -136,6 +144,11 @@ public actor BackupCoordinator {
         guard let source = config.source(sourceId) else { return TickResult() }
         try await pickUp(source, config: config, respectRetryDelay: false, state: &state, runs: &runs)
         return TickResult(runs: runs, notices: failureNotices(runs))
+    }
+
+    private func announce(_ sources: [Source]) {
+        guard !sources.isEmpty else { return }
+        progress(.queued(sourceIds: sources.map(\.id)))
     }
 
     private func pickUp(

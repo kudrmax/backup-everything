@@ -20,6 +20,12 @@ final class AppModel {
     private(set) var templates: [SourceTemplate] = []
     private(set) var activeOperations = 0
     private(set) var problem: String?
+    private(set) var activity = ActivityTracker()
+
+    private enum ActivityEvent {
+        case progress(RunProgress)
+        case settled
+    }
 
     @ObservationIgnored var onNotices: ([Notice]) -> Void = { _ in }
     @ObservationIgnored var onChange: () -> Void = {}
@@ -33,11 +39,20 @@ final class AppModel {
     @ObservationIgnored private let editor = ConfigEditor()
     @ObservationIgnored private let planner: SchedulePlanner
     @ObservationIgnored private let retention = RetentionPolicy()
+    @ObservationIgnored private let activityEvents: AsyncStream<ActivityEvent>
+    @ObservationIgnored private let activityFeed: AsyncStream<ActivityEvent>.Continuation
 
     init(dataDirectory: URL, workDirectory: URL) {
         store = Store(dataDirectory: dataDirectory)
         self.workDirectory = workDirectory
-        coordinator = CoreAssembly.makeCoordinator(dataDirectory: dataDirectory, workDirectory: workDirectory)
+        let (events, feed) = AsyncStream.makeStream(of: ActivityEvent.self)
+        activityEvents = events
+        activityFeed = feed
+        coordinator = CoreAssembly.makeCoordinator(
+            dataDirectory: dataDirectory,
+            workDirectory: workDirectory,
+            progress: { feed.yield(.progress($0)) }
+        )
         stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: SnapshotNaming())
         var calendar = Calendar(identifier: .iso8601)
         calendar.timeZone = .current
@@ -56,6 +71,11 @@ final class AppModel {
             templates = store.loadTemplates()
         } catch {
             problem = error.localizedDescription
+        }
+        Task { [weak self, activityEvents] in
+            for await event in activityEvents {
+                self?.handle(event)
+            }
         }
     }
 
@@ -151,6 +171,23 @@ final class AppModel {
         return max(due, sourceState.retryAfter ?? due)
     }
 
+    func stage(of source: Source) -> SourceStage? {
+        activity.stage(of: source.id)
+    }
+
+    var currentSourceName: String? {
+        activity.current.flatMap(config.source)?.name
+    }
+
+    func lastDelivery(of source: Source, to destination: Destination) -> (date: Date, outcome: DeliveryOutcome)? {
+        for run in runs where run.sourceId == source.id {
+            if let delivery = run.deliveries.first(where: { $0.destinationId == destination.id }) {
+                return (run.finishedAt, delivery.outcome)
+            }
+        }
+        return nil
+    }
+
     func isWaiting(_ source: Source, for destination: Destination) -> Bool {
         state.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
     }
@@ -215,7 +252,20 @@ final class AppModel {
         }
         activeOperations -= 1
         await refresh()
+        activityFeed.yield(.settled)
         onChange()
+    }
+
+    private func handle(_ event: ActivityEvent) {
+        switch event {
+        case let .progress(progress):
+            activity.apply(progress)
+            if case .finished = progress {
+                Task { await refresh() }
+            }
+        case .settled:
+            if activeOperations == 0 { activity.reset() }
+        }
     }
 
     private func edit(_ change: (inout Config) -> Void) async {

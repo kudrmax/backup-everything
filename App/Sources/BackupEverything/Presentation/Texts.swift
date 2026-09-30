@@ -91,6 +91,14 @@ enum Texts {
         }
     }
 
+    static func stage(_ stage: SourceStage, destinationName: String?) -> String {
+        switch stage {
+        case .queued: "В очереди"
+        case .collecting: "Собирает данные…"
+        case .delivering: "Записывает в «\(destinationName ?? "назначение")»…"
+        }
+    }
+
     static func outcome(_ outcome: DeliveryOutcome) -> String {
         switch outcome {
         case let .delivered(pruned, warning):

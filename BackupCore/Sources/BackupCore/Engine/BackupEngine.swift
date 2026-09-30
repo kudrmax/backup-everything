@@ -6,6 +6,7 @@ public struct BackupEngine: Sendable {
     private let retention: RetentionPolicy
     private let naming: SnapshotNaming
     private let time: any TimeSource
+    private let progress: ProgressHandler
     private let walker = PayloadWalker()
 
     public init(
@@ -13,16 +14,24 @@ public struct BackupEngine: Sendable {
         stores: any DestinationStoreFactory,
         retention: RetentionPolicy,
         naming: SnapshotNaming,
-        time: any TimeSource
+        time: any TimeSource,
+        progress: @escaping ProgressHandler = { _ in }
     ) {
         self.providers = providers
         self.stores = stores
         self.retention = retention
         self.naming = naming
         self.time = time
+        self.progress = progress
     }
 
     public func run(source: Source, destinations: [Destination], trigger: RunTrigger) async -> RunRecord {
+        let record = await perform(source: source, destinations: destinations, trigger: trigger)
+        progress(.finished(sourceId: source.id))
+        return record
+    }
+
+    private func perform(source: Source, destinations: [Destination], trigger: RunTrigger) async -> RunRecord {
         var record = RunRecord(
             sourceId: source.id,
             sourceName: source.name,
@@ -44,6 +53,7 @@ public struct BackupEngine: Sendable {
         let provider = providers.provider(for: source)
         let payload: Payload
         let stats: PayloadStats
+        progress(.collecting(sourceId: source.id))
         do {
             payload = try await provider.collect(at: record.startedAt)
             stats = walker.stats(of: try walker.entries(of: payload))
@@ -73,6 +83,7 @@ public struct BackupEngine: Sendable {
         for destination in destinations {
             let outcome: DeliveryOutcome
             if let store = reachable[destination.id] {
+                progress(.delivering(sourceId: source.id, destinationId: destination.id))
                 outcome = await deliver(payload, manifest: manifest, snapshotName: snapshotName, source: source, to: store)
             } else {
                 outcome = .unavailable

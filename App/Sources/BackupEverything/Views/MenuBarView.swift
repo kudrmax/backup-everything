@@ -47,6 +47,7 @@ struct MenuBarView: View {
         .frame(width: 340, alignment: .leading)
     }
 
+    @ViewBuilder
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: StatusStyle.symbol(model.report.overall))
@@ -56,6 +57,9 @@ struct MenuBarView: View {
             if model.isWorking {
                 ProgressView().controlSize(.small)
             }
+        }
+        if model.isWorking {
+            Text(WorkingText.summary(model)).font(.callout).foregroundStyle(.secondary)
         }
     }
 }

@@ -41,7 +41,7 @@ struct OverviewView: View {
             Text(Texts.overall(model.report.overall)).font(.title2.weight(.semibold))
             if model.isWorking {
                 ProgressView().controlSize(.small)
-                Text("Идёт бэкап…").foregroundStyle(.secondary)
+                Text(WorkingText.summary(model)).foregroundStyle(.secondary)
             }
         }
     }
@@ -75,18 +75,29 @@ struct SourceCard: View {
 
     var body: some View {
         let status = model.status(of: source)
+        let stage = model.stage(of: source)
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: StatusStyle.symbol(for: source.kind)).foregroundStyle(.secondary)
                 Text(source.name).font(.headline).lineLimit(1)
                 Spacer()
-                Image(systemName: StatusStyle.symbol(status.severity))
-                    .foregroundStyle(source.enabled ? StatusStyle.color(status.severity) : .secondary)
+                if stage != nil, stage != .queued {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: stage == .queued ? "hourglass" : StatusStyle.symbol(status.severity))
+                        .foregroundStyle(source.enabled && stage == nil ? StatusStyle.color(status.severity) : .secondary)
+                }
             }
-            Text(status.text)
-                .font(.callout)
-                .foregroundStyle(status.severity == .ok ? .secondary : StatusStyle.color(status.severity))
-                .lineLimit(3)
+            if let stage {
+                Text(Texts.stage(stage, destinationName: deliveringName(stage)))
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.blue)
+            } else {
+                Text(status.text)
+                    .font(.callout)
+                    .foregroundStyle(status.severity == .ok ? .secondary : StatusStyle.color(status.severity))
+                    .lineLimit(3)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 fact("Последний бэкап", model.lastRun(of: source).map { Texts.relative($0) } ?? "—")
                 fact("Следующий", nextText)
@@ -94,14 +105,7 @@ struct SourceCard: View {
             if !destinations.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(destinations) { destination in
-                        let waiting = model.isWaiting(source, for: destination)
-                        Label {
-                            Text(waiting ? "\(destination.name) — ждёт" : destination.name)
-                        } icon: {
-                            Image(systemName: waiting ? "clock" : StatusStyle.symbol(for: destination.kind))
-                        }
-                        .font(.callout)
-                        .foregroundStyle(waiting ? .orange : .secondary)
+                        DeliveryRow(source: source, destination: destination)
                     }
                 }
             }
@@ -124,6 +128,11 @@ struct SourceCard: View {
 
     private var destinations: [Destination] {
         model.config.destinations(of: source)
+    }
+
+    private func deliveringName(_ stage: SourceStage) -> String? {
+        guard case let .delivering(destinationId) = stage else { return nil }
+        return model.config.destination(destinationId)?.name
     }
 
     private var nextText: String {
@@ -185,5 +194,76 @@ struct InstructionsSheet: View {
     private var rendered: AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+}
+
+struct DeliveryRow: View {
+    @Environment(AppModel.self) private var model
+    let source: Source
+    let destination: Destination
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if isDelivering {
+                ProgressView().controlSize(.mini).frame(width: 16)
+            } else {
+                Image(systemName: symbol).foregroundStyle(color).frame(width: 16)
+            }
+            Text(destination.name)
+            Text("— \(detail)").foregroundStyle(isDelivering ? .blue : color)
+        }
+        .font(.callout)
+        .lineLimit(1)
+    }
+
+    private var isDelivering: Bool {
+        model.stage(of: source) == .delivering(destinationId: destination.id)
+    }
+
+    private var state: DeliveryState {
+        DeliveryState.of(
+            lastOutcome: model.lastDelivery(of: source, to: destination)?.outcome,
+            isWaiting: model.isWaiting(source, for: destination)
+        )
+    }
+
+    private var detail: String {
+        if isDelivering { return "записывается…" }
+        switch state {
+        case .delivered:
+            let date = model.lastDelivery(of: source, to: destination)?.date
+            return "доставлено \(date.map { Texts.relative($0) } ?? "")"
+        case .failed: return "ошибка, повтор позже"
+        case .waiting: return "ждёт подключения"
+        case .none: return "копий ещё нет"
+        }
+    }
+
+    private var symbol: String {
+        switch state {
+        case .delivered: "checkmark.circle.fill"
+        case .failed: "xmark.octagon.fill"
+        case .waiting: "clock"
+        case .none: "circle.dashed"
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .delivered: .green
+        case .failed: .red
+        case .waiting: .orange
+        case .none: .secondary
+        }
+    }
+}
+
+enum WorkingText {
+    @MainActor
+    static func summary(_ model: AppModel) -> String {
+        let waiting = model.activity.waitingCount
+        let queue = waiting > 0 ? ", в очереди: \(waiting)" : ""
+        guard let name = model.currentSourceName else { return "Идёт проверка…" }
+        return "Идёт бэкап: \(name)\(queue)"
     }
 }

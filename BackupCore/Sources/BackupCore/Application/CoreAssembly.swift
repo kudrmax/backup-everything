@@ -15,7 +15,8 @@ public enum CoreAssembly {
         timeZone: TimeZone = .current,
         runner: any ProcessRunner = SystemProcessRunner(),
         time: any TimeSource = SystemTimeSource(),
-        rclone: RcloneLocator = RcloneLocator()
+        rclone: RcloneLocator = RcloneLocator(),
+        progress: @escaping ProgressHandler = { _ in }
     ) -> BackupCoordinator {
         var calendar = Calendar(identifier: .iso8601)
         calendar.timeZone = timeZone
@@ -27,7 +28,8 @@ public enum CoreAssembly {
             stores: stores,
             retention: RetentionPolicy(timeZone: timeZone),
             naming: naming,
-            time: time
+            time: time,
+            progress: progress
         )
         return BackupCoordinator(
             store: Store(dataDirectory: dataDirectory),
@@ -35,7 +37,8 @@ public enum CoreAssembly {
             inbox: inbox,
             stores: stores,
             time: time,
-            calendar: calendar
+            calendar: calendar,
+            progress: progress
         )
     }
 }
