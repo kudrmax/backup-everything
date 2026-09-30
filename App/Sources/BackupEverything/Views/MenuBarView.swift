@@ -17,6 +17,7 @@ struct MenuBarView: View {
                     storedSection = MainWindow.Section.overview.rawValue
                     showWindow()
                 }
+                .pointing()
             Divider()
             Button("Запустить всё сейчас", systemImage: "play.fill") {
                 Task { await model.runAll() }
@@ -27,7 +28,7 @@ struct MenuBarView: View {
                 NSApp.terminate(nil)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plainPointing)
         .padding(16)
         .frame(width: 340, alignment: .leading)
     }
@@ -102,7 +103,7 @@ struct MenuLineRow: View {
                 Button("Забрать") {
                     Task { await model.confirmPickup(source) }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminentPointing)
                 .controlSize(.small)
                 .disabled(model.isWorking)
             }

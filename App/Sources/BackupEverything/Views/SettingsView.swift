@@ -11,6 +11,7 @@ struct SettingsView: View {
                     SettingsRow(title: "Запускать при входе в систему") {
                         Toggle("", isOn: $launchesAtLogin)
                             .toggleStyle(.switch)
+                            .pointing()
                             .controlSize(.small)
                             .labelsHidden()
                     }

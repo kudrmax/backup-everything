@@ -21,6 +21,7 @@ struct EditorLayout<Item: Identifiable, Label: View, AddMenu: View, Detail: View
                         SwiftUI.Label("Добавить", systemImage: "plus")
                     }
                     .menuStyle(.borderlessButton)
+                    .pointing()
                     .menuIndicator(.hidden)
                     .foregroundStyle(.tint)
                     .padding(.horizontal, 8)
@@ -53,7 +54,7 @@ struct EditorListItem<Label: View>: View {
                 .background(background, in: RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plainPointing)
         .onHover { isHovered = $0 }
     }
 
@@ -197,7 +198,7 @@ struct DisclosureRow<Content: View>: View {
                 .frame(minHeight: 40)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plainPointing)
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) { content }
                     .padding(.horizontal, 14)
@@ -256,7 +257,7 @@ struct Chip: View {
                 .overlay(Capsule().strokeBorder(isOn ? AnyShapeStyle(.clear) : AnyShapeStyle(.separator)))
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plainPointing)
     }
 }
 

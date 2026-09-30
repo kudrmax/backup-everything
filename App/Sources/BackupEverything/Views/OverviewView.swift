@@ -75,7 +75,7 @@ struct GettingStarted: View {
             Text("1. Добавьте назначение — папку, внешний диск или облако.")
             Text("2. Добавьте источники из шаблонов и выберите, куда их бэкапить.")
             HStack {
-                Button("Добавить назначение", action: openDestinations).buttonStyle(.borderedProminent)
+                Button("Добавить назначение", action: openDestinations).buttonStyle(.borderedProminentPointing)
                 Button("Перейти к источникам", action: openSources)
             }
             .padding(.top, 4)
@@ -121,7 +121,7 @@ struct SourceRow: View {
                 Button("Забрать") {
                     Task { await model.confirmPickup(source) }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminentPointing)
                 .controlSize(.small)
                 .disabled(model.isWorking)
             }
@@ -144,6 +144,7 @@ struct SourceRow: View {
         .background(isHovered ? AnyShapeStyle(.quaternary.opacity(0.6)) : AnyShapeStyle(.clear))
         .contentShape(Rectangle())
         .onTapGesture(perform: edit)
+        .pointing()
         .onHover { isHovered = $0 }
         .sheet(isPresented: Binding(get: { shownError != nil }, set: { if !$0 { shownError = nil } })) {
             ErrorSheet(title: source.name, message: shownError ?? "")
@@ -198,7 +199,7 @@ struct SourceRow: View {
                     .truncationMode(.tail)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plainPointing)
             .hoverTip("Нажми, чтобы открыть и скопировать ошибку")
         } else if let note = status.note {
             Text(positioned(note))
@@ -271,7 +272,7 @@ struct SourceRow: View {
             copyAction
             action("Изменить", symbol: "pencil", perform: edit)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.borderlessPointing)
         .opacity(isHovered ? 1 : 0)
     }
 
@@ -302,6 +303,7 @@ struct SourceRow: View {
                 Image(systemName: "archivebox")
             }
             .menuStyle(.borderlessButton)
+            .pointing()
             .menuIndicator(.hidden)
             .fixedSize()
             .pointerStyle(.link)
@@ -315,7 +317,6 @@ struct SourceRow: View {
                 .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
         }
-        .pointerStyle(.link)
         .hoverTip(title)
     }
 

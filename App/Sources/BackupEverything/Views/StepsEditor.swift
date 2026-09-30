@@ -70,6 +70,7 @@ private struct StepCard: View {
             }
             .labelsHidden()
             .fixedSize()
+            .pointing()
             Button { move(-1) } label: { Image(systemName: "chevron.up") }
                 .disabled(!canMoveUp)
                 .help("Выше")
@@ -79,7 +80,7 @@ private struct StepCard: View {
             Button(role: .destructive, action: remove) { Image(systemName: "trash") }
                 .help("Удалить шаг")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.borderlessPointing)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
     }
@@ -110,6 +111,7 @@ private struct StepCard: View {
         ) {
             Toggle("", isOn: $step.includeInCopy)
                 .toggleStyle(.switch)
+                .pointing()
                 .controlSize(.small)
                 .labelsHidden()
         }
@@ -125,6 +127,7 @@ private struct StepCard: View {
             tip: "Результат — в $BACKUP_OUTPUT_DIR.\nФайлы ручных шагов, не входящие в копию, — в $BACKUP_INPUT_DIR.\nДля временных файлов есть $BACKUP_SCRATCH_DIR."
         ) {
             Stepper("\(step.timeoutMinutes) мин", value: $step.timeoutMinutes, in: 1...720)
+            .pointing()
         }
     }
 }

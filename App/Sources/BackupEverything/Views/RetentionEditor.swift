@@ -16,6 +16,7 @@ struct RetentionEditor: View {
                             Text("\(stage.count)").monospacedDigit()
                         }
                         .gridColumnAlignment(.trailing)
+                        .pointing()
                         Text(stage.unitName)
                         Text(stage.effect)
                             .fixedSize()

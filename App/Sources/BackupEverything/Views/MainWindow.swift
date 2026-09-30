@@ -46,7 +46,9 @@ struct MainWindow: View {
     var body: some View {
         NavigationSplitView {
             List(Section.allCases, selection: section) { section in
-                Label(section.title, systemImage: section.symbol).tag(section)
+                Label(section.title, systemImage: section.symbol)
+                    .pointing()
+                    .tag(section)
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190)
         } detail: {
@@ -73,6 +75,7 @@ struct MainWindow: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(minWidth: 860, minHeight: 520)
+        .buttonStyle(.automaticPointing)
         .task { await model.tick() }
         .onAppear { NSApp.activate(ignoringOtherApps: true) }
     }

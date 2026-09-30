@@ -114,6 +114,7 @@ struct DestinationEditor: View {
                         Image(systemName: "ellipsis")
                     }
                     .menuStyle(.borderlessButton)
+                    .pointing()
                     .menuIndicator(.hidden)
                     .fixedSize()
                     .id(saved.id)
@@ -139,6 +140,7 @@ struct DestinationEditor: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .pointing()
                 }
                 if draft.isPeriodic {
                     SettingsRow(
@@ -146,6 +148,7 @@ struct DestinationEditor: View {
                         tip: "Пока срок не вышел, приложение молчит.\nПри подключении диск получит свежую копию каждого источника."
                     ) {
                         Stepper("\(draft.days) дн", value: $draft.days, in: 1...365)
+                        .pointing()
                     }
                 }
             }
@@ -211,6 +214,7 @@ struct DestinationEditor: View {
                 }
                 .labelsHidden()
                 .fixedSize()
+                .pointing()
                 refreshButton
             }
         }
@@ -227,7 +231,7 @@ struct DestinationEditor: View {
         } label: {
             Image(systemName: "arrow.clockwise")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.borderlessPointing)
         .help("Обновить список облаков")
     }
 }
@@ -332,7 +336,7 @@ struct CopiesRow: View {
                 .frame(height: 40)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plainPointing)
             .disabled(snapshots.isEmpty)
             if isExpanded {
                 VStack(spacing: 0) {
@@ -362,7 +366,7 @@ struct SnapshotLine: View {
                 } label: {
                     Image(systemName: "folder")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.borderlessPointing)
                 .help("Показать в Finder")
                 .opacity(isHovered ? 1 : 0)
             } else {

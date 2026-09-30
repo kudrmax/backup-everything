@@ -111,11 +111,12 @@ struct SourceEditor: View {
                 } label: {
                     SourceIcon(icon: draft.icon, symbol: symbol, size: 22)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plainPointing)
                 .help("Выбрать значок")
             } accessory: {
                 Toggle("Включён", isOn: $draft.enabled)
                     .toggleStyle(.switch)
+                    .pointing()
                     .controlSize(.small)
                     .labelsHidden()
                     .help(draft.enabled ? "Включён" : "Выключен")
@@ -131,6 +132,7 @@ struct SourceEditor: View {
                         Image(systemName: "ellipsis")
                     }
                     .menuStyle(.borderlessButton)
+                    .pointing()
                     .menuIndicator(.hidden)
                     .fixedSize()
                 }
@@ -150,6 +152,7 @@ struct SourceEditor: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .pointing()
                 }
                 SettingsRow(title: "Куда") {
                     if model.config.destinations.isEmpty {
@@ -246,6 +249,7 @@ struct SourceEditor: View {
                     tip: "Команда должна сложить результат в папку $BACKUP_OUTPUT_DIR.\nДля временных файлов есть $BACKUP_SCRATCH_DIR."
                 ) {
                     Stepper("\(draft.timeoutMinutes) мин", value: $draft.timeoutMinutes, in: 1...720)
+                    .pointing()
                 }
             }
         case .manualExport:
@@ -266,10 +270,12 @@ struct SourceEditor: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .pointing()
                 }
                 SettingsRow(title: "После бэкапа убирать файл в Корзину") {
                     Toggle("", isOn: $draft.removeOriginal)
                         .toggleStyle(.switch)
+                        .pointing()
                         .controlSize(.small)
                         .labelsHidden()
                 }

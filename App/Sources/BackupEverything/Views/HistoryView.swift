@@ -47,7 +47,7 @@ struct RunRow: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         CopyButton(text: failure)
                             .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.borderlessPointing)
                             .help("Скопировать ошибку")
                     }
                 }
