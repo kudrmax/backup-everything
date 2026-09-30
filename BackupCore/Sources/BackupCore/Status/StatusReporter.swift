@@ -15,6 +15,7 @@ public enum AttentionItem: Sendable, Equatable {
     case severelyOverdue(sourceId: UUID)
     case manualExportDue(sourceId: UUID)
     case filesAwaitingPickup(sourceId: UUID, fileCount: Int, totalBytes: Int64, downloadInProgress: Bool)
+    case stepAwaitingFile(sourceId: UUID)
     case noDestinations(sourceId: UUID)
     case destinationUnavailable(destinationId: UUID)
     case connectDestination(destinationId: UUID)
@@ -60,11 +61,15 @@ public struct StatusReporter: Sendable {
                 items.append(.noDestinations(sourceId: source.id))
                 continue
             }
-            if let message = sourceState.lastError {
+            if let message = sourceState.chain?.failure ?? sourceState.lastError {
                 items.append(.runFailed(sourceId: source.id, message: message))
             }
             if planner.isSeverelyOverdue(source, state: sourceState, now: now) {
                 items.append(.severelyOverdue(sourceId: source.id))
+            }
+            if source.isStepChain {
+                items.append(contentsOf: chainItems(source, state: sourceState, now: now))
+                continue
             }
             guard source.isManualExport else { continue }
             if let scan = inboxScans[source.id], !scan.files.isEmpty {
@@ -90,5 +95,15 @@ public struct StatusReporter: Sendable {
             }
         }
         return StatusReport(items: items)
+    }
+
+    private func chainItems(_ source: Source, state: SourceState, now: Date) -> [AttentionItem] {
+        let steps = source.steps
+        guard let chain = state.chain else {
+            let waitsForHuman = steps.first?.isManual == true && planner.isDue(source, state: state, now: now)
+            return waitsForHuman ? [.manualExportDue(sourceId: source.id)] : []
+        }
+        guard chain.failure == nil, chain.stepIndex < steps.count, steps[chain.stepIndex].isManual else { return [] }
+        return [.stepAwaitingFile(sourceId: source.id)]
     }
 }

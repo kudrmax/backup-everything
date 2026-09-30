@@ -521,4 +521,18 @@ struct BackupCoordinatorTests {
         time.advance(23 * 3600)
         #expect(try await coordinator.tick().runs.count == 1)
     }
+
+    @Test func idleChainRemindsAboutItsFirstManualStep() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        let idle = try await coordinator.tick()
+        #expect(idle.runs.isEmpty)
+        #expect(idle.notices == [.manualExportDue(sourceId: source.id, sourceName: "Claude")])
+        #expect(try await coordinator.statusReport().items == [.manualExportDue(sourceId: source.id)])
+
+        time.advance(3600)
+        #expect(try await coordinator.tick().notices.isEmpty)
+    }
 }

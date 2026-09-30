@@ -7,6 +7,7 @@ enum SourceStatus: Equatable {
     case overdue
     case noDestinations
     case filesFound(count: Int, bytes: Int64, downloading: Bool)
+    case awaitingFile
     case exportDue
     case neverRun
     case ok
@@ -22,6 +23,7 @@ enum SourceStatus: Equatable {
             case let .filesAwaitingPickup(id, count, bytes, downloading) where id == source.id:
                 found.append(.filesFound(count: count, bytes: bytes, downloading: downloading))
             case let .manualExportDue(id) where id == source.id: found.append(.exportDue)
+            case let .stepAwaitingFile(id) where id == source.id: found.append(.awaitingFile)
             default: break
             }
         }
@@ -31,7 +33,7 @@ enum SourceStatus: Equatable {
     var severity: OverallStatus {
         switch self {
         case .failed, .overdue: .error
-        case .noDestinations, .filesFound, .exportDue: .attention
+        case .noDestinations, .filesFound, .awaitingFile, .exportDue: .attention
         case .disabled, .neverRun, .ok: .ok
         }
     }
@@ -44,6 +46,7 @@ enum SourceStatus: Equatable {
         case .noDestinations: "Не выбрано, куда бэкапить"
         case let .filesFound(count, bytes, downloading):
             "Найдено файлов: \(count), \(Texts.bytes(bytes))" + (downloading ? ". Идёт загрузка" : "")
+        case .awaitingFile: "Ждёт файл для следующего шага"
         case .exportDue: "Пора сделать экспорт"
         case .neverRun: "Ещё не запускался"
         case .ok: "В порядке"
@@ -64,6 +67,7 @@ enum SourceStatus: Equatable {
         case .noDestinations: "не выбрано, куда бэкапить"
         case let .filesFound(count, bytes, downloading):
             "\(Texts.files(count)) · \(Texts.bytes(bytes))" + (downloading ? " · идёт загрузка" : "")
+        case .awaitingFile: "ждёт файл"
         case .exportDue: "пора сделать экспорт"
         }
     }
@@ -74,8 +78,9 @@ enum SourceStatus: Equatable {
         case .overdue: 1
         case .noDestinations: 2
         case .filesFound: 3
-        case .exportDue: 4
-        case .disabled, .neverRun, .ok: 5
+        case .awaitingFile: 4
+        case .exportDue: 5
+        case .disabled, .neverRun, .ok: 6
         }
     }
 }

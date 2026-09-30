@@ -115,4 +115,36 @@ struct StatusReporterTests {
         state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-08-29 10:00:00") }
         #expect(report([source], state, unavailable: [disk.id]).items == [.connectDestination(destinationId: disk.id)])
     }
+
+    @Test func stepChainReportsWhereItIsStuck() {
+        let now = Fixtures.date("2026-09-28 10:00:00")
+        let cloud = Fixtures.localDestination("Cloud", at: URL(fileURLWithPath: "/tmp/cloud"))
+        let steps = [
+            SourceStep(name: "Открыть страницу", kind: .command(command: "true", timeoutSeconds: 60)),
+            SourceStep(name: "Файл", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "x-*.csv", includeInCopy: true)),
+        ]
+        let chain = Fixtures.source(name: "Chain", kind: .steps(steps: steps), schedule: .manual, destinations: [cloud])
+        let manualFirst = Fixtures.source(
+            name: "Claude",
+            kind: .steps(steps: [steps[1], steps[0]]),
+            schedule: .monthly,
+            destinations: [cloud],
+            createdAt: Fixtures.date("2026-09-01 00:00:00")
+        )
+        let config = Config(sources: [chain, manualFirst], destinations: [cloud])
+        let reporter = StatusReporter(planner: SchedulePlanner(calendar: Fixtures.calendar))
+        func items(_ state: AppState) -> [AttentionItem] {
+            reporter.report(config: config, state: state, now: now, unavailableDestinations: [], inboxScans: [:]).items
+        }
+
+        var state = AppState()
+        #expect(items(state) == [.manualExportDue(sourceId: manualFirst.id)])
+
+        state.updateSource(chain.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now) }
+        state.updateSource(manualFirst.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "Команда завершилась с кодом 1. нет архивов") }
+        #expect(items(state) == [
+            .stepAwaitingFile(sourceId: chain.id),
+            .runFailed(sourceId: manualFirst.id, message: "Команда завершилась с кодом 1. нет архивов"),
+        ])
+    }
 }

@@ -52,6 +52,7 @@ struct OverviewTextsTests {
         #expect(SourceStatus.filesFound(count: 3, bytes: 12_000_000_000, downloading: false).note == "3 файла · 12 ГБ")
         #expect(SourceStatus.filesFound(count: 1, bytes: 5_000_000, downloading: true).note == "1 файл · 5 МБ · идёт загрузка")
         #expect(SourceStatus.exportDue.note == "пора сделать экспорт")
+        #expect(SourceStatus.awaitingFile.note == "ждёт файл")
         #expect(SourceStatus.noDestinations.note == "не выбрано, куда бэкапить")
         #expect(SourceStatus.overdue.note == "давно не было бэкапа")
     }
@@ -97,5 +98,22 @@ struct OverviewTextsTests {
         #expect(MenuBarTint.of(.ok) == .standard)
         #expect(MenuBarTint.of(.attention) == .attention)
         #expect(MenuBarTint.of(.error) == .error)
+    }
+
+    @Test func chainWaitingForAFileNeedsAttention() {
+        let cloud = Destination(name: "Cloud", kind: .localFolder(path: "/tmp/cloud"))
+        let source = Source(
+            name: "Chain",
+            slug: "chain",
+            kind: .steps(steps: []),
+            schedule: .manual,
+            destinationIds: [cloud.id],
+            createdAt: now
+        )
+        let report = StatusReport(items: [.stepAwaitingFile(sourceId: source.id)])
+        let status = SourceStatus.of(source, report: report, lastRun: now)
+        #expect(status == .awaitingFile)
+        #expect(status.severity == .attention)
+        #expect(LiveReport.of(report, running: [source.id]).items.isEmpty)
     }
 }
