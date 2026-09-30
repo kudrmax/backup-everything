@@ -3,44 +3,41 @@ import SwiftUI
 
 struct RetentionEditor: View {
     @Binding var rules: RetentionRules
-    let schedule: Schedule
     let showCopies: (() -> Void)?
-
-    @State private var isCustom: Bool
-
-    init(rules: Binding<RetentionRules>, schedule: Schedule, showCopies: (() -> Void)?) {
-        _rules = rules
-        self.schedule = schedule
-        self.showCopies = showCopies
-        let preset = RetentionPreset.matching(rules.wrappedValue)
-        _isCustom = State(initialValue: preset.map { !RetentionPreset.offered(for: schedule).contains($0) } ?? true)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("За какой срок")
-                Spacer()
-                Picker("", selection: selection) {
-                    ForEach(RetentionPreset.offered(for: schedule)) { Text($0.title).tag(Optional($0)) }
-                    Text("своё").tag(RetentionPreset?.none)
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 8) {
+                ForEach(RetentionPlan.stages(rules)) { stage in
+                    GridRow {
+                        Text(stage.prefix)
+                            .gridColumnAlignment(.trailing)
+                        Stepper(value: count(of: stage.unit), in: 0...range(of: stage.unit)) {
+                            Text("\(stage.count)").monospacedDigit()
+                        }
+                        .gridColumnAlignment(.trailing)
+                        Text(stage.unitName)
+                        Text(stage.effect)
+                            .fixedSize()
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 8)
+                    }
+                    .opacity(stage.isKept ? 1 : 0.45)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+                if keepsHistory {
+                    GridRow {
+                        Text("Потом")
+                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                        Text("удаляются")
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 8)
+                    }
+                }
             }
-            RetentionTimeline(steps: RetentionPlan.steps(rules))
-            Text(RetentionPlan.explanation(rules, schedule: schedule))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if isCustom {
-                VStack(spacing: 6) {
-                    stepRow("По копии на каждый день", unit: .day, value: $rules.daily, range: 0...365)
-                    stepRow("По копии на каждую неделю", unit: .week, value: $rules.weekly, range: 0...104)
-                    stepRow("По копии на каждый месяц", unit: .month, value: $rules.monthly, range: 0...120)
-                    stepRow("По копии на каждый год", unit: .year, value: $rules.yearly, range: 0...50)
-                }
+            if !keepsHistory {
+                Text("Хранится только самая свежая копия.")
+                    .foregroundStyle(.secondary)
             }
             if let showCopies {
                 Button("Показать копии по датам…", action: showCopies)
@@ -49,77 +46,25 @@ struct RetentionEditor: View {
         }
     }
 
-    private var selection: Binding<RetentionPreset?> {
-        Binding(
-            get: { isCustom ? nil : RetentionPreset.matching(rules) },
-            set: { preset in
-                isCustom = preset == nil
-                if let preset { rules = preset.rules }
-            }
-        )
+    private var keepsHistory: Bool {
+        RetentionPlan.stages(rules).contains(where: \.isKept)
     }
 
-    private func stepRow(_ title: String, unit: RetentionStep.Unit, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Stepper(value: value, in: range) {
-                Text(value.wrappedValue == 0 ? "не хранить" : "за \(RetentionStep(unit: unit, count: value.wrappedValue).span)")
-                    .monospacedDigit()
-                    .foregroundStyle(value.wrappedValue == 0 ? .secondary : .primary)
-            }
-        }
-    }
-}
-
-struct RetentionTimeline: View {
-    private static let dotLimit = 12
-
-    let steps: [RetentionStep]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("сегодня")
-                Rectangle().fill(.separator).frame(height: 1)
-                Text("раньше")
-            }
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            HStack(alignment: .top, spacing: 20) {
-                if steps.isEmpty {
-                    segment(dots: 1, gap: 0, title: "последняя копия", subtitle: "")
-                }
-                ForEach(steps) { step in
-                    segment(dots: min(step.count, Self.dotLimit), gap: gap(of: step.unit), title: step.rhythm, subtitle: step.length)
-                }
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func segment(dots: Int, gap: CGFloat, title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: gap) {
-                ForEach(0..<dots, id: \.self) { _ in
-                    Circle().fill(.tint).frame(width: 7, height: 7)
-                }
-            }
-            .frame(height: 10)
-            Text(title).font(.caption)
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
-        }
-        .fixedSize()
-    }
-
-    private func gap(of unit: RetentionStep.Unit) -> CGFloat {
+    private func count(of unit: RetentionStage.Unit) -> Binding<Int> {
         switch unit {
-        case .day: 3
-        case .week: 8
-        case .month: 11
-        case .year: 16
+        case .day: $rules.daily
+        case .week: $rules.weekly
+        case .month: $rules.monthly
+        case .year: $rules.yearly
+        }
+    }
+
+    private func range(of unit: RetentionStage.Unit) -> Int {
+        switch unit {
+        case .day: 365
+        case .week: 104
+        case .month: 120
+        case .year: 50
         }
     }
 }

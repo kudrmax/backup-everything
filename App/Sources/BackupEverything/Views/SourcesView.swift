@@ -167,7 +167,7 @@ struct SourceEditor: View {
             kindCard
             SettingsSection(title: "Дополнительно") {
                 DisclosureRow(title: "Хранить копии", summary: RetentionPlan.summary(draft.retention)) {
-                    RetentionEditor(rules: $draft.retention, schedule: draft.schedule, showCopies: isNew ? nil : {
+                    RetentionEditor(rules: $draft.retention, showCopies: isNew ? nil : {
                         let source = draft.build()
                         Task { previews = await model.retentionPreview(for: source) }
                     })

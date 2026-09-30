@@ -7,53 +7,58 @@ struct RetentionPlanTests {
         RetentionRules(daily: daily, weekly: weekly, monthly: monthly, yearly: yearly)
     }
 
-    @Test func standardRulesAreTheYearPreset() {
-        #expect(RetentionPreset.matching(.standard) == .year)
-        #expect(RetentionPreset.matching(rules(7, 0, 0, 0)) == .week)
-        #expect(RetentionPreset.matching(rules(7, 4, 12, 5)) == .fiveYears)
-        #expect(RetentionPreset.matching(rules(0, 8, 12, 0)) == nil)
+    private func sentences(_ rules: RetentionRules) -> [String] {
+        RetentionPlan.stages(rules).filter(\.isKept).map { "\($0.prefix) \($0.count) \($0.unitName) — \($0.effect)" }
     }
 
-    @Test func presetsShorterThanTheScheduleAreNotOffered() {
-        #expect(RetentionPreset.offered(for: .daily) == [.week, .month, .year, .fiveYears])
-        #expect(RetentionPreset.offered(for: .manual) == [.week, .month, .year, .fiveYears])
-        #expect(RetentionPreset.offered(for: .weekly) == [.month, .year, .fiveYears])
-        #expect(RetentionPreset.offered(for: .monthly) == [.year, .fiveYears])
+    @Test func stagesTellWhatHappensToACopyAsItAges() {
+        #expect(sentences(.standard) == [
+            "Первые 7 дней — хранятся все копии",
+            "Потом до 4 недель — остаётся одна в неделю",
+            "Потом до 12 месяцев — остаётся одна в месяц",
+        ])
+        #expect(sentences(rules(7, 4, 12, 5)).last == "Потом до 5 лет — остаётся одна в год")
+    }
+
+    @Test func storyStartsFromTheFirstStageThatKeepsCopies() {
+        #expect(sentences(rules(0, 4, 6, 0)) == [
+            "Первые 4 недели — остаётся одна в неделю",
+            "Потом до 6 месяцев — остаётся одна в месяц",
+        ])
+        #expect(sentences(rules(0, 0, 0, 2)) == ["Первые 2 года — остаётся одна в год"])
+    }
+
+    @Test func wordsAgreeWithTheNumber() {
+        #expect(sentences(rules(1, 1, 1, 1)) == [
+            "Первый 1 день — хранятся все копии",
+            "Потом до 1 недели — остаётся одна в неделю",
+            "Потом до 1 месяца — остаётся одна в месяц",
+            "Потом до 1 года — остаётся одна в год",
+        ])
+        #expect(sentences(rules(0, 1, 0, 0)) == ["Первую 1 неделю — остаётся одна в неделю"])
+        #expect(sentences(rules(3, 21, 2, 11)) == [
+            "Первые 3 дня — хранятся все копии",
+            "Потом до 21 недели — остаётся одна в неделю",
+            "Потом до 2 месяцев — остаётся одна в месяц",
+            "Потом до 11 лет — остаётся одна в год",
+        ])
+    }
+
+    @Test func skippedStagesStayInPlaceSoTheyCanBeTurnedOn() {
+        let stages = RetentionPlan.stages(rules(7, 0, 12, 0))
+        #expect(stages.map(\.unit) == [.day, .week, .month, .year])
+        #expect(stages.map(\.isKept) == [true, false, true, false])
+        #expect(stages[1].prefix == "—")
+        #expect(stages[1].unitName == "недель")
+        #expect(stages[1].effect == "не используется")
+        #expect(RetentionPlan.stages(rules(0, 4, 0, 0))[0].unitName == "дней")
     }
 
     @Test func summaryNamesHowFarBackCopiesGo() {
-        #expect(RetentionPlan.summary(.standard) == "за год")
-        #expect(RetentionPlan.summary(rules(7, 0, 0, 0)) == "за неделю")
-        #expect(RetentionPlan.summary(rules(0, 4, 6, 0)) == "за 6 месяцев")
-        #expect(RetentionPlan.summary(rules(3, 0, 0, 0)) == "за 3 дня")
-        #expect(RetentionPlan.summary(rules(0, 1, 0, 0)) == "за 1 неделю")
-        #expect(RetentionPlan.summary(rules(0, 0, 0, 2)) == "за 2 года")
+        #expect(RetentionPlan.summary(.standard) == "до 12 месяцев")
+        #expect(RetentionPlan.summary(rules(7, 0, 0, 0)) == "до 7 дней")
+        #expect(RetentionPlan.summary(rules(0, 1, 0, 0)) == "до 1 недели")
+        #expect(RetentionPlan.summary(rules(7, 4, 12, 5)) == "до 5 лет")
         #expect(RetentionPlan.summary(rules(0, 0, 0, 0)) == "только последнюю копию")
-    }
-
-    @Test func stepsSkipEmptyRulesAndSayHowOftenACopyIsKept() {
-        #expect(RetentionPlan.steps(rules(7, 0, 12, 0)).map(\.label) == ["7 дней — каждый день", "12 месяцев — раз в месяц"])
-        #expect(RetentionPlan.steps(rules(0, 1, 0, 5)).map(\.label) == ["1 неделя — раз в неделю", "5 лет — раз в год"])
-        #expect(RetentionPlan.steps(rules(0, 0, 0, 0)).isEmpty)
-    }
-
-    @Test func explanationSaysWhatYouCanGoBackTo() {
-        #expect(RetentionPlan.explanation(.standard, schedule: .daily)
-            == "Можно вернуться к любому дню за 7 дней, к любой неделе за 4 недели и к любому месяцу за 12 месяцев. Всё, что старше, удаляется само.")
-        #expect(RetentionPlan.explanation(rules(7, 0, 0, 0), schedule: .daily)
-            == "Можно вернуться к любому дню за 7 дней. Всё, что старше, удаляется само.")
-    }
-
-    @Test func explanationLeavesOutStepsFinerThanTheSchedule() {
-        #expect(RetentionPlan.explanation(.standard, schedule: .weekly)
-            == "Можно вернуться к любой неделе за 4 недели и к любому месяцу за 12 месяцев. Всё, что старше, удаляется само.")
-        #expect(RetentionPlan.explanation(rules(7, 4, 12, 5), schedule: .monthly)
-            == "Можно вернуться к любому месяцу за 12 месяцев и к любому году за 5 лет. Всё, что старше, удаляется само.")
-        #expect(RetentionPlan.explanation(rules(7, 0, 0, 0), schedule: .monthly)
-            == "Хранятся 7 последних копий. Всё, что старше, удаляется само.")
-    }
-
-    @Test func explanationOfEmptyRules() {
-        #expect(RetentionPlan.explanation(rules(0, 0, 0, 0), schedule: .daily) == "Хранится только самая свежая копия.")
     }
 }
