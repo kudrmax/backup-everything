@@ -556,4 +556,24 @@ struct BackupCoordinatorTests {
 
         #expect(try await coordinator.tick().runs.map(\.sourceName) == ["Obsidian", "Claude"])
     }
+
+    @Test func newManifestHeldBackByAnUnfinishedDownloadIsReported() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud], command: "exit 1")
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+        #expect(try await coordinator.tick().runs.count == 1)
+
+        time.advance(600)
+        try temp.file("Downloads/manifest-b.json", "{}", modified: start.addingTimeInterval(300))
+        let leftover = try temp.file("Downloads/conversations-000.zip.crdownload", "partial", modified: start.addingTimeInterval(300))
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(try await coordinator.statusReport().items == [
+            .filesAwaitingPickup(sourceId: source.id, fileCount: 1, totalBytes: 2, downloadInProgress: true),
+        ])
+
+        try FileManager.default.removeItem(at: leftover)
+        #expect(try await coordinator.tick().runs.count == 1)
+        #expect(temp.names(in: "work/chains/\(source.id.uuidString)/input") == ["manifest-b.json"])
+    }
 }

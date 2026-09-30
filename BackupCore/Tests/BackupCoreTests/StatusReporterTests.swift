@@ -147,4 +147,33 @@ struct StatusReporterTests {
             .runFailed(sourceId: manualFirst.id, message: "Команда завершилась с кодом 1. нет архивов"),
         ])
     }
+
+    @Test func chainBlockedByAnUnfinishedDownloadSaysSoInsteadOfTheOldError() {
+        let now = Fixtures.date("2026-09-28 10:00:00")
+        let cloud = Fixtures.localDestination("Cloud", at: URL(fileURLWithPath: "/tmp/cloud"))
+        let steps = [
+            SourceStep(name: "Файл", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: false)),
+            SourceStep(name: "Команда", kind: .command(command: "true", timeoutSeconds: 60)),
+        ]
+        let source = Fixtures.source(name: "Claude", kind: .steps(steps: steps), schedule: .manual, destinations: [cloud])
+        var state = AppState()
+        state.updateSource(source.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "ссылки сгорели") }
+        let reporter = StatusReporter(planner: SchedulePlanner(calendar: Fixtures.calendar))
+        func items(_ scan: InboxScan) -> [AttentionItem] {
+            reporter.report(
+                config: Config(sources: [source], destinations: [cloud]),
+                state: state,
+                now: now,
+                unavailableDestinations: [],
+                inboxScans: [source.id: scan]
+            ).items
+        }
+        let manifest = URL(fileURLWithPath: "/tmp/manifest-b.json")
+
+        #expect(items(InboxScan(files: [manifest], totalBytes: 2, downloadInProgress: true)) == [
+            .filesAwaitingPickup(sourceId: source.id, fileCount: 1, totalBytes: 2, downloadInProgress: true),
+        ])
+        #expect(items(InboxScan(files: [manifest], totalBytes: 2, downloadInProgress: false)) == [.runFailed(sourceId: source.id, message: "ссылки сгорели")])
+        #expect(items(.empty) == [.runFailed(sourceId: source.id, message: "ссылки сгорели")])
+    }
 }

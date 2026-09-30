@@ -2,12 +2,14 @@ import Foundation
 
 public struct ChainState: Codable, Sendable, Equatable {
     public var stepIndex: Int
+    public var stepId: UUID?
     public var startedAt: Date
     public var stepEnteredAt: Date
     public var failure: String?
 
-    public init(stepIndex: Int, startedAt: Date, stepEnteredAt: Date, failure: String? = nil) {
+    public init(stepIndex: Int, stepId: UUID? = nil, startedAt: Date, stepEnteredAt: Date, failure: String? = nil) {
         self.stepIndex = stepIndex
+        self.stepId = stepId
         self.startedAt = startedAt
         self.stepEnteredAt = stepEnteredAt
         self.failure = failure

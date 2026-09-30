@@ -46,6 +46,16 @@ struct StepChainRunnerTests {
         Fixtures.source(name: "Claude", kind: .steps(steps: steps), schedule: .monthly, createdAt: created)
     }
 
+    private func chain(_ source: Source, _ index: Int, startedAt: Date, stepEnteredAt: Date, failure: String? = nil) -> ChainState {
+        ChainState(
+            stepIndex: index,
+            stepId: index < source.steps.count ? source.steps[index].id : nil,
+            startedAt: startedAt,
+            stepEnteredAt: stepEnteredAt,
+            failure: failure
+        )
+    }
+
     private func writeArchive(_ call: FakeProcessRunner.Call) throws -> ProcessResult {
         let output = URL(fileURLWithPath: call.environment["BACKUP_OUTPUT_DIR"]!)
         try Data("zip".utf8).write(to: output.appendingPathComponent("archive.zip"))
@@ -65,7 +75,7 @@ struct StepChainRunnerTests {
 
         try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
         let moved = await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly)
-        #expect(moved == .moved(ChainState(stepIndex: 1, startedAt: start, stepEnteredAt: start)))
+        #expect(moved == .moved(chain(source, 1, startedAt: start, stepEnteredAt: start)))
         #expect(temp.names(in: "Downloads").isEmpty)
         #expect(temp.names(in: chainFolder(source, "input")) == ["manifest-a.json"])
         #expect(temp.names(in: chainFolder(source, "output")).isEmpty)
@@ -119,7 +129,7 @@ struct StepChainRunnerTests {
         }
         time.advance(10)
         let afterCommand = await runner.advance(source, chain: afterFile, lastPickup: nil, permissions: tickOnly)
-        #expect(afterCommand == .moved(ChainState(stepIndex: 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(10))))
+        #expect(afterCommand == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(10))))
         #expect(seen.get() == ["manifest-a.json"])
         #expect(events.get() == [
             .collecting(sourceId: source.id),
@@ -161,13 +171,13 @@ struct StepChainRunnerTests {
 
         shouldFail.set(false)
         let retried = await runner.advance(source, chain: failed, lastPickup: nil, permissions: allowAll)
-        #expect(retried == .moved(ChainState(stepIndex: 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(7200))))
+        #expect(retried == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(7200))))
     }
 
     @Test func freshFirstStepFileRestartsAStuckChain() async throws {
         defer { temp.remove() }
         let source = source([manual("manifest-*.json"), command()])
-        let failed = ChainState(stepIndex: 1, startedAt: start, stepEnteredAt: start, failure: "ссылки сгорели")
+        let failed = chain(source, 1, startedAt: start, stepEnteredAt: start, failure: "ссылки сгорели")
         try temp.file("chains/\(source.id.uuidString)/input/manifest-a.json", "{}")
         try temp.file("chains/\(source.id.uuidString)/output/partial.zip", "zip")
         let runner = runner()
@@ -179,7 +189,7 @@ struct StepChainRunnerTests {
         #expect(!temp.exists("chains/\(source.id.uuidString)"))
 
         let restarted = await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly)
-        #expect(restarted == .moved(ChainState(stepIndex: 1, startedAt: start.addingTimeInterval(600), stepEnteredAt: start.addingTimeInterval(600))))
+        #expect(restarted == .moved(chain(source, 1, startedAt: start.addingTimeInterval(600), stepEnteredAt: start.addingTimeInterval(600))))
         #expect(temp.names(in: chainFolder(source, "input")) == ["manifest-b.json"])
     }
 
@@ -190,13 +200,13 @@ struct StepChainRunnerTests {
 
         #expect(await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly) == .stay)
         let started = await runner.advance(source, chain: nil, lastPickup: nil, permissions: ChainPermissions(mayStart: true, mayRetry: false))
-        #expect(started == .moved(ChainState(stepIndex: 1, startedAt: start, stepEnteredAt: start)))
+        #expect(started == .moved(chain(source, 1, startedAt: start, stepEnteredAt: start)))
     }
 
     @Test func laterManualStepTakesOnlyFilesThatAppearedAfterThePreviousStep() async throws {
         defer { temp.remove() }
         let source = source([command("Открыть страницу"), manual("export-*.csv", includeInCopy: true)])
-        let waiting = ChainState(stepIndex: 1, startedAt: start, stepEnteredAt: start)
+        let waiting = chain(source, 1, startedAt: start, stepEnteredAt: start)
         let runner = runner()
 
         time.advance(600)
@@ -205,7 +215,7 @@ struct StepChainRunnerTests {
 
         try temp.file("Downloads/export-new.csv", "new", modified: start.addingTimeInterval(300))
         let moved = await runner.advance(source, chain: waiting, lastPickup: nil, permissions: tickOnly)
-        #expect(moved == .moved(ChainState(stepIndex: 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(600))))
+        #expect(moved == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(600))))
         #expect(temp.names(in: "Downloads") == ["export-old.csv"])
         #expect(temp.names(in: chainFolder(source, "output")) == ["export-new.csv"])
     }
@@ -228,7 +238,7 @@ struct StepChainRunnerTests {
     @Test func chainIsResetWhenStepsWereRemoved() async throws {
         defer { temp.remove() }
         let source = source([command()])
-        let stale = ChainState(stepIndex: 3, startedAt: start, stepEnteredAt: start)
+        let stale = chain(source, 3, startedAt: start, stepEnteredAt: start)
         try temp.file("chains/\(source.id.uuidString)/input/manifest-a.json", "{}")
         #expect(await runner().advance(source, chain: stale, lastPickup: nil, permissions: tickOnly) == .moved(nil))
         #expect(temp.names(in: "trash") == ["manifest-a.json"])
@@ -242,7 +252,7 @@ struct StepChainRunnerTests {
     @Test func newManifestDoesNotDiscardAChainThatIsStillMoving() async throws {
         defer { temp.remove() }
         let source = source([manual("manifest-*.json"), command()])
-        let ready = ChainState(stepIndex: 1, startedAt: start, stepEnteredAt: start)
+        let ready = chain(source, 1, startedAt: start, stepEnteredAt: start)
         try temp.file("chains/\(source.id.uuidString)/input/manifest-a.json", "{}")
         let runner = runner { [self] call in try writeArchive(call) }
 
@@ -267,8 +277,46 @@ struct StepChainRunnerTests {
         let source = source([command()])
         try temp.file("handover/archive.zip", "zip")
         let stored = try inbox.adopt(sourceId: source.id, directory: temp.path("handover"), at: start.addingTimeInterval(30))
-        let assembling = ChainState(stepIndex: 1, startedAt: start, stepEnteredAt: start.addingTimeInterval(30))
+        let assembling = chain(source, 1, startedAt: start, stepEnteredAt: start.addingTimeInterval(30))
 
         #expect(await runner().advance(source, chain: assembling, lastPickup: nil, permissions: tickOnly) == .completed(stored))
+    }
+
+    @Test(arguments: [[1, 2], [0, 2, 1]])
+    func chainIsResetWhenTheStepItStoppedOnIsNoLongerInPlace(order: [Int]) async throws {
+        defer { temp.remove() }
+        let original = source([manual("manifest-*.json"), command("Скачать"), command("Распаковать")])
+        let position = chain(original, 1, startedAt: start, stepEnteredAt: start)
+        var edited = original
+        edited.kind = .steps(steps: order.map { original.steps[$0] })
+        try temp.file("chains/\(original.id.uuidString)/input/manifest-a.json", "{}")
+        let calls = LockedBox(0)
+        let runner = runner { _ in
+            calls.set(calls.get() + 1)
+            return ProcessResult(exitCode: 0)
+        }
+
+        #expect(await runner.advance(edited, chain: position, lastPickup: nil, permissions: allowAll) == .moved(nil))
+        #expect(calls.get() == 0)
+        #expect(temp.names(in: "trash") == ["manifest-a.json"])
+    }
+
+    @Test func runnerTellsWhichFilesAChainIsWaitingFor() async throws {
+        defer { temp.remove() }
+        let source = source([manual("manifest-*.json"), command()])
+        let runner = runner()
+        #expect(runner.awaitedFiles(source, chain: nil, lastPickup: nil) == .empty)
+
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+        try temp.file("Downloads/archive.zip.crdownload", "partial", modified: start.addingTimeInterval(-60))
+        let blocked = try #require(runner.awaitedFiles(source, chain: nil, lastPickup: nil))
+        #expect(blocked.files.map(\.lastPathComponent) == ["manifest-a.json"])
+        #expect(blocked.downloadInProgress)
+        #expect(await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly) == .stay)
+
+        let failed = chain(source, 1, startedAt: start.addingTimeInterval(-3600), stepEnteredAt: start.addingTimeInterval(-3600), failure: "x")
+        #expect(runner.awaitedFiles(source, chain: failed, lastPickup: nil)?.files.count == 1)
+        let running = chain(source, 1, startedAt: start.addingTimeInterval(-3600), stepEnteredAt: start.addingTimeInterval(-3600))
+        #expect(runner.awaitedFiles(source, chain: running, lastPickup: nil) == nil)
     }
 }

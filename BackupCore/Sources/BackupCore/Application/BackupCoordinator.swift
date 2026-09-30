@@ -380,8 +380,12 @@ public actor BackupCoordinator {
         }
         var scans: [UUID: InboxScan] = [:]
         for source in config.sources where source.enabled {
+            let sourceState = state.sourceState(source.id)
+            if source.isStepChain {
+                scans[source.id] = chains.awaitedFiles(source, chain: sourceState.chain, lastPickup: sourceState.lastPickup)
+            }
             guard case let .manualExport(watchPath, filePattern, _, _) = source.kind else { continue }
-            let since = state.sourceState(source.id).lastPickup ?? source.createdAt
+            let since = sourceState.lastPickup ?? source.createdAt
             scans[source.id] = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: since, now: now)
         }
         return reporter.report(config: config, state: state, now: now, unavailableDestinations: unavailable, inboxScans: scans)

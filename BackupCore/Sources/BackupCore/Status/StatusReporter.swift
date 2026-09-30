@@ -61,11 +61,21 @@ public struct StatusReporter: Sendable {
                 items.append(.noDestinations(sourceId: source.id))
                 continue
             }
-            if let message = sourceState.chain?.failure ?? sourceState.lastError {
+            let heldBack = source.isStepChain ? inboxScans[source.id].flatMap { $0.downloadInProgress && !$0.files.isEmpty ? $0 : nil } : nil
+            if let message = (heldBack == nil ? sourceState.chain?.failure : nil) ?? sourceState.lastError {
                 items.append(.runFailed(sourceId: source.id, message: message))
             }
             if planner.isSeverelyOverdue(source, state: sourceState, now: now) {
                 items.append(.severelyOverdue(sourceId: source.id))
+            }
+            if let heldBack {
+                items.append(.filesAwaitingPickup(
+                    sourceId: source.id,
+                    fileCount: heldBack.files.count,
+                    totalBytes: heldBack.totalBytes,
+                    downloadInProgress: true
+                ))
+                continue
             }
             if source.isStepChain {
                 items.append(contentsOf: chainItems(source, state: sourceState, now: now))
