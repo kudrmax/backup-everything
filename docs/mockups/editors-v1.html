@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Источники и назначения — варианты</title>
+<style>
+  :root {
+    --page: #dcdcde; --win: #f4f4f5; --side: #e6e6e8; --card: #ffffff; --line: rgba(0,0,0,.09); --text: #1d1d1f; --muted: #6e6e73; --hover: rgba(0,0,0,.045);
+    --green: #30b14c; --orange: #f0892b; --red: #e5443b; --blue: #2f7cf6; --grey: #b4b4b9; --field: rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --page: #141414; --win: #1e1e1e; --side: #2c2c2e; --card: #2a2a2a; --line: rgba(255,255,255,.09); --text: #f2f2f2; --muted: #a0a0a5; --hover: rgba(255,255,255,.06); --grey: #6a6a6e; --field: rgba(255,255,255,.07); }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 20px 80px; background: var(--page); color: var(--text);
+         font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 17px; font-weight: 600; margin: 40px 0 4px; }
+  h1:first-child { margin-top: 0; }
+  .q { color: var(--muted); margin: 0 0 14px; }
+  .variant { display: flex; align-items: center; gap: 8px; margin: 22px 0 8px; font-weight: 600; }
+  .variant span { background: var(--text); color: var(--page); border-radius: 5px; padding: 1px 7px; font-size: 12px; }
+  .variant i { font-style: normal; font-weight: 400; color: var(--green); font-size: 12px; }
+  .moment { font-size: 11px; color: var(--muted); margin: 12px 0 5px 4px; }
+  svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+  .win { display: grid; grid-template-columns: 128px minmax(0,1fr); background: var(--win); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .side { background: var(--side); padding: 10px 8px; font-size: 12px; border-right: 1px solid var(--line); }
+  .side div { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; color: var(--text); }
+  .side div svg { color: var(--blue); width: 14px; height: 14px; }
+  .side .on { background: var(--blue); color: #fff; } .side .on svg { color: #fff; }
+  .main { padding: 16px 18px 18px; min-width: 0; }
+  .main.split { padding: 0; display: grid; grid-template-columns: 170px minmax(0,1fr); }
+  .main.split > .col { padding: 14px 10px; border-right: 1px solid var(--line); }
+  .main.split > .pane { padding: 16px 18px 18px; min-width: 0; }
+
+  .head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; min-height: 24px; }
+  .head h2 { font-size: 15px; font-weight: 600; margin: 0; white-space: nowrap; }
+  .head .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .head .sp { flex: 1; }
+  .back { display: inline-flex; align-items: center; gap: 2px; color: var(--blue); font-size: 12px; margin-bottom: 10px; }
+  .back svg { width: 12px; height: 12px; }
+  .btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 2px 9px; font-size: 12px; white-space: nowrap; }
+  .btn svg { width: 12px; height: 12px; }
+  .btn.pri { background: var(--blue); color: #fff; border-color: transparent; }
+  .ico { color: var(--muted); display: inline-flex; }
+
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .list + .list { margin-top: 12px; }
+  .cap { font-size: 11px; color: var(--muted); margin: 14px 0 5px 14px; text-transform: uppercase; letter-spacing: .04em; }
+  .row { display: grid; grid-template-columns: 18px minmax(0,1fr) auto auto; align-items: center; gap: 12px; padding: 0 14px; height: 40px; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: none; }
+  .row.hov { background: var(--hover); }
+  .row.off { color: var(--muted); }
+  .row > svg:first-child { color: var(--muted); }
+  .title { display: flex; align-items: baseline; gap: 10px; overflow: hidden; }
+  .title b { font-weight: 500; white-space: nowrap; }
+  .title span { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title span.o { color: var(--orange); }
+  .when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .chev { color: var(--grey); width: 12px; height: 12px; }
+  .dests { display: flex; gap: 12px; align-items: center; color: var(--muted); }
+
+  .d { position: relative; display: inline-flex; }
+  .d.g { color: var(--green); } .d.o { color: var(--orange); } .d.n { color: var(--grey); }
+  .d em { position: absolute; left: 9px; top: 8px; width: 11px; height: 11px; border-radius: 50%; background: currentColor; border: 1.5px solid var(--card); display: grid; place-items: center; font-style: normal; }
+  .d em::after { content: attr(data-m); color: #fff; font-size: 7px; font-weight: 800; line-height: 1; }
+
+  .f { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 14px; min-height: 38px; border-top: 1px solid var(--line); }
+  .f:first-child { border-top: none; }
+  .f .v { color: var(--muted); display: flex; align-items: center; gap: 8px; min-width: 0; text-align: right; }
+  .f .v.t { color: var(--text); }
+  .mono { font: 11.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
+  .sel { display: inline-flex; align-items: center; gap: 3px; color: var(--text); }
+  .sel svg { width: 11px; height: 11px; color: var(--muted); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px 2px 7px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .chip svg { width: 13px; height: 13px; }
+  .chip.on { background: rgba(47,124,246,.15); color: var(--blue); border-color: transparent; }
+  .tog { width: 28px; height: 16px; border-radius: 8px; background: var(--blue); position: relative; flex: none; }
+  .tog::after { content: ""; position: absolute; right: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+  .tog.no { background: var(--grey); } .tog.no::after { right: auto; left: 2px; }
+  .inrow { background: var(--field); border-top: 1px solid var(--line); padding: 10px 14px 12px 44px; display: grid; gap: 8px; }
+  .inrow .f { border: none; padding: 0; min-height: 24px; }
+  .savebar { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 10px 8px 14px; border-radius: 10px; background: rgba(47,124,246,.12); color: var(--blue); font-size: 12px; }
+  .savebar .sp { flex: 1; }
+  .hint { color: var(--muted); font-size: 11.5px; margin: 6px 4px 0 14px; }
+  .col .it { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 6px; font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+  .col .it svg { width: 14px; height: 14px; color: var(--muted); }
+  .col .it.on { background: var(--hover); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .two .win { grid-template-columns: minmax(0,1fr); }
+  @media (max-width: 640px) { .two { grid-template-columns: 1fr; } .win { grid-template-columns: minmax(0,1fr); } .side { display: none; } .main.split { grid-template-columns: 120px minmax(0,1fr); } }
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="drive" viewBox="0 0 16 16"><path d="M3.5 3h9l2 6v4h-13V9l2-6zM1.5 9h13M11 11.2h1"/></symbol>
+  <symbol id="cloud" viewBox="0 0 16 16"><path d="M4.5 12.5a3 3 0 010-6 4 4 0 017.6 1.2 2.4 2.4 0 01-.6 4.8h-7z"/></symbol>
+  <symbol id="folder" viewBox="0 0 16 16"><path d="M1.5 4.5v8h13v-7H8l-1.5-2h-5v1zM1.5 7h13"/></symbol>
+  <symbol id="term" viewBox="0 0 16 16"><path d="M1.5 3h13v10h-13zM4 6.5l2 1.5-2 1.5M8 10h3"/></symbol>
+  <symbol id="hand" viewBox="0 0 16 16"><path d="M8 2v7M5.5 6.5L8 9l2.5-2.5M2 10v3.5h12V10"/></symbol>
+  <symbol id="gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></symbol>
+  <symbol id="grid" viewBox="0 0 16 16"><path d="M2.5 2.5h4.5v4.5h-4.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5h-4.5zM9 9h4.5v4.5H9z"/></symbol>
+  <symbol id="clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.2 1.5"/></symbol>
+  <symbol id="right" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5"/></symbol>
+  <symbol id="left" viewBox="0 0 16 16"><path d="M10 3L5 8l5 5"/></symbol>
+  <symbol id="down" viewBox="0 0 16 16"><path d="M3 6l5 5 5-5"/></symbol>
+  <symbol id="updown" viewBox="0 0 16 16"><path d="M5 6l3-3 3 3M5 10l3 3 3-3"/></symbol>
+  <symbol id="plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="dots" viewBox="0 0 16 16"><path d="M3.5 8h.01M8 8h.01M12.5 8h.01" stroke-width="2.4"/></symbol>
+  <symbol id="pause" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M6.5 5.8v4.4M9.5 5.8v4.4"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<h1>Вопрос 1. Как устроен раздел «Источники»</h1>
+<p class="q">Сейчас: узкий список из трёх имён + длинная форма, в которой всё одинаково важно. «Назначения» будут устроены так же, как выберешь здесь.</p>
+
+<!-- ───────── 1А ───────── -->
+<div class="variant"><span>1А</span>Список как на обзоре → клик открывает страницу источника <i>советую</i></div>
+<p class="moment">раздел: видно, что, как часто и куда бэкапится</p>
+<div class="win">
+  <div class="side">
+    <div><svg><use href="#grid"/></svg>Обзор</div><div class="on"><svg><use href="#hand"/></svg>Источники</div><div><svg><use href="#drive"/></svg>Назначения</div><div><svg><use href="#clock"/></svg>История</div>
+  </div>
+  <div class="main">
+    <div class="head"><h2>Источники</h2><span class="sp"></span><span class="btn"><svg><use href="#plus"/></svg>Добавить</span></div>
+    <div class="list">
+      <div class="row hov"><svg><use href="#folder"/></svg><div class="title"><b>Obsidian</b><span>каждый день</span></div><div class="dests"><svg><use href="#drive"/></svg><svg><use href="#drive"/></svg><svg><use href="#cloud"/></svg></div><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row"><svg><use href="#term"/></svg><div class="title"><b>Bitwarden</b><span>раз в неделю</span></div><div class="dests"><svg><use href="#drive"/></svg><svg><use href="#drive"/></svg></div><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row"><svg><use href="#hand"/></svg><div class="title"><b>Google Photos</b><span>раз в месяц · вручную</span></div><div class="dests"><svg><use href="#drive"/></svg></div><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row off"><svg><use href="#pause"/></svg><div class="title"><b>GitHub</b><span>выключен</span></div><div class="dests"><svg><use href="#drive"/></svg></div><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row"><svg><use href="#gear"/></svg><div class="title"><b>Настройки Backup Everything</b><span>каждый день</span></div><div class="dests"><svg><use href="#drive"/></svg></div><svg class="chev"><use href="#right"/></svg></div>
+    </div>
+  </div>
+</div>
+<p class="moment">после клика по «Obsidian» — страница источника (так выглядит и в 1Б, и в 1В, меняется только место)</p>
+<div class="win">
+  <div class="side">
+    <div><svg><use href="#grid"/></svg>Обзор</div><div class="on"><svg><use href="#hand"/></svg>Источники</div><div><svg><use href="#drive"/></svg>Назначения</div><div><svg><use href="#clock"/></svg>История</div>
+  </div>
+  <div class="main">
+    <div class="back"><svg><use href="#left"/></svg>Источники</div>
+    <div class="head"><span class="ico"><svg><use href="#folder"/></svg></span><h2>Obsidian</h2><span class="sp"></span><span class="tog"></span><span class="ico"><svg><use href="#dots"/></svg></span></div>
+    <div class="list">
+      <div class="f"><span>Папка</span><span class="v t">~/Documents/Obsidian <span class="btn">Выбрать…</span></span></div>
+      <div class="f"><span>Не копировать</span><span class="v mono">.trash, *.tmp</span></div>
+    </div>
+    <div class="list">
+      <div class="f"><span>Запускать</span><span class="sel">Каждый день<svg><use href="#updown"/></svg></span></div>
+      <div class="f"><span>Куда</span><span class="chips"><span class="chip on"><svg><use href="#drive"/></svg>Папка на ноуте</span><span class="chip on"><svg><use href="#drive"/></svg>Внешний HDD</span><span class="chip on"><svg><use href="#cloud"/></svg>Облако</span></span></div>
+    </div>
+    <div class="list">
+      <div class="f"><span>Хранить</span><span class="v">7 дней · 4 недели · 12 месяцев<svg class="chev"><use href="#right"/></svg></span></div>
+      <div class="f"><span>Инструкция</span><span class="v">нет<svg class="chev"><use href="#right"/></svg></span></div>
+    </div>
+  </div>
+</div>
+<p class="hint">Выключатель и «⋯» (удалить) — в шапке. Редкое (хранение, инструкция) свёрнуто в одну строку и раскрывается по клику. Тип источника выбирается при добавлении и дальше не меняется — он виден по значку.</p>
+
+<!-- ───────── 1Б ───────── -->
+<div class="variant"><span>1Б</span>Строка раскрывается на месте</div>
+<div class="win">
+  <div class="side">
+    <div><svg><use href="#grid"/></svg>Обзор</div><div class="on"><svg><use href="#hand"/></svg>Источники</div><div><svg><use href="#drive"/></svg>Назначения</div><div><svg><use href="#clock"/></svg>История</div>
+  </div>
+  <div class="main">
+    <div class="head"><h2>Источники</h2><span class="sp"></span><span class="btn"><svg><use href="#plus"/></svg>Добавить</span></div>
+    <div class="list">
+      <div class="row"><svg><use href="#folder"/></svg><div class="title"><b>Obsidian</b><span>каждый день</span></div><div class="dests"><span class="tog"></span><svg><use href="#dots"/></svg></div><svg class="chev"><use href="#down"/></svg></div>
+      <div class="inrow">
+        <div class="f"><span>Папка</span><span class="v t">~/Documents/Obsidian <span class="btn">Выбрать…</span></span></div>
+        <div class="f"><span>Не копировать</span><span class="v mono">.trash, *.tmp</span></div>
+        <div class="f"><span>Запускать</span><span class="sel">Каждый день<svg><use href="#updown"/></svg></span></div>
+        <div class="f"><span>Куда</span><span class="chips"><span class="chip on"><svg><use href="#drive"/></svg>Папка на ноуте</span><span class="chip on"><svg><use href="#drive"/></svg>Внешний HDD</span><span class="chip on"><svg><use href="#cloud"/></svg>Облако</span></span></div>
+        <div class="f"><span>Хранить</span><span class="v">7 дней · 4 недели · 12 месяцев<svg class="chev"><use href="#right"/></svg></span></div>
+        <div class="f"><span>Инструкция</span><span class="v">нет<svg class="chev"><use href="#right"/></svg></span></div>
+      </div>
+      <div class="row"><svg><use href="#term"/></svg><div class="title"><b>Bitwarden</b><span>раз в неделю</span></div><div class="dests"><svg><use href="#drive"/></svg><svg><use href="#drive"/></svg></div><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row"><svg><use href="#hand"/></svg><div class="title"><b>Google Photos</b><span>раз в месяц · вручную</span></div><div class="dests"><svg><use href="#drive"/></svg></div><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row off"><svg><use href="#pause"/></svg><div class="title"><b>GitHub</b><span>выключен</span></div><div class="dests"><svg><use href="#drive"/></svg></div><svg class="chev"><use href="#right"/></svg></div>
+    </div>
+  </div>
+</div>
+<p class="hint">Всё на одном экране, но длинные вещи (команда Bitwarden, инструкция) распирают список.</p>
+
+<!-- ───────── 1В ───────── -->
+<div class="variant"><span>1В</span>Два столбца, как сейчас, только в стиле обзора</div>
+<div class="win">
+  <div class="side">
+    <div><svg><use href="#grid"/></svg>Обзор</div><div class="on"><svg><use href="#hand"/></svg>Источники</div><div><svg><use href="#drive"/></svg>Назначения</div><div><svg><use href="#clock"/></svg>История</div>
+  </div>
+  <div class="main split">
+    <div class="col">
+      <div class="it on"><svg><use href="#folder"/></svg>Obsidian</div>
+      <div class="it"><svg><use href="#term"/></svg>Bitwarden</div>
+      <div class="it"><svg><use href="#hand"/></svg>Google Photos</div>
+      <div class="it" style="color:var(--muted)"><svg><use href="#pause"/></svg>GitHub</div>
+      <div class="it"><svg><use href="#gear"/></svg>Настройки Backup…</div>
+      <div class="it" style="color:var(--blue)"><svg style="color:var(--blue)"><use href="#plus"/></svg>Добавить</div>
+    </div>
+    <div class="pane">
+      <div class="head"><span class="ico"><svg><use href="#folder"/></svg></span><h2>Obsidian</h2><span class="sp"></span><span class="tog"></span><span class="ico"><svg><use href="#dots"/></svg></span></div>
+      <div class="list">
+        <div class="f"><span>Папка</span><span class="v t">~/Documents/Obsidian <span class="btn">Выбрать…</span></span></div>
+        <div class="f"><span>Не копировать</span><span class="v mono">.trash, *.tmp</span></div>
+      </div>
+      <div class="list">
+        <div class="f"><span>Запускать</span><span class="sel">Каждый день<svg><use href="#updown"/></svg></span></div>
+        <div class="f"><span>Куда</span><span class="chips"><span class="chip on"><svg><use href="#drive"/></svg>Папка на ноуте</span><span class="chip on"><svg><use href="#drive"/></svg>Внешний HDD</span><span class="chip on"><svg><use href="#cloud"/></svg>Облако</span></span></div>
+      </div>
+      <div class="list">
+        <div class="f"><span>Хранить</span><span class="v">7 дн · 4 нед · 12 мес<svg class="chev"><use href="#right"/></svg></span></div>
+        <div class="f"><span>Инструкция</span><span class="v">нет<svg class="chev"><use href="#right"/></svg></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="hint">Быстро переключаться между источниками, но в списке снова только имена, а места под настройки меньше.</p>
+
+
+<h1>Вопрос 2. Когда сохраняются изменения</h1>
+<p class="q">Сейчас «Удалить / Отменить / Сохранить» висят внизу всегда, даже если ничего не менял.</p>
+
+<div class="two">
+  <div>
+    <div class="variant"><span>2А</span>Сразу, без кнопок</div>
+    <div class="win"><div class="main">
+      <div class="head"><span class="ico"><svg><use href="#folder"/></svg></span><h2>Obsidian</h2><span class="sp"></span><span class="tog"></span><span class="ico"><svg><use href="#dots"/></svg></span></div>
+      <div class="list">
+        <div class="f"><span>Запускать</span><span class="sel">Раз в неделю<svg><use href="#updown"/></svg></span></div>
+        <div class="f"><span>Куда</span><span class="chips"><span class="chip on"><svg><use href="#drive"/></svg>Папка на ноуте</span><span class="chip"><svg><use href="#drive"/></svg>Внешний HDD</span></span></div>
+      </div>
+    </div></div>
+    <p class="hint">Как в настройках macOS. Поменял — уже действует. Отменить случайную правку нельзя.</p>
+  </div>
+  <div>
+    <div class="variant"><span>2Б</span>Планка появляется, когда что-то изменил <i>советую</i></div>
+    <div class="win"><div class="main">
+      <div class="head"><span class="ico"><svg><use href="#folder"/></svg></span><h2>Obsidian</h2><span class="sp"></span><span class="tog"></span><span class="ico"><svg><use href="#dots"/></svg></span></div>
+      <div class="list">
+        <div class="f"><span>Запускать</span><span class="sel">Раз в неделю<svg><use href="#updown"/></svg></span></div>
+        <div class="f"><span>Куда</span><span class="chips"><span class="chip on"><svg><use href="#drive"/></svg>Папка на ноуте</span><span class="chip"><svg><use href="#drive"/></svg>Внешний HDD</span></span></div>
+      </div>
+      <div class="savebar">Есть изменения<span class="sp"></span><span class="btn">Отменить</span><span class="btn pri">Сохранить</span></div>
+    </div></div>
+    <p class="hint">Пока ничего не трогал — планки нет. Недописанная команда не запустится сама.</p>
+  </div>
+</div>
+
+
+<h1>Как будут выглядеть «Назначения»</h1>
+<p class="q">Показано в структуре 1А. Здесь выбирать нечего — просто посмотри, всё ли понятно.</p>
+
+<p class="moment">раздел</p>
+<div class="win">
+  <div class="side">
+    <div><svg><use href="#grid"/></svg>Обзор</div><div><svg><use href="#hand"/></svg>Источники</div><div class="on"><svg><use href="#drive"/></svg>Назначения</div><div><svg><use href="#clock"/></svg>История</div>
+  </div>
+  <div class="main">
+    <div class="head"><h2>Назначения</h2><span class="sp"></span><span class="btn"><svg><use href="#plus"/></svg>Добавить</span></div>
+    <div class="list">
+      <div class="row"><span class="d g"><svg><use href="#drive"/></svg><em data-m="✓"></em></span><div class="title"><b>Папка на ноуте</b><span>всегда на связи</span></div><span class="when">1,5 ГБ</span><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row"><span class="d o"><svg><use href="#drive"/></svg><em data-m="◷"></em></span><div class="title"><b>Внешний HDD</b><span class="o">пора подключить · ждут 3 источника</span></div><span class="when">212 ГБ</span><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row"><span class="d g"><svg><use href="#cloud"/></svg><em data-m="✓"></em></span><div class="title"><b>Облако</b><span>всегда на связи</span></div><span class="when">48 ГБ</span><svg class="chev"><use href="#right"/></svg></div>
+    </div>
+    <p class="hint">Значок с меткой — тот же, что на обзоре: зелёный — на связи и всё получил, оранжевый — ждёт. Подробности при наведении.</p>
+  </div>
+</div>
+
+<p class="moment">после клика по «Папка на ноуте»</p>
+<div class="win">
+  <div class="side">
+    <div><svg><use href="#grid"/></svg>Обзор</div><div><svg><use href="#hand"/></svg>Источники</div><div class="on"><svg><use href="#drive"/></svg>Назначения</div><div><svg><use href="#clock"/></svg>История</div>
+  </div>
+  <div class="main">
+    <div class="back"><svg><use href="#left"/></svg>Назначения</div>
+    <div class="head"><span class="d g"><svg><use href="#drive"/></svg><em data-m="✓"></em></span><h2>Папка на ноуте</h2><span class="sub">1,5 ГБ</span><span class="sp"></span><span class="ico"><svg><use href="#dots"/></svg></span></div>
+    <div class="list">
+      <div class="f"><span>Папка</span><span class="v t">~/Files/BackupsTest <span class="btn">Выбрать…</span></span></div>
+      <div class="f"><span>Подключение</span><span class="sel">Всегда на связи<svg><use href="#updown"/></svg></span></div>
+    </div>
+    <div class="cap">Копии</div>
+    <div class="list">
+      <div class="row"><svg><use href="#folder"/></svg><div class="title"><b>Obsidian</b><span>14 копий</span></div><span class="when">5 мин</span><svg class="chev"><use href="#down"/></svg></div>
+      <div class="inrow">
+        <div class="f"><span>сегодня, 18:21</span><span class="v">412 МБ <span class="ico"><svg><use href="#folder"/></svg></span></span></div>
+        <div class="f"><span>вчера, 09:00</span><span class="v">411 МБ</span></div>
+        <div class="f"><span>28 сентября, 09:00</span><span class="v">409 МБ</span></div>
+        <div class="f"><span class="v">ещё 11…</span><span></span></div>
+      </div>
+      <div class="row"><svg><use href="#term"/></svg><div class="title"><b>Bitwarden</b><span>6 копий</span></div><span class="when">2 дн</span><svg class="chev"><use href="#right"/></svg></div>
+      <div class="row"><svg><use href="#gear"/></svg><div class="title"><b>Настройки Backup Everything</b><span>9 копий</span></div><span class="when">5 мин</span><svg class="chev"><use href="#right"/></svg></div>
+    </div>
+    <p class="hint">«Доступность: Доступно» стала меткой на значке. «Последний полный догон» ушёл в подсказку при наведении на значок. Копии свёрнуты по источникам; при наведении на копию — значок «показать в Finder».</p>
+  </div>
+</div>
+
+<p class="moment">диск, который подключается время от времени</p>
+<div class="win"><div class="side">
+    <div><svg><use href="#grid"/></svg>Обзор</div><div><svg><use href="#hand"/></svg>Источники</div><div class="on"><svg><use href="#drive"/></svg>Назначения</div><div><svg><use href="#clock"/></svg>История</div>
+  </div><div class="main">
+  <div class="back"><svg><use href="#left"/></svg>Назначения</div>
+  <div class="head"><span class="d o"><svg><use href="#drive"/></svg><em data-m="◷"></em></span><h2>Внешний HDD</h2><span class="sub" style="color:var(--orange)">пора подключить · ждут Obsidian, Bitwarden, Google Photos</span><span class="sp"></span><span class="ico"><svg><use href="#dots"/></svg></span></div>
+  <div class="list">
+    <div class="f"><span>Папка</span><span class="v t">/Volumes/Backup/everything <span class="btn">Выбрать…</span></span></div>
+    <div class="f"><span>Подключение</span><span class="sel">Время от времени<svg><use href="#updown"/></svg></span></div>
+    <div class="f"><span>Напоминать, если не подключал</span><span class="sel">30 дней<svg><use href="#updown"/></svg></span></div>
+  </div>
+</div></div>
+
+</div>
+</body>
+</html>
