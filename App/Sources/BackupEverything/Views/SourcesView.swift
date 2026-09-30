@@ -16,12 +16,15 @@ struct SourcesView: View {
             }
             .foregroundStyle(source.enabled ? .primary : .secondary)
         } addMenu: {
-            ForEach(SourceKindChoice.allCases) { choice in
-                Button(choice.title) { start(model.newSource(from: nil), as: choice) }
+            Section("Из шаблона") {
+                ForEach(model.templates) { template in
+                    Button(template.name) { start(model.newSource(from: template), as: nil) }
+                }
             }
-            Divider()
-            ForEach(model.templates) { template in
-                Button(template.name) { start(model.newSource(from: template), as: nil) }
+            Section("Пустой, выбрать тип") {
+                ForEach(SourceKindChoice.allCases) { choice in
+                    Button(choice.title) { start(model.newSource(from: nil), as: choice) }
+                }
             }
         } detail: {
             if let draft {
@@ -165,6 +168,11 @@ struct SourceEditor: View {
                 }
             }
             kindCard
+            if draft.kindChoice == .manualExport {
+                SettingsSection(title: "Инструкция: как выгружать файл") {
+                    instructionsEditor.padding(10)
+                }
+            }
             SettingsSection(title: "Дополнительно") {
                 DisclosureRow(title: "Хранить копии", summary: RetentionPlan.summary(draft.retention)) {
                     RetentionEditor(rules: $draft.retention, showCopies: isNew ? nil : {
@@ -172,13 +180,10 @@ struct SourceEditor: View {
                         Task { previews = await model.retentionPreview(for: source) }
                     })
                 }
-                DisclosureRow(title: "Инструкция", summary: instructionsSummary) {
-                    TextEditor(text: $draft.instructions)
-                        .font(.body)
-                        .scrollContentBackground(.hidden)
-                        .padding(6)
-                        .frame(minHeight: 120)
-                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                if draft.kindChoice != .manualExport {
+                    DisclosureRow(title: "Инструкция", summary: instructionsSummary) {
+                        instructionsEditor
+                    }
                 }
             }
         } saveBar: {
@@ -207,11 +212,20 @@ struct SourceEditor: View {
         }
     }
 
+    private var instructionsEditor: some View {
+        TextEditor(text: $draft.instructions)
+            .font(.body)
+            .scrollContentBackground(.hidden)
+            .padding(6)
+            .frame(minHeight: 120)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+
     @ViewBuilder
     private var kindCard: some View {
         switch draft.kindChoice {
         case .folder:
-            SettingsSection(title: "Что бэкапить") {
+            SettingsSection(title: "Что бэкапить · тип «Папка»") {
                 SettingsRow(title: "Папка или файл") {
                     PathField(path: $draft.folderPath, allowsFiles: true)
                 }
@@ -223,7 +237,7 @@ struct SourceEditor: View {
                 }
             }
         case .command:
-            SettingsSection(title: "Что бэкапить: результат команды") {
+            SettingsSection(title: "Что бэкапить · тип «Команда»: результат команды") {
                 CodeEditor(text: $draft.command, minHeight: 130)
                     .padding(10)
                 SettingsRow(
@@ -234,7 +248,7 @@ struct SourceEditor: View {
                 }
             }
         case .manualExport:
-            SettingsSection(title: "Что бэкапить: файл, который ты выгружаешь сам") {
+            SettingsSection(title: "Что бэкапить · тип «Ручной экспорт»: файл, который ты выгружаешь сам") {
                 SettingsRow(title: "Куда попадает файл") {
                     PathField(path: $draft.watchPath)
                 }
