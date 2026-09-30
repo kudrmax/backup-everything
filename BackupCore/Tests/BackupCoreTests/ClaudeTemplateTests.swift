@@ -67,6 +67,10 @@ struct ClaudeTemplateTests {
         }
     }
 
+    private func stillDownloading(_ name: String) -> String {
+        "Не скачались архивы: \(name). Ещё не докачались: \(name). Когда загрузка закончится, повторите шаг; если она прервалась, удалите незавершённые файлы в папке загрузок и повторите шаг."
+    }
+
     private var opened: [String] {
         ((try? String(contentsOf: temp.path("opened.txt"), encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
     }
@@ -132,7 +136,7 @@ struct ClaudeTemplateTests {
         try temp.file("Downloads/memories-000.zip", "partial")
         try temp.file("Downloads/memories-000.zip.part", "partial")
 
-        #expect(await failure(opener: "/usr/bin/true").hasSuffix("Не скачались архивы: memories-000.zip. В папке загрузок остались незавершённые файлы .part — если загрузка уже не идёт, удалите их и повторите шаг."))
+        #expect(await failure(opener: "/usr/bin/true").hasSuffix(stillDownloading("memories-000.zip")))
         #expect(opened.isEmpty)
         #expect(temp.names(in: "output").isEmpty)
         #expect(temp.names(in: "Downloads") == ["memories-000.zip", "memories-000.zip.part"])
@@ -176,5 +180,17 @@ struct ClaudeTemplateTests {
 
         #expect(opened == ["https://claude.ai/export/x/download/2"])
         #expect(temp.names(in: "output") == ["memories-000.zip", "projects-000.zip"])
+    }
+
+    @Test func chromeDownloadInProgressIsNeitherReopenedNorTakenForAStaleFile() async throws {
+        defer { temp.remove() }
+        try manifest([two[0]])
+        try temp.file("Downloads/memories-000.zip", "")
+        try temp.file("Downloads/memories-000.zip.crdownload", "partial")
+        let opener = try fakeBrowser([:])
+
+        #expect(await failure(opener: opener).hasSuffix(stillDownloading("memories-000.zip")))
+        #expect(opened.isEmpty)
+        #expect(temp.names(in: "Downloads") == ["memories-000.zip", "memories-000.zip.crdownload"])
     }
 }

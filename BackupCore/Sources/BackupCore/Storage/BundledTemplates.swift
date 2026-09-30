@@ -166,8 +166,16 @@ enum BundledTemplates {
                       born="$(stat -f %B "$1")"; changed="$(stat -f %m "$1")"
                       echo $(( born > changed ? born : changed ))
                     }
+                    # Firefox дописывает .part, Chrome и Arc — .crdownload, Safari — .download
+                    in_progress() {
+                      local suffix
+                      for suffix in part crdownload download; do
+                        if [ -e "$downloads/$1.$suffix" ]; then return 0; fi
+                      done
+                      return 1
+                    }
                     downloaded() {
-                      [ -s "$downloads/$1" ] && [ ! -e "$downloads/$1.part" ] && [ "$(age_mark "$downloads/$1")" -gt "$since" ]
+                      [ -s "$downloads/$1" ] && ! in_progress "$1" && [ "$(age_mark "$downloads/$1")" -gt "$since" ]
                     }
 
                     # Переносит скачанный архив в копию; успех и тогда, когда он уже там
@@ -179,13 +187,13 @@ enum BundledTemplates {
 
                     for ((i = 1; i <= total; i++)); do
                       collect "$names[i]" && continue
-                      if [ -e "$downloads/$names[i]" ] && [ ! -e "$downloads/$names[i].part" ]; then
+                      if [ -e "$downloads/$names[i]" ] && ! in_progress "$names[i]" && [ "$(age_mark "$downloads/$names[i]")" -le "$since" ]; then
                         echo "В папке загрузок лежит старый файл $names[i]. Уберите его и повторите шаг." >&2
                         exit 1
                       fi
                     done
                     for ((i = 1; i <= total; i++)); do
-                      [ -s "$BACKUP_OUTPUT_DIR/$names[i]" ] || [ -e "$downloads/$names[i].part" ] || $opener "$urls[i]"
+                      [ -s "$BACKUP_OUTPUT_DIR/$names[i]" ] || in_progress "$names[i]" || $opener "$urls[i]"
                     done
 
                     deadline=$(( $(date +%s) + wait_seconds ))
@@ -197,12 +205,14 @@ enum BundledTemplates {
                       if [ "$ready" -ne "$reported" ]; then echo "скачано $ready из $total"; reported=$ready; fi
                       [ ${#left} -eq 0 ] && break
                       if [ "$(date +%s)" -ge "$deadline" ]; then
-                        advice="Запросите экспорт заново."
+                        busy=()
                         for name in $left; do
-                          if [ -e "$downloads/$name.part" ]; then
-                            advice="В папке загрузок остались незавершённые файлы .part — если загрузка уже не идёт, удалите их и повторите шаг."
-                          fi
+                          if in_progress "$name"; then busy+=("$name"); fi
                         done
+                        advice="Запросите экспорт заново."
+                        if [ ${#busy} -gt 0 ]; then
+                          advice="Ещё не докачались: ${(j:, :)busy}. Когда загрузка закончится, повторите шаг; если она прервалась, удалите незавершённые файлы в папке загрузок и повторите шаг."
+                        fi
                         echo "Не скачались архивы: ${(j:, :)left}. $advice" >&2
                         exit 1
                       fi
