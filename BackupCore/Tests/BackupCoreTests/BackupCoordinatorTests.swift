@@ -29,6 +29,14 @@ struct BackupCoordinatorTests {
             try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)"))
         }
         let runner = SystemProcessRunner()
+        let chains = StepChainRunner(
+            chainsRoot: temp.path("work/chains"),
+            inbox: inbox,
+            runner: runner,
+            time: time,
+            trash: { url in try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)")) },
+            progress: { [events] event in events.set(events.get() + [event]) }
+        )
         let stores = DefaultDestinationStoreFactory(runner: runner, rclone: RcloneLocator(candidates: []), naming: Fixtures.naming)
         let engine = BackupEngine(
             providers: DefaultSourceProviderFactory(runner: runner, stagingRoot: temp.path("work/staging"), inbox: inbox),
@@ -42,6 +50,7 @@ struct BackupCoordinatorTests {
             store: store,
             engine: engine,
             inbox: inbox,
+            chains: chains,
             stores: stores,
             time: time,
             calendar: Fixtures.calendar,
@@ -377,5 +386,139 @@ struct BackupCoordinatorTests {
         #expect(result.runs.map(\.trigger) == [.catchUp])
         #expect(temp.names(in: "second/obsidian") == ["2026-09-28_101000"])
         #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000"])
+    }
+
+    private func claude(_ destinations: [Destination], command: String = #"cp "$BACKUP_INPUT_DIR"/manifest-a.json "$BACKUP_OUTPUT_DIR/archive.zip""#) -> Source {
+        Fixtures.source(
+            name: "Claude",
+            kind: .steps(steps: [
+                SourceStep(name: "Запросить экспорт", kind: .manual(instructions: "", watchPath: temp.path("Downloads").path, filePattern: "manifest-*.json", includeInCopy: false)),
+                SourceStep(name: "Скачать архивы", kind: .command(command: command, timeoutSeconds: 60)),
+            ]),
+            schedule: .monthly,
+            destinations: destinations,
+            createdAt: created
+        )
+    }
+
+    @Test func stepChainDeliversWhatItsCommandProduced() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        #expect(try await coordinator.tick().runs.isEmpty)
+
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+        let result = try await coordinator.tick()
+
+        #expect(result.runs.map(\.trigger) == [.pickup])
+        #expect(result.runs.first?.firstFailure == nil)
+        #expect(temp.names(in: "cloud/claude/2026-09-28_100000") == ["_snapshot.json", "archive.zip"])
+        #expect(temp.names(in: "Downloads").isEmpty)
+        #expect(temp.names(in: "trash").sorted() == ["archive.zip", "manifest-a.json"])
+        let state = try store.loadState().sourceState(source.id)
+        #expect(state.chain == nil)
+        #expect(state.lastPickup == start)
+        #expect(state.lastRun == start)
+        #expect(try await coordinator.statusReport().overall == .ok)
+        #expect(events.get().contains(.step(sourceId: source.id, index: 1, count: 2)))
+        #expect(events.get().last == .finished(sourceId: source.id))
+    }
+
+    @Test func failedStepIsRecordedOnceAndWaitsForTheUser() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud], command: "echo 'Не скачались архивы: a.zip' >&2; exit 1")
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+
+        let failed = try await coordinator.tick()
+        let message = try #require(failed.runs.first?.collectError)
+        #expect(failed.runs.count == 1)
+        #expect(message.hasPrefix("Шаг 2 из 2 «Скачать архивы». Команда завершилась с кодом 1."))
+        #expect(message.hasSuffix("Не скачались архивы: a.zip"))
+        #expect(failed.notices.contains(.runFailed(sourceId: source.id, sourceName: "Claude", message: message)))
+        #expect(store.loadRuns().count == 1)
+        let stuck = try store.loadState().sourceState(source.id)
+        #expect(stuck.chain?.stepIndex == 1)
+        #expect(stuck.chain?.failure?.hasPrefix("Команда завершилась с кодом 1.") == true)
+        #expect(stuck.lastError == nil)
+        #expect(stuck.retryAfter == nil)
+        #expect(events.get().last == .finished(sourceId: source.id))
+
+        time.advance(2 * 3600)
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(try await coordinator.runAllNow().runs.isEmpty)
+        #expect(store.loadRuns().count == 1)
+
+        #expect(try await coordinator.runNow(sourceId: source.id).runs.count == 1)
+        #expect(store.loadRuns().count == 2)
+
+        _ = try await coordinator.restartChain(sourceId: source.id)
+        #expect(try store.loadState().sourceState(source.id).chain == nil)
+        #expect(temp.names(in: "trash") == ["manifest-a.json"])
+        #expect(!temp.exists("work/chains/\(source.id.uuidString)"))
+    }
+
+    @Test func chainPositionIsSavedBeforeTheCommandRuns() async throws {
+        defer { temp.remove() }
+        let stateFile = store.stateURL.path
+        let source = claude([cloud], command: #"grep -q '"stepIndex" : 1' '\#(stateFile)' && echo saved > "$BACKUP_OUTPUT_DIR/ok.txt""#)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+
+        let result = try await coordinator.tick()
+        #expect(result.runs.first?.firstFailure == nil)
+        #expect(temp.exists("cloud/claude/2026-09-28_100000/ok.txt"))
+    }
+
+    @Test func chainWithoutDestinationsLeavesTheFileAlone() async throws {
+        defer { temp.remove() }
+        let source = claude([])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(temp.names(in: "Downloads") == ["manifest-a.json"])
+        #expect(try store.loadState().sourceState(source.id).chain == nil)
+    }
+
+    @Test func finishedChainCatchesUpAnUnpluggedDiskFromPending() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud, disk])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+
+        _ = try await coordinator.tick()
+        #expect(temp.names(in: "cloud/claude") == ["2026-09-28_100000"])
+        #expect(try store.loadState().debts.map(\.destinationId) == [disk.id])
+        #expect(temp.names(in: "work/pending/\(source.id.uuidString)") == ["2026-09-28_100000"])
+
+        time.advance(86_400)
+        try temp.directory("hdd")
+        let caughtUp = try await coordinator.tick()
+        #expect(caughtUp.runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "hdd/claude") == ["2026-09-28_100000"])
+        #expect(try store.loadState().debts.isEmpty)
+        #expect(!temp.exists("work/pending/\(source.id.uuidString)"))
+    }
+
+    @Test func chainThatOpensWithACommandStartsOnSchedule() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(
+            name: "Отчёт",
+            kind: .steps(steps: [SourceStep(name: "Собрать", kind: .command(command: #"echo data > "$BACKUP_OUTPUT_DIR/report.txt""#, timeoutSeconds: 60))]),
+            schedule: .daily,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
+        #expect(temp.names(in: "cloud/отчёт") == ["2026-09-28_100000"])
+
+        time.advance(3600)
+        #expect(try await coordinator.tick().runs.isEmpty)
+        time.advance(23 * 3600)
+        #expect(try await coordinator.tick().runs.count == 1)
     }
 }

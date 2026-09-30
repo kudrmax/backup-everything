@@ -4,6 +4,7 @@ public actor BackupCoordinator {
     private let store: Store
     private let engine: BackupEngine
     private let inbox: ManualExportInbox
+    private let chains: StepChainRunner
     private let stores: any DestinationStoreFactory
     private let time: any TimeSource
     private let progress: ProgressHandler
@@ -13,10 +14,17 @@ public actor BackupCoordinator {
     private let reducer = StateReducer()
     private var queueTail: Task<Void, Never>?
 
+    private enum ChainMode {
+        case tick
+        case runAll
+        case runNow
+    }
+
     public init(
         store: Store,
         engine: BackupEngine,
         inbox: ManualExportInbox,
+        chains: StepChainRunner,
         stores: any DestinationStoreFactory,
         time: any TimeSource,
         calendar: Calendar,
@@ -25,6 +33,7 @@ public actor BackupCoordinator {
         self.store = store
         self.engine = engine
         self.inbox = inbox
+        self.chains = chains
         self.stores = stores
         self.time = time
         self.progress = progress
@@ -46,6 +55,10 @@ public actor BackupCoordinator {
 
     public func confirmPickup(sourceId: UUID) async throws -> TickResult {
         try await enqueue { try await self.performConfirmPickup(sourceId: sourceId) }
+    }
+
+    public func restartChain(sourceId: UUID) async throws -> TickResult {
+        try await enqueue { try await self.performRestartChain(sourceId: sourceId) }
     }
 
     public func statusReport() async throws -> StatusReport {
@@ -102,6 +115,9 @@ public actor BackupCoordinator {
             guard case let .manualExport(_, _, fileMode, _) = source.kind, fileMode == .single else { continue }
             try await pickUp(source, config: config, respectRetryDelay: true, state: &state, runs: &runs)
         }
+        for source in config.sources where source.enabled && source.isStepChain {
+            try await advanceChain(source, config: config, mode: .tick, state: &state, runs: &runs)
+        }
         for source in due {
             try await execute(source, config.destinations(of: source), .scheduled, state: &state, runs: &runs)
         }
@@ -118,7 +134,9 @@ public actor BackupCoordinator {
         guard let source = config.source(sourceId) else { return TickResult() }
         let destinations = config.destinations(of: source)
         guard !destinations.isEmpty else { return TickResult() }
-        if source.deliversFromPending {
+        if source.isStepChain {
+            try await advanceChain(source, config: config, mode: .runNow, state: &state, runs: &runs)
+        } else if source.isManualExport {
             try await pickUp(source, config: config, respectRetryDelay: false, state: &state, runs: &runs)
         } else {
             try await execute(source, destinations, .manual, state: &state, runs: &runs)
@@ -134,6 +152,9 @@ public actor BackupCoordinator {
         announce(sources)
         for source in sources {
             try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
+        }
+        for source in config.sources where source.enabled && source.isStepChain {
+            try await advanceChain(source, config: config, mode: .runAll, state: &state, runs: &runs)
         }
         return TickResult(runs: runs, notices: failureNotices(runs))
     }
@@ -221,6 +242,73 @@ public actor BackupCoordinator {
         state.updateSource(source.id) { $0.lastPickup = now }
         try store.saveState(state)
         try await execute(source, destinations, .pickup, state: &state, runs: &runs)
+    }
+
+    private func performRestartChain(sourceId: UUID) async throws -> TickResult {
+        var state = try store.loadState()
+        try chains.discard(sourceId: sourceId)
+        state.updateSource(sourceId) { $0.chain = nil }
+        try store.saveState(state)
+        return TickResult()
+    }
+
+    private func advanceChain(
+        _ source: Source,
+        config: Config,
+        mode: ChainMode,
+        state: inout AppState,
+        runs: inout [RunRecord]
+    ) async throws {
+        let destinations = config.destinations(of: source)
+        guard !destinations.isEmpty else { return }
+        var didWork = false
+        while true {
+            let sourceState = state.sourceState(source.id)
+            let startedAt = time.now
+            let permissions = ChainPermissions(
+                mayStart: mode != .tick || planner.isDue(source, state: sourceState, now: startedAt),
+                mayRetry: mode == .runNow && !didWork
+            )
+            let transition = await chains.advance(source, chain: sourceState.chain, lastPickup: sourceState.lastPickup, permissions: permissions)
+            switch transition {
+            case .stay:
+                if didWork { progress(.finished(sourceId: source.id)) }
+                return
+            case let .moved(chain):
+                didWork = true
+                state.updateSource(source.id) { $0.chain = chain }
+                try store.saveState(state)
+            case let .failed(chain):
+                state.updateSource(source.id) { $0.chain = chain }
+                try store.saveState(state)
+                let failure = RunRecord(
+                    sourceId: source.id,
+                    sourceName: source.name,
+                    trigger: .pickup,
+                    startedAt: startedAt,
+                    finishedAt: time.now,
+                    collectError: Self.stepFailure(chain, in: source)
+                )
+                try store.appendRun(failure)
+                runs.append(failure)
+                progress(.finished(sourceId: source.id))
+                return
+            case .completed:
+                state.updateSource(source.id) {
+                    $0.chain = nil
+                    $0.lastPickup = startedAt
+                }
+                try store.saveState(state)
+                try await execute(source, destinations, .pickup, state: &state, runs: &runs)
+                return
+            }
+        }
+    }
+
+    private static func stepFailure(_ chain: ChainState, in source: Source) -> String {
+        let steps = source.steps
+        let index = min(chain.stepIndex, steps.count - 1)
+        return "Шаг \(index + 1) из \(steps.count) «\(steps[index].name)». \(chain.failure ?? "")"
     }
 
     private func execute(
