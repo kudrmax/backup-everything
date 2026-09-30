@@ -143,6 +143,7 @@ struct SourceRow: View {
         .frame(height: 44)
         .background(isHovered ? AnyShapeStyle(.quaternary.opacity(0.6)) : AnyShapeStyle(.clear))
         .contentShape(Rectangle())
+        .onTapGesture(perform: edit)
         .onHover { isHovered = $0 }
         .sheet(isPresented: Binding(get: { shownError != nil }, set: { if !$0 { shownError = nil } })) {
             ErrorSheet(title: source.name, message: shownError ?? "")
@@ -241,41 +242,67 @@ struct SourceRow: View {
     }
 
     private var hoverActions: some View {
-        HStack(spacing: 6) {
-            if !source.isManualExport && ChainPosition.canRunNow(source, chain: model.chain(of: source.id)) {
-                Button {
+        let chain = model.chain(of: source.id)
+        return HStack(spacing: 4) {
+            if !source.isManualExport && ChainPosition.canRunNow(source, chain: chain) {
+                action(chain?.failure != nil ? "Повторить шаг" : "Запустить", symbol: "play.fill") {
                     Task { await model.runNow(source) }
-                } label: {
-                    Image(systemName: "play.fill")
                 }
                 .disabled(model.isWorking || destinations.isEmpty)
-                .help(model.chain(of: source.id)?.failure != nil ? "Повторить шаг" : "Запустить")
             }
+            if chain != nil {
+                action("Начать заново", symbol: "arrow.counterclockwise") {
+                    Task { await model.restartChain(source) }
+                }
+                .disabled(model.isWorking)
+            }
+            if !SourceGuide.text(for: source).isEmpty {
+                action("Инструкция", symbol: "book") { showsInstructions = true }
+            }
+            if let original = SourceLinks.original(of: source) {
+                action("Открыть оригинал", symbol: "folder") { model.reveal(original) }
+            }
+            copyAction
+            action("Изменить", symbol: "pencil", perform: edit)
+        }
+        .buttonStyle(.borderless)
+        .opacity(isHovered ? 1 : 0)
+    }
+
+    @ViewBuilder
+    private var copyAction: some View {
+        let places = SourceLinks.copies(of: source, config: model.config, state: model.state)
+        if places.count == 1, let place = places.first {
+            action("Открыть копию", symbol: "archivebox") {
+                if let folder = place.folder { model.reveal(folder) }
+            }
+            .disabled(place.folder == nil)
+            .help(place.unavailableReason.map { "Открыть копию: \($0.lowercased())" } ?? "Открыть копию")
+        } else if places.count > 1 {
             Menu {
-                if !SourceGuide.text(for: source).isEmpty {
-                    Button("Инструкция") { showsInstructions = true }
+                ForEach(places) { place in
+                    Button(place.unavailableReason.map { "\(place.destination.name) — \($0.lowercased())" } ?? place.destination.name) {
+                        if let folder = place.folder { model.reveal(folder) }
+                    }
+                    .disabled(place.folder == nil)
                 }
-                if let error = model.status(of: source).errorMessage {
-                    Button("Показать ошибку") { shownError = error }
-                }
-                if model.chain(of: source.id)?.failure != nil {
-                    Button("Повторить шаг") { Task { await model.runNow(source) } }
-                        .disabled(model.isWorking)
-                }
-                if model.chain(of: source.id) != nil {
-                    Button("Начать заново") { Task { await model.restartChain(source) } }
-                        .disabled(model.isWorking)
-                }
-                Button("Изменить", action: edit)
             } label: {
-                Image(systemName: "ellipsis")
+                Image(systemName: "archivebox")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .help("Открыть копию")
         }
-        .buttonStyle(.borderless)
-        .opacity(isHovered ? 1 : 0)
+    }
+
+    private func action(_ title: String, symbol: String, perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            Image(systemName: symbol)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .help(title)
     }
 
     private func deliveringName(_ stage: SourceStage) -> String? {

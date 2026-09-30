@@ -313,6 +313,19 @@ final class AppModel {
         return previews
     }
 
+    func reveal(_ url: URL) {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            problem = "Не найдено: \(url.path). Возможно, диск не подключён."
+            return
+        }
+        if isDirectory.boolValue {
+            NSWorkspace.shared.open(url)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+
     func localURL(of snapshot: Snapshot, source: Source, in destination: Destination) -> URL? {
         guard case let .localFolder(path) = destination.kind else { return nil }
         return AppPaths.expand(path).appendingPathComponent(source.slug).appendingPathComponent(snapshot.name)
