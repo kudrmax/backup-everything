@@ -1,8 +1,0 @@
-{
-  "id": "ios-finance",
-  "name": "Финансы (iOS)",
-  "kind": { "manualExport": { "watchPath": "~/Downloads", "filePattern": "", "fileMode": "single", "removeOriginal": true } },
-  "schedule": "monthly",
-  "retention": { "daily": 0, "weekly": 0, "monthly": 24, "yearly": 0 },
-  "instructions": "1. В приложении на iPhone откройте экспорт данных в CSV.\n2. Отправьте файл на Mac через AirDrop — он попадёт в «Загрузки».\n\nОбязательно укажите маску файла по имени, которое даёт ваше приложение, например `MoneyManager*.csv`. Пока маска пустая, ничего не подхватывается. Маску `*.csv` не используйте: под неё попадут любые CSV, включая экспорт паролей."
-}

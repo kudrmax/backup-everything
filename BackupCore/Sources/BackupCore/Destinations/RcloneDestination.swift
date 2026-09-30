@@ -76,6 +76,19 @@ public struct RcloneDestination: DestinationStore {
         try check(try await rclone(["purge", target(sourceSlug, snapshot.name)]))
     }
 
+    public func usedBytes() async throws -> Int64 {
+        struct Size: Decodable {
+            let bytes: Int64
+        }
+        let result = try await rclone(["size", target(), "--json"])
+        if result.exitCode == Self.directoryNotFoundExitCode { return 0 }
+        try check(result)
+        guard let size = try? JSONDecoder().decode(Size.self, from: Data(result.stdout.utf8)) else {
+            throw DestinationError.commandFailed("Не удалось разобрать ответ rclone size.")
+        }
+        return size.bytes
+    }
+
     private func target(_ components: String...) -> String {
         var base = path
         while base.count > 1, base.hasSuffix("/") { base.removeLast() }

@@ -34,6 +34,7 @@ struct RcloneIntegrationTests {
         #expect(try String(contentsOf: temp.path("remote/obsidian/\(name)/sub/b.md"), encoding: .utf8) == "beta")
         #expect(!temp.exists("remote/obsidian/\(name)/.trash"))
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian") == [Snapshot(name: name, date: date)])
+        #expect(try await destination.usedBytes() > 9)
 
         try await destination.delete(Snapshot(name: name, date: date), sourceSlug: "obsidian")
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)

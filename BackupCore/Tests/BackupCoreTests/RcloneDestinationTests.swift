@@ -104,4 +104,15 @@ struct RcloneDestinationTests {
         }
         #expect(runner.calls.isEmpty)
     }
+
+    @Test func usedBytesComesFromRcloneSize() async throws {
+        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 0, stdout: #"{"count":3,"bytes":1234,"sizeless":0}"#) }
+        #expect(try await destination(runner).usedBytes() == 1234)
+        #expect(runner.calls.map(\.arguments) == [["size", "gdrive:backups", "--json"]])
+    }
+
+    @Test func usedBytesOfMissingFolderIsZero() async throws {
+        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 3, stderr: "directory not found") }
+        #expect(try await destination(runner).usedBytes() == 0)
+    }
 }

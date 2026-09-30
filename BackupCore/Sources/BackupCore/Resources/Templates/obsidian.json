@@ -1,8 +1,0 @@
-{
-  "id": "obsidian",
-  "name": "Obsidian",
-  "kind": { "folder": { "path": "~/Documents/Obsidian", "excludes": [".trash", ".obsidian/workspace*.json"] } },
-  "schedule": "daily",
-  "retention": { "daily": 7, "weekly": 4, "monthly": 12, "yearly": 0 },
-  "instructions": "Укажите путь к папке хранилища Obsidian. Копируются все заметки и настройки, кроме корзины и состояния окон."
-}

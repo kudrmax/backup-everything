@@ -41,6 +41,8 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         snapshots.append(Snapshot(name: snapshotName, date: manifest.collectedAt))
     }
 
+    func usedBytes() async throws -> Int64 { 0 }
+
     func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
         if let deleteError { throw deleteError }
         log.append("delete:\(snapshot.name)")

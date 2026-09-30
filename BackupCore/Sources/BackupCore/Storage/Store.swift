@@ -108,10 +108,10 @@ public struct Store: Sendable {
     public func installBundledTemplates() throws {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: templatesDirectory, withIntermediateDirectories: true)
-        for bundled in Bundle.module.urls(forResourcesWithExtension: "json", subdirectory: "Templates") ?? [] {
-            let target = templatesDirectory.appendingPathComponent(bundled.lastPathComponent)
+        for template in BundledTemplates.all {
+            let target = templatesDirectory.appendingPathComponent("\(template.id).json")
             if !fileManager.fileExists(atPath: target.path) {
-                try fileManager.copyItem(at: bundled, to: target)
+                try JSONCoding.encoder().encode(template).write(to: target, options: .atomic)
             }
         }
     }

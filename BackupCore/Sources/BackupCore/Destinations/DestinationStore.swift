@@ -26,4 +26,5 @@ public protocol DestinationStore: Sendable {
     func removeIncomplete(sourceSlug: String) async throws
     func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String) async throws
     func delete(_ snapshot: Snapshot, sourceSlug: String) async throws
+    func usedBytes() async throws -> Int64
 }

@@ -1,8 +1,0 @@
-{
-  "id": "github",
-  "name": "GitHub",
-  "kind": { "command": { "command": "set -euo pipefail\ngh repo list --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner' | while read -r repo; do\n  gh repo clone \"$repo\" \"$BACKUP_SCRATCH_DIR/$repo.git\" -- --quiet --mirror\n  mkdir -p \"$BACKUP_OUTPUT_DIR/$(dirname \"$repo\")\"\n  git -C \"$BACKUP_SCRATCH_DIR/$repo.git\" bundle create \"$BACKUP_OUTPUT_DIR/$repo.bundle\" --all || [ -z \"$(git -C \"$BACKUP_SCRATCH_DIR/$repo.git\" for-each-ref)\" ]\ndone", "timeoutSeconds": 3600 } },
-  "schedule": "weekly",
-  "retention": { "daily": 0, "weekly": 4, "monthly": 6, "yearly": 0 },
-  "instructions": "Один раз выполните в терминале:\n\n1. `brew install gh`\n2. `gh auth login`\n\nКаждый репозиторий сохраняется одним файлом `.bundle` со всей историей. Восстановление: `git clone имя.bundle`.\n\nЧтобы бэкапить только часть репозиториев, замените `gh repo list …` на `printf '%s\\n' owner/repo1 owner/repo2`."
-}

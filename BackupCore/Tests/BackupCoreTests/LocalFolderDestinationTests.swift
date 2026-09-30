@@ -91,4 +91,11 @@ struct LocalFolderDestinationTests {
         try await destination.removeIncomplete(sourceSlug: "obsidian")
         #expect(temp.names(in: "disk/obsidian").isEmpty)
     }
+
+    @Test func usedBytesSumsEverythingUnderRoot() async throws {
+        defer { temp.remove() }
+        try temp.file("disk/obsidian/\(name)/a.md", "alpha")
+        try temp.file("disk/obsidian/\(name)/sub/b.md", "abc")
+        #expect(try await destination.usedBytes() == 8)
+    }
 }
