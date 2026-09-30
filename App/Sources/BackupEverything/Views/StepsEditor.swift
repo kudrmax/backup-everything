@@ -105,8 +105,8 @@ private struct StepCard: View {
                 .font(.body.monospaced())
         }
         SettingsRow(
-            title: "Файл входит в копию",
-            tip: "Выключите, если файл нужен только следующим командам — он будет лежать в $BACKUP_INPUT_DIR."
+            title: "Сохранять этот файл в бэкапе",
+            tip: "Выключите, если файл нужен только следующим шагам."
         ) {
             Toggle("", isOn: $step.includeInCopy)
                 .toggleStyle(.switch)
