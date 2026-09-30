@@ -9,7 +9,7 @@ struct SourcesView: View {
     @State private var isNew = false
 
     var body: some View {
-        EditorLayout(items: model.config.sources, selection: $selection) { source in
+        EditorLayout(items: model.config.sources, selection: $selection, reorder: { ids in Task { await model.orderSources(ids) } }) { source in
             HStack(spacing: 8) {
                 SourceIcon(source)
                 Text(source.name)

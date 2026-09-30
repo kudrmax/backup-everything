@@ -44,6 +44,20 @@ struct ConfigEditorTests {
         #expect(config.sources.map(\.slug) == ["anki", "anki-2"])
     }
 
+    @Test func sourcesTakeTheGivenOrder() {
+        let a = Fixtures.source(name: "A"), b = Fixtures.source(name: "B"), c = Fixtures.source(name: "C")
+        var config = Config(sources: [a, b, c])
+        editor.orderSources([c.id, a.id, b.id], in: &config)
+        #expect(config.sources.map(\.name) == ["C", "A", "B"])
+    }
+
+    @Test func orderingKeepsSourcesMissingFromTheOrderAndIgnoresUnknownIds() {
+        let a = Fixtures.source(name: "A"), b = Fixtures.source(name: "B"), c = Fixtures.source(name: "C")
+        var config = Config(sources: [a, b, c])
+        editor.orderSources([b.id, UUID(), a.id], in: &config)
+        #expect(config.sources.map(\.name) == ["B", "A", "C"])
+    }
+
     @Test func removingDestinationDetachesItFromSources() {
         var config = Config(sources: [Fixtures.source(destinations: [cloud, disk])], destinations: [cloud, disk])
         editor.removeDestination(disk.id, from: &config)

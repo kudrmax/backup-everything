@@ -4,28 +4,31 @@ import SwiftUI
 struct EditorLayout<Item: Identifiable, Label: View, AddMenu: View, Detail: View>: View where Item.ID == UUID {
     let items: [Item]
     @Binding var selection: UUID?
+    var reorder: (([UUID]) -> Void)? = nil
     @ViewBuilder let label: (Item) -> Label
     @ViewBuilder let addMenu: AddMenu
     @ViewBuilder let detail: Detail
+
+    @State private var dragged: UUID?
+    @State private var target: DropTarget?
+
+    private enum DropTarget: Equatable {
+        case item(UUID)
+        case end
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(items) { item in
-                        EditorListItem(isSelected: selection == item.id) { selection = item.id } label: { label(item) }
+                        row(item)
                     }
-                    Menu {
-                        addMenu
-                    } label: {
-                        SwiftUI.Label("Добавить", systemImage: "plus")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .pointing()
-                    .menuIndicator(.hidden)
-                    .foregroundStyle(.tint)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
+                    addButton
+                        .overlay(alignment: .top) { dropLine(visible: target == .end && dragged != items.last?.id) }
+                        .dropDestination(for: String.self) { payload, _ in
+                            drop(payload) { ListOrder.movingToEnd($0, in: ids) }
+                        } isTargeted: { track(.end, $0) }
                 }
                 .padding(10)
             }
@@ -34,6 +37,72 @@ struct EditorLayout<Item: Identifiable, Label: View, AddMenu: View, Detail: View
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var ids: [UUID] { items.map(\.id) }
+
+    @ViewBuilder
+    private func row(_ item: Item) -> some View {
+        let listItem = EditorListItem(isSelected: selection == item.id) { selection = item.id } label: { label(item) }
+        if reorder == nil {
+            listItem
+        } else {
+            listItem
+                .opacity(dragged == item.id && target != nil ? 0.4 : 1)
+                .overlay(alignment: lineEdge(for: item.id)) { dropLine(visible: target == .item(item.id) && dragged != item.id) }
+                .onDrag {
+                    dragged = item.id
+                    return NSItemProvider(object: item.id.uuidString as NSString)
+                }
+                .dropDestination(for: String.self) { payload, _ in
+                    drop(payload) { ListOrder.moving($0, onto: item.id, in: ids) }
+                } isTargeted: { track(.item(item.id), $0) }
+        }
+    }
+
+    private var addButton: some View {
+        Menu {
+            addMenu
+        } label: {
+            SwiftUI.Label("Добавить", systemImage: "plus")
+        }
+        .menuStyle(.borderlessButton)
+        .pointing()
+        .menuIndicator(.hidden)
+        .foregroundStyle(.tint)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+    }
+
+    /// Элемент встаёт на место того, на который его бросили: снизу — над ним, сверху — под ним.
+    private func lineEdge(for id: UUID) -> Alignment {
+        guard let dragged, let from = ids.firstIndex(of: dragged), let to = ids.firstIndex(of: id) else { return .top }
+        return from < to ? .bottom : .top
+    }
+
+    private func dropLine(visible: Bool) -> some View {
+        Capsule()
+            .fill(.tint)
+            .frame(height: 2)
+            .opacity(visible ? 1 : 0)
+    }
+
+    private func track(_ place: DropTarget, _ isTargeted: Bool) {
+        if isTargeted {
+            target = place
+        } else if target == place {
+            target = nil
+        }
+    }
+
+    private func drop(_ payload: [String], order: (UUID) -> [UUID]?) -> Bool {
+        defer {
+            dragged = nil
+            target = nil
+        }
+        guard let reorder, let id = payload.first.flatMap(UUID.init(uuidString:)), let newOrder = order(id) else { return false }
+        withAnimation(.snappy) { reorder(newOrder) }
+        return true
     }
 }
 
@@ -45,17 +114,19 @@ struct EditorListItem<Label: View>: View {
     @State private var isHovered = false
 
     var body: some View {
-        Button(action: select) {
-            label
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(background, in: RoundedRectangle(cornerRadius: 6))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plainPointing)
-        .onHover { isHovered = $0 }
+        // Не кнопка: кнопка на macOS не даёт начать перетаскивание строки.
+        label
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(background, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: select)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, select)
+            .pointing()
+            .onHover { isHovered = $0 }
     }
 
     private var background: AnyShapeStyle {

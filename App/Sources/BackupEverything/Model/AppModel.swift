@@ -175,6 +175,10 @@ final class AppModel {
         dropUnusedIcons()
     }
 
+    func orderSources(_ ids: [UUID]) async {
+        await edit { self.editor.orderSources(ids, in: &$0) }
+    }
+
     func importIcon(from file: URL) -> String? {
         guard let png = IconImporter.pngData(from: file) else {
             problem = "Не удалось прочитать картинку «\(file.lastPathComponent)»."

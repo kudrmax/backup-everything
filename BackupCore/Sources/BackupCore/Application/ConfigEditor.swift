@@ -41,6 +41,14 @@ public struct ConfigEditor: Sendable {
         config.sources.removeAll { $0.id == id }
     }
 
+    /// Источники, которых нет в `ids` (например, добавленные тем временем), остаются в конце в прежнем порядке.
+    public func orderSources(_ ids: [UUID], in config: inout Config) {
+        let rank = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        config.sources = config.sources.enumerated()
+            .sorted { (rank[$0.element.id] ?? ids.count + $0.offset, $0.offset) < (rank[$1.element.id] ?? ids.count + $1.offset, $1.offset) }
+            .map(\.element)
+    }
+
     public func save(_ destination: Destination, in config: inout Config) {
         if let index = config.destinations.firstIndex(where: { $0.id == destination.id }) {
             config.destinations[index] = destination
