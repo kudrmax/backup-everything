@@ -21,7 +21,7 @@ enum ChainPosition {
     static func canRunNow(_ source: Source, chain: ChainState?) -> Bool {
         let steps = source.steps
         guard source.isStepChain else { return true }
-        guard let chain else { return steps.first?.isManual == false }
+        guard let chain else { return true }
         return chain.failure != nil || chain.stepIndex >= steps.count || !steps[chain.stepIndex].isManual
     }
 }
@@ -29,7 +29,7 @@ enum ChainPosition {
 private extension SourceStatus {
     var concernsChainStart: Bool {
         switch self {
-        case .exportDue, .filesFound, .awaitingFile: true
+        case .exportDue, .filesFound, .awaitingFile, .waiting: true
         default: false
         }
     }

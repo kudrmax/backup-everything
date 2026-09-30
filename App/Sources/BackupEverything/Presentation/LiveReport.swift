@@ -11,7 +11,7 @@ enum LiveReport {
 
     private static func sourceId(of item: AttentionItem) -> UUID? {
         switch item {
-        case let .runFailed(sourceId, _), let .severelyOverdue(sourceId), let .manualExportDue(sourceId), let .stepAwaitingFile(sourceId),
+        case let .runFailed(sourceId, _), let .severelyOverdue(sourceId), let .manualExportDue(sourceId), let .stepAwaitingFile(sourceId), let .waitingForFile(sourceId),
              let .filesAwaitingPickup(sourceId, _, _, _), let .noDestinations(sourceId):
             sourceId
         case .destinationUnavailable, .connectDestination:

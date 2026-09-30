@@ -107,6 +107,14 @@ final class AppModel {
         await perform { try await self.coordinator.confirmPickup(sourceId: source.id) }
     }
 
+    func cancelWaiting(_ source: Source) async {
+        await perform { try await self.coordinator.cancelWaiting(sourceId: source.id) }
+    }
+
+    func isWaitingForFile(_ source: Source) -> Bool {
+        state.sourceState(source.id).armedAt != nil
+    }
+
     func restartChain(_ source: Source) async {
         await perform { try await self.coordinator.restartChain(sourceId: source.id) }
     }

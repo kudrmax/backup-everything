@@ -30,6 +30,7 @@ struct OverviewTextsTests {
         let first = UUID()
         let second = UUID()
         #expect(Texts.headline(StatusReport(items: [])) == "Всё в порядке")
+        #expect(Texts.headline(StatusReport(items: [.waitingForFile(sourceId: first)])) == "Всё в порядке")
         #expect(Texts.headline(StatusReport(items: [.manualExportDue(sourceId: first)])) == "Нужно твоё действие")
         #expect(Texts.headline(StatusReport(items: [
             .runFailed(sourceId: first, message: "a"),
@@ -55,6 +56,8 @@ struct OverviewTextsTests {
         #expect(SourceStatus.filesFound(count: 1, bytes: 5_000_000, downloading: true).note == "1 файл · 5 МБ · идёт загрузка")
         #expect(SourceStatus.exportDue.note == "пора сделать экспорт")
         #expect(SourceStatus.awaitingFile.note == "ждёт файл")
+        #expect(SourceStatus.waiting.note == "ждёт файл")
+        #expect(SourceStatus.waiting.severity == .ok)
         #expect(SourceStatus.noDestinations.note == "не выбрано, куда бэкапить")
         #expect(SourceStatus.overdue.note == "давно не было бэкапа")
     }

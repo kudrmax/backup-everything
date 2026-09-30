@@ -16,6 +16,7 @@ public enum AttentionItem: Sendable, Equatable {
     case manualExportDue(sourceId: UUID)
     case filesAwaitingPickup(sourceId: UUID, fileCount: Int, totalBytes: Int64, downloadInProgress: Bool)
     case stepAwaitingFile(sourceId: UUID)
+    case waitingForFile(sourceId: UUID)
     case noDestinations(sourceId: UUID)
     case destinationUnavailable(destinationId: UUID)
     case connectDestination(destinationId: UUID)
@@ -23,6 +24,7 @@ public enum AttentionItem: Sendable, Equatable {
     public var severity: OverallStatus {
         switch self {
         case .runFailed, .severelyOverdue: .error
+        case .waitingForFile: .ok
         default: .attention
         }
     }
@@ -91,6 +93,8 @@ public struct StatusReporter: Sendable {
                 ))
             } else if planner.isDue(source, state: sourceState, now: now) {
                 items.append(.manualExportDue(sourceId: source.id))
+            } else if sourceState.armedAt != nil {
+                items.append(.waitingForFile(sourceId: source.id))
             }
         }
         for destination in config.destinations where unavailableDestinations.contains(destination.id) {
@@ -110,8 +114,10 @@ public struct StatusReporter: Sendable {
     private func chainItems(_ source: Source, state: SourceState, now: Date) -> [AttentionItem] {
         let steps = source.steps
         guard let chain = state.chain else {
-            let waitsForHuman = steps.first?.isManual == true && planner.isDue(source, state: state, now: now)
-            return waitsForHuman ? [.manualExportDue(sourceId: source.id)] : []
+            if steps.first?.isManual == true && planner.isDue(source, state: state, now: now) {
+                return [.manualExportDue(sourceId: source.id)]
+            }
+            return state.armedAt != nil ? [.waitingForFile(sourceId: source.id)] : []
         }
         guard chain.failure == nil, chain.stepIndex < steps.count, steps[chain.stepIndex].isManual else { return [] }
         return [.stepAwaitingFile(sourceId: source.id)]

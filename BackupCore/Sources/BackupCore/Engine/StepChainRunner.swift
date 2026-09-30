@@ -53,12 +53,12 @@ public struct StepChainRunner: Sendable {
         let steps = source.steps
         guard !steps.isEmpty else { return .stay }
         let now = time.now
-        if let chain, isOutOfPlace(chain, in: steps) || freshStartScan(steps, chain: chain, now: now)?.isReady == true {
+        if let chain, isOutOfPlace(chain, in: steps) {
             try? discard(sourceId: source.id)
             return .moved(nil)
         }
         if chain?.failure != nil, !permissions.mayRetry { return .stay }
-        guard chain != nil || steps[0].isManual || permissions.mayStart else { return .stay }
+        guard chain != nil || permissions.mayStart else { return .stay }
 
         var next = chain ?? ChainState(stepIndex: 0, stepId: steps[0].id, startedAt: now, stepEnteredAt: now)
         next.failure = nil
@@ -101,9 +101,7 @@ public struct StepChainRunner: Sendable {
     public func awaitedFiles(_ source: Source, chain: ChainState?, lastPickup: Date?) -> InboxScan? {
         let steps = source.steps
         guard !steps.isEmpty else { return nil }
-        let now = time.now
-        if let chain, let fresh = freshStartScan(steps, chain: chain, now: now), !fresh.files.isEmpty { return fresh }
-        return currentStepScan(source, chain: chain, lastPickup: lastPickup, now: now)
+        return currentStepScan(source, chain: chain, lastPickup: lastPickup, now: time.now)
     }
 
     public func sourceIds() -> [UUID] {
@@ -127,14 +125,6 @@ public struct StepChainRunner: Sendable {
     private func isOutOfPlace(_ chain: ChainState, in steps: [SourceStep]) -> Bool {
         guard chain.stepIndex < steps.count else { return chain.stepIndex > steps.count || chain.stepId != nil }
         return steps[chain.stepIndex].id != chain.stepId
-    }
-
-    /// Новый файл первого шага перезапускает только цепочку, которая стоит: на ошибке или в ожидании ручного шага.
-    private func freshStartScan(_ steps: [SourceStep], chain: ChainState, now: Date) -> InboxScan? {
-        let awaitsFile = chain.stepIndex < steps.count && steps[chain.stepIndex].isManual
-        guard chain.stepIndex > 0, chain.failure != nil || awaitsFile,
-              case let .manual(_, watchPath, filePattern, _) = steps[0].kind else { return nil }
-        return inbox.scan(watchPath: watchPath, filePattern: filePattern, since: chain.startedAt, now: now)
     }
 
     private func currentStepScan(_ source: Source, chain: ChainState?, lastPickup: Date?, now: Date) -> InboxScan? {

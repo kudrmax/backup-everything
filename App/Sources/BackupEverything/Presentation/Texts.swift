@@ -110,7 +110,7 @@ enum Texts {
             }
         }
         if !failed.isEmpty { return errors(failed.count) }
-        guard report.items.isEmpty else { return "Нужно твоё действие" }
+        guard report.items.allSatisfy({ $0.severity == .ok }) else { return "Нужно твоё действие" }
         return isWorking ? "Идёт бэкап" : "Всё в порядке"
     }
 

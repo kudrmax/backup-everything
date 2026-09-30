@@ -9,6 +9,7 @@ enum SourceStatus: Equatable {
     case filesFound(count: Int, bytes: Int64, downloading: Bool)
     case awaitingFile
     case exportDue
+    case waiting
     case neverRun
     case ok
 
@@ -24,6 +25,7 @@ enum SourceStatus: Equatable {
                 found.append(.filesFound(count: count, bytes: bytes, downloading: downloading))
             case let .manualExportDue(id) where id == source.id: found.append(.exportDue)
             case let .stepAwaitingFile(id) where id == source.id: found.append(.awaitingFile)
+            case let .waitingForFile(id) where id == source.id: found.append(.waiting)
             default: break
             }
         }
@@ -34,7 +36,7 @@ enum SourceStatus: Equatable {
         switch self {
         case .failed, .overdue: .error
         case .noDestinations, .filesFound, .awaitingFile, .exportDue: .attention
-        case .disabled, .neverRun, .ok: .ok
+        case .waiting, .disabled, .neverRun, .ok: .ok
         }
     }
 
@@ -48,6 +50,7 @@ enum SourceStatus: Equatable {
             "Найдено файлов: \(count), \(Texts.bytes(bytes))" + (downloading ? ". Идёт загрузка" : "")
         case .awaitingFile: "Ждёт файл для следующего шага"
         case .exportDue: "Пора сделать экспорт"
+        case .waiting: "Ждёт файл: скачайте его, и бэкап начнётся сам"
         case .neverRun: "Ещё не запускался"
         case .ok: "В порядке"
         }
@@ -69,6 +72,7 @@ enum SourceStatus: Equatable {
             "\(Texts.files(count)) · \(Texts.bytes(bytes))" + (downloading ? " · идёт загрузка" : "")
         case .awaitingFile: "ждёт файл"
         case .exportDue: "пора сделать экспорт"
+        case .waiting: "ждёт файл"
         }
     }
 
@@ -80,7 +84,8 @@ enum SourceStatus: Equatable {
         case .filesFound: 3
         case .awaitingFile: 4
         case .exportDue: 5
-        case .disabled, .neverRun, .ok: 6
+        case .waiting: 6
+        case .disabled, .neverRun, .ok: 7
         }
     }
 }

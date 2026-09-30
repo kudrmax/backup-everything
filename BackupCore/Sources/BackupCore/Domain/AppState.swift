@@ -23,6 +23,7 @@ public struct SourceState: Codable, Sendable, Equatable {
     public var lastError: String?
     public var retryAfter: Date?
     public var chain: ChainState?
+    public var armedAt: Date?
 
     public init(
         lastRun: Date? = nil,
@@ -30,7 +31,8 @@ public struct SourceState: Codable, Sendable, Equatable {
         lastPickup: Date? = nil,
         lastError: String? = nil,
         retryAfter: Date? = nil,
-        chain: ChainState? = nil
+        chain: ChainState? = nil,
+        armedAt: Date? = nil
     ) {
         self.lastRun = lastRun
         self.lastSuccess = lastSuccess
@@ -38,6 +40,7 @@ public struct SourceState: Codable, Sendable, Equatable {
         self.lastError = lastError
         self.retryAfter = retryAfter
         self.chain = chain
+        self.armedAt = armedAt
     }
 }
 

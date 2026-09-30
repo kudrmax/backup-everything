@@ -172,6 +172,8 @@ struct SourceRow: View {
             }
         } else if !source.enabled {
             Image(systemName: "pause.circle").foregroundStyle(.secondary)
+        } else if status == .waiting {
+            Image(systemName: "clock").foregroundStyle(.secondary)
         } else {
             Image(systemName: StatusStyle.symbol(status.severity))
                 .foregroundStyle(StatusStyle.color(status.severity))
@@ -244,8 +246,12 @@ struct SourceRow: View {
     private var hoverActions: some View {
         let chain = model.chain(of: source.id)
         return HStack(spacing: 4) {
-            if !source.isManualExport && ChainPosition.canRunNow(source, chain: chain) {
-                action(chain?.failure != nil ? "Повторить шаг" : "Запустить", symbol: "play.fill") {
+            if model.isWaitingForFile(source) {
+                action("Отменить ожидание файла", symbol: "xmark.circle") {
+                    Task { await model.cancelWaiting(source) }
+                }
+            } else if ChainPosition.canRunNow(source, chain: chain) {
+                action(runTitle(chain), symbol: "play.fill") {
                     Task { await model.runNow(source) }
                 }
                 .disabled(model.isWorking || destinations.isEmpty)
@@ -267,6 +273,12 @@ struct SourceRow: View {
         }
         .buttonStyle(.borderless)
         .opacity(isHovered ? 1 : 0)
+    }
+
+    private func runTitle(_ chain: ChainState?) -> String {
+        if chain?.failure != nil { return "Повторить шаг" }
+        if source.deliversFromPending && chain == nil { return "Запустить: ждать файл экспорта" }
+        return "Запустить"
     }
 
     @ViewBuilder

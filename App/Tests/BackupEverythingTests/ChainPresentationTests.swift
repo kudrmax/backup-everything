@@ -39,6 +39,7 @@ struct ChainPresentationTests {
         #expect(ChainPosition.note("пора сделать экспорт", of: claude, chain: nil, status: .exportDue) == "шаг 1 из 2 · пора сделать экспорт")
         #expect(ChainPosition.note("нет архивов", of: claude, chain: stuck, status: .failed("x")) == "шаг 2 из 2 · нет архивов")
         #expect(ChainPosition.note("1 файл · 2 Б · идёт загрузка", of: claude, chain: nil, status: .filesFound(count: 1, bytes: 2, downloading: true)) == "шаг 1 из 2 · 1 файл · 2 Б · идёт загрузка")
+        #expect(ChainPosition.note("ждёт файл", of: claude, chain: nil, status: .waiting) == "шаг 1 из 2 · ждёт файл")
         #expect(ChainPosition.note(nil, of: claude, chain: nil, status: .ok) == nil)
         #expect(ChainPosition.note("выключен", of: folder, chain: nil, status: .disabled) == "выключен")
     }
@@ -59,7 +60,7 @@ struct ChainPresentationTests {
         commandFirst.kind = .steps(steps: source.steps.reversed())
 
         #expect(ChainPosition.canRunNow(folder, chain: nil))
-        #expect(!ChainPosition.canRunNow(source, chain: waitingForManifest))
+        #expect(ChainPosition.canRunNow(source, chain: waitingForManifest))
         #expect(ChainPosition.canRunNow(source, chain: interrupted))
         #expect(ChainPosition.canRunNow(source, chain: failed))
         #expect(ChainPosition.canRunNow(source, chain: readyToAssemble))

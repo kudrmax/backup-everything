@@ -61,6 +61,10 @@ public actor BackupCoordinator {
         try await enqueue { try await self.performRestartChain(sourceId: sourceId) }
     }
 
+    public func cancelWaiting(sourceId: UUID) async throws -> TickResult {
+        try await enqueue { try await self.performCancelWaiting(sourceId: sourceId) }
+    }
+
     public func statusReport() async throws -> StatusReport {
         let config = try store.loadConfig()
         let state = try store.loadState()
@@ -135,6 +139,10 @@ public actor BackupCoordinator {
         guard let source = config.source(sourceId) else { return TickResult() }
         let destinations = config.destinations(of: source)
         guard !destinations.isEmpty else { return TickResult() }
+        if source.deliversFromPending, state.sourceState(source.id).chain == nil {
+            state.updateSource(source.id) { $0.armedAt = $0.armedAt ?? self.time.now }
+            try store.saveState(state)
+        }
         if source.isStepChain {
             try await advanceChain(source, config: config, mode: .runNow, state: &state, runs: &runs)
         } else if source.isManualExport {
@@ -233,6 +241,7 @@ public actor BackupCoordinator {
         guard !destinations.isEmpty else { return }
         let now = time.now
         let sourceState = state.sourceState(source.id)
+        guard planner.awaitsFile(source, state: sourceState, now: now) else { return }
         if respectRetryDelay, let retryAfter = sourceState.retryAfter, retryAfter > now { return }
         let scan = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: sourceState.lastPickup ?? source.createdAt, now: now)
         guard scan.isReady else { return }
@@ -250,15 +259,29 @@ public actor BackupCoordinator {
             try register(failure, trigger: .pickup, state: &state, runs: &runs)
             return
         }
-        state.updateSource(source.id) { $0.lastPickup = now }
+        state.updateSource(source.id) {
+            $0.lastPickup = now
+            $0.armedAt = nil
+        }
         try store.saveState(state)
         try await execute(source, destinations, .pickup, state: &state, runs: &runs)
+    }
+
+    private func performCancelWaiting(sourceId: UUID) async throws -> TickResult {
+        var state = try store.loadState()
+        state.updateSource(sourceId) { $0.armedAt = nil }
+        try store.saveState(state)
+        return TickResult()
     }
 
     private func performRestartChain(sourceId: UUID) async throws -> TickResult {
         var state = try store.loadState()
         try chains.discard(sourceId: sourceId)
-        state.updateSource(sourceId) { $0.chain = nil }
+        let now = time.now
+        state.updateSource(sourceId) {
+            $0.chain = nil
+            $0.armedAt = now
+        }
         try store.saveState(state)
         return TickResult()
     }
@@ -276,8 +299,11 @@ public actor BackupCoordinator {
         while true {
             let sourceState = state.sourceState(source.id)
             let startedAt = time.now
+            let opensWithCommand = source.steps.first?.isManual == false
             let permissions = ChainPermissions(
-                mayStart: mode != .tick || planner.isDue(source, state: sourceState, now: startedAt),
+                mayStart: mode == .runNow
+                    || (mode == .runAll && opensWithCommand)
+                    || planner.awaitsFile(source, state: sourceState, now: startedAt),
                 mayRetry: mode == .runNow && !didWork
             )
             let transition = await chains.advance(source, chain: sourceState.chain, lastPickup: sourceState.lastPickup, permissions: permissions)
@@ -287,7 +313,10 @@ public actor BackupCoordinator {
                 return
             case let .moved(chain):
                 didWork = true
-                state.updateSource(source.id) { $0.chain = chain }
+                state.updateSource(source.id) {
+                    if $0.chain == nil, chain != nil { $0.armedAt = nil }
+                    $0.chain = chain
+                }
                 try store.saveState(state)
             case let .failed(chain):
                 state.updateSource(source.id) { $0.chain = chain }
@@ -308,6 +337,7 @@ public actor BackupCoordinator {
                 state.updateSource(source.id) {
                     $0.chain = nil
                     $0.lastPickup = startedAt
+                    $0.armedAt = nil
                 }
                 for destination in destinations where !state.hasDebt(sourceId: source.id, destinationId: destination.id) {
                     state.debts.append(Debt(sourceId: source.id, destinationId: destination.id, since: startedAt))
@@ -392,10 +422,11 @@ public actor BackupCoordinator {
         var scans: [UUID: InboxScan] = [:]
         for source in config.sources where source.enabled {
             let sourceState = state.sourceState(source.id)
-            if source.isStepChain {
+            let awaited = planner.awaitsFile(source, state: sourceState, now: now)
+            if source.isStepChain, sourceState.chain != nil || awaited {
                 scans[source.id] = chains.awaitedFiles(source, chain: sourceState.chain, lastPickup: sourceState.lastPickup)
             }
-            guard case let .manualExport(watchPath, filePattern, _, _) = source.kind else { continue }
+            guard awaited, case let .manualExport(watchPath, filePattern, _, _) = source.kind else { continue }
             let since = sourceState.lastPickup ?? source.createdAt
             scans[source.id] = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: since, now: now)
         }

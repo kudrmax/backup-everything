@@ -11,6 +11,7 @@ struct StepChainRunnerTests {
     private let created = Fixtures.date("2026-09-27 00:00:00")
     private let allowAll = ChainPermissions(mayStart: true, mayRetry: true)
     private let tickOnly = ChainPermissions(mayStart: false, mayRetry: false)
+    private let armed = ChainPermissions(mayStart: true, mayRetry: false)
 
     init() throws {
         let temp = try TempDirectory()
@@ -71,10 +72,10 @@ struct StepChainRunnerTests {
         let source = source([manual("manifest-*.json"), command()])
         let runner = runner()
 
-        #expect(await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly) == .stay)
+        #expect(await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed) == .stay)
 
         try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
-        let moved = await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly)
+        let moved = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed)
         #expect(moved == .moved(chain(source, 1, startedAt: start, stepEnteredAt: start)))
         #expect(temp.names(in: "Downloads").isEmpty)
         #expect(temp.names(in: chainFolder(source, "input")) == ["manifest-a.json"])
@@ -87,7 +88,7 @@ struct StepChainRunnerTests {
         try temp.file("Downloads/export-1.csv", "a;b", modified: start.addingTimeInterval(-60))
         let runner = runner()
 
-        guard case let .moved(chain) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly) else {
+        guard case let .moved(chain) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed) else {
             Issue.record("шаг не принят")
             return
         }
@@ -106,7 +107,7 @@ struct StepChainRunnerTests {
         defer { temp.remove() }
         let source = source([manual("manifest-*.json"), command()])
         try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-3600))
-        let transition = await runner().advance(source, chain: nil, lastPickup: start.addingTimeInterval(-60), permissions: tickOnly)
+        let transition = await runner().advance(source, chain: nil, lastPickup: start.addingTimeInterval(-60), permissions: armed)
         #expect(transition == .stay)
         #expect(temp.names(in: "Downloads") == ["manifest-a.json"])
     }
@@ -123,7 +124,7 @@ struct StepChainRunnerTests {
             return try writeArchive(call)
         }
 
-        guard case let .moved(afterFile) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly) else {
+        guard case let .moved(afterFile) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed) else {
             Issue.record("файл не принят")
             return
         }
@@ -157,7 +158,7 @@ struct StepChainRunnerTests {
             shouldFail.get() ? ProcessResult(exitCode: 1, stderr: "Не скачались архивы: a.zip") : try writeArchive(call)
         }
 
-        guard case let .moved(afterFile) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly),
+        guard case let .moved(afterFile) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed),
               case let .failed(failed) = await runner.advance(source, chain: afterFile, lastPickup: nil, permissions: tickOnly) else {
             Issue.record("ожидалась ошибка шага")
             return
@@ -174,23 +175,17 @@ struct StepChainRunnerTests {
         #expect(retried == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(7200))))
     }
 
-    @Test func freshFirstStepFileRestartsAStuckChain() async throws {
+    @Test func freshFirstStepFileDoesNotRestartAStuckChainByItself() async throws {
         defer { temp.remove() }
         let source = source([manual("manifest-*.json"), command()])
         let failed = chain(source, 1, startedAt: start, stepEnteredAt: start, failure: "ссылки сгорели")
         try temp.file("chains/\(source.id.uuidString)/input/manifest-a.json", "{}")
-        try temp.file("chains/\(source.id.uuidString)/output/partial.zip", "zip")
-        let runner = runner()
 
         time.advance(600)
         try temp.file("Downloads/manifest-b.json", "{}", modified: start.addingTimeInterval(300))
-        #expect(await runner.advance(source, chain: failed, lastPickup: nil, permissions: tickOnly) == .moved(nil))
-        #expect(temp.names(in: "trash") == ["manifest-a.json", "partial.zip"])
-        #expect(!temp.exists("chains/\(source.id.uuidString)"))
-
-        let restarted = await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly)
-        #expect(restarted == .moved(chain(source, 1, startedAt: start.addingTimeInterval(600), stepEnteredAt: start.addingTimeInterval(600))))
-        #expect(temp.names(in: chainFolder(source, "input")) == ["manifest-b.json"])
+        #expect(await runner().advance(source, chain: failed, lastPickup: nil, permissions: armed) == .stay)
+        #expect(temp.names(in: "Downloads") == ["manifest-b.json"])
+        #expect(temp.names(in: "trash").isEmpty)
     }
 
     @Test func chainThatOpensWithACommandStartsOnlyWhenAllowed() async throws {
@@ -312,10 +307,10 @@ struct StepChainRunnerTests {
         let blocked = try #require(runner.awaitedFiles(source, chain: nil, lastPickup: nil))
         #expect(blocked.files.map(\.lastPathComponent) == ["manifest-a.json"])
         #expect(blocked.downloadInProgress)
-        #expect(await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly) == .stay)
+        #expect(await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed) == .stay)
 
         let failed = chain(source, 1, startedAt: start.addingTimeInterval(-3600), stepEnteredAt: start.addingTimeInterval(-3600), failure: "x")
-        #expect(runner.awaitedFiles(source, chain: failed, lastPickup: nil)?.files.count == 1)
+        #expect(runner.awaitedFiles(source, chain: failed, lastPickup: nil) == nil)
         let running = chain(source, 1, startedAt: start.addingTimeInterval(-3600), stepEnteredAt: start.addingTimeInterval(-3600))
         #expect(runner.awaitedFiles(source, chain: running, lastPickup: nil) == nil)
     }

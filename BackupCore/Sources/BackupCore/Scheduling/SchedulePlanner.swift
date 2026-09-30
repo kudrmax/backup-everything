@@ -22,6 +22,12 @@ public struct SchedulePlanner: Sendable {
         return true
     }
 
+    /// Файл ручного экспорта или первого ручного шага принимается, только когда его ждут: подошёл срок или нажата кнопка.
+    public func awaitsFile(_ source: Source, state: SourceState, now: Date) -> Bool {
+        guard state.armedAt == nil else { return true }
+        return dueDate(for: source, state: state).map { $0 <= now } ?? false
+    }
+
     public func isSeverelyOverdue(_ source: Source, state: SourceState, now: Date) -> Bool {
         guard state.lastRun != nil,
               let due = dueDate(for: source, state: state),

@@ -557,7 +557,7 @@ struct BackupCoordinatorTests {
         #expect(try await coordinator.tick().runs.map(\.sourceName) == ["Obsidian", "Claude"])
     }
 
-    @Test func newManifestHeldBackByAnUnfinishedDownloadIsReported() async throws {
+    @Test func newManifestIsTakenOnlyAfterRestartAndWaitsForUnfinishedDownloads() async throws {
         defer { temp.remove() }
         let source = claude([cloud], command: "exit 1")
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
@@ -568,6 +568,11 @@ struct BackupCoordinatorTests {
         try temp.file("Downloads/manifest-b.json", "{}", modified: start.addingTimeInterval(300))
         let leftover = try temp.file("Downloads/conversations-000.zip.crdownload", "partial", modified: start.addingTimeInterval(300))
         #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(temp.exists("Downloads/manifest-b.json"))
+        #expect(try store.loadState().sourceState(source.id).chain?.failure != nil)
+
+        _ = try await coordinator.restartChain(sourceId: source.id)
+        #expect(try await coordinator.tick().runs.isEmpty)
         #expect(try await coordinator.statusReport().items == [
             .filesAwaitingPickup(sourceId: source.id, fileCount: 1, totalBytes: 2, downloadInProgress: true),
         ])
@@ -575,6 +580,71 @@ struct BackupCoordinatorTests {
         try FileManager.default.removeItem(at: leftover)
         #expect(try await coordinator.tick().runs.count == 1)
         #expect(temp.names(in: "work/chains/\(source.id.uuidString)/input") == ["manifest-b.json"])
+    }
+
+    @Test func manualExportTakesNothingBeforeItsTimeOrTheRunButton() async throws {
+        defer { temp.remove() }
+        let source = photos(.single, [cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        var state = AppState()
+        state.updateSource(source.id) {
+            $0.lastRun = start.addingTimeInterval(-86_400)
+            $0.lastPickup = start.addingTimeInterval(-86_400)
+        }
+        try store.saveState(state)
+        try temp.file("Downloads/takeout-1.zip", "zip", modified: start.addingTimeInterval(-60))
+
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(temp.names(in: "Downloads") == ["takeout-1.zip"])
+        #expect(try await coordinator.statusReport().items.isEmpty)
+
+        #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.pickup])
+        #expect(temp.names(in: "Downloads").isEmpty)
+        #expect(try store.loadState().sourceState(source.id).armedAt == nil)
+    }
+
+    @Test func runButtonMakesAnExportWaitUntilItsFileArrivesOrWaitingIsCancelled() async throws {
+        defer { temp.remove() }
+        var source = photos(.single, [cloud])
+        source.schedule = .manual
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        #expect(try await coordinator.runNow(sourceId: source.id).runs.isEmpty)
+        #expect(try store.loadState().sourceState(source.id).armedAt == start)
+        let waiting = try await coordinator.statusReport()
+        #expect(waiting.items == [.waitingForFile(sourceId: source.id)])
+        #expect(waiting.overall == .ok)
+
+        time.advance(60)
+        try temp.file("Downloads/takeout-1.zip", "zip", modified: start.addingTimeInterval(30))
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
+
+        _ = try await coordinator.runNow(sourceId: source.id)
+        _ = try await coordinator.cancelWaiting(sourceId: source.id)
+        #expect(try store.loadState().sourceState(source.id).armedAt == nil)
+        time.advance(60)
+        try temp.file("Downloads/takeout-2.zip", "zip", modified: start.addingTimeInterval(90))
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(try await coordinator.runAllNow().runs.isEmpty)
+        #expect(try store.loadState().sourceState(source.id).armedAt == nil)
+    }
+
+    @Test func stepChainTakesNothingBeforeItsTimeOrTheRunButton() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        var state = AppState()
+        state.updateSource(source.id) { $0.lastRun = start.addingTimeInterval(-86_400) }
+        try store.saveState(state)
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(try await coordinator.runAllNow().runs.isEmpty)
+        #expect(temp.names(in: "Downloads") == ["manifest-a.json"])
+
+        #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.pickup])
+        #expect(temp.names(in: "cloud/claude/2026-09-28_100000") == ["_snapshot.json", "archive.zip"])
+        #expect(try store.loadState().sourceState(source.id).armedAt == nil)
     }
 
     @Test func workFilesOfDeletedSourcesGoToTheTrash() async throws {

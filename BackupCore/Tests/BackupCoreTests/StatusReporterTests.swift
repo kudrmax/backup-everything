@@ -91,6 +91,15 @@ struct StatusReporterTests {
         ])
     }
 
+    @Test func exportWaitingAfterTheRunButtonIsQuiet() {
+        let source = photos(.manual)
+        var state = AppState()
+        state.updateSource(source.id) { $0.armedAt = now.addingTimeInterval(-60) }
+        let result = report([source], state)
+        #expect(result.items == [.waitingForFile(sourceId: source.id)])
+        #expect(result.overall == .ok)
+    }
+
     @Test func unfinishedDownloadWithoutMatchingFilesIsNotReported() {
         let source = photos()
         let scan = InboxScan(files: [], totalBytes: 0, downloadInProgress: true)
