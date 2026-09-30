@@ -9,14 +9,23 @@ struct SourcesView: View {
     @State private var isNew = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            List(model.config.sources, selection: $selection) { source in
-                Label(source.name, systemImage: StatusStyle.symbol(for: source.kind))
-                    .foregroundStyle(source.enabled ? .primary : .secondary)
-                    .tag(source.id)
+        EditorLayout(items: model.config.sources, selection: $selection) { source in
+            HStack(spacing: 8) {
+                Image(systemName: source.enabled ? StatusStyle.symbol(for: source.kind) : "pause.circle")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(source.name)
             }
-            .frame(width: 230)
+            .foregroundStyle(source.enabled ? .primary : .secondary)
+        } addMenu: {
+            ForEach(SourceKindChoice.allCases) { choice in
+                Button(choice.title) { start(model.newSource(from: nil), as: choice) }
+            }
             Divider()
+            ForEach(model.templates) { template in
+                Button(template.name) { start(model.newSource(from: template), as: nil) }
+            }
+        } detail: {
             if let draft {
                 SourceEditor(
                     draft: Binding(get: { self.draft ?? draft }, set: { self.draft = $0 }),
@@ -27,33 +36,27 @@ struct SourcesView: View {
                 )
                 .id(draft.id)
             } else {
-                EmptyState(symbol: "tray.and.arrow.up", title: "Источники", message: "Выберите источник слева или добавьте новый кнопкой «+».")
+                EmptyState(symbol: "tray.and.arrow.up", title: "Источников пока нет", message: "Добавьте первый кнопкой «Добавить» слева.")
             }
         }
         .navigationTitle("Источники")
-        .toolbar {
-            Menu("Добавить", systemImage: "plus") {
-                Button("Пустой источник") { start(model.newSource(from: nil)) }
-                Divider()
-                ForEach(model.templates) { template in
-                    Button(template.name) { start(model.newSource(from: template)) }
-                }
-            }
-        }
         .onAppear {
-            if let id = UUID(uuidString: storedSelection), model.config.source(id) != nil { selection = id }
+            let stored = UUID(uuidString: storedSelection).flatMap { model.config.source($0) }
+            selection = (stored ?? model.config.sources.first)?.id
         }
         .onChange(of: selection) { _, id in
-            storedSelection = id?.uuidString ?? ""
             guard let id, let source = model.config.source(id) else { return }
+            storedSelection = id.uuidString
             draft = SourceDraft(source)
             isNew = false
         }
     }
 
-    private func start(_ source: Source) {
+    private func start(_ source: Source, as choice: SourceKindChoice?) {
+        var newDraft = SourceDraft(source)
+        if let choice { newDraft.kindChoice = choice }
         selection = nil
-        draft = SourceDraft(source)
+        draft = newDraft
         isNew = true
     }
 
@@ -61,6 +64,7 @@ struct SourcesView: View {
         Task {
             await model.save(source)
             isNew = false
+            draft = SourceDraft(source)
             selection = source.id
         }
     }
@@ -68,14 +72,22 @@ struct SourcesView: View {
     private func delete(_ source: Source) {
         Task {
             await model.delete(source)
-            cancel()
+            showFirst()
         }
     }
 
     private func cancel() {
-        draft = nil
-        selection = nil
+        if !isNew, let id = draft?.id, let saved = model.config.source(id) {
+            draft = SourceDraft(saved)
+        } else {
+            showFirst()
+        }
+    }
+
+    private func showFirst() {
         isNew = false
+        draft = model.config.sources.first.map(SourceDraft.init)
+        selection = draft?.id
     }
 }
 
@@ -91,54 +103,89 @@ struct SourceEditor: View {
     @State private var confirmsDeletion = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section("Основное") {
-                    TextField("Название", text: $draft.name)
-                    Toggle("Включён", isOn: $draft.enabled)
-                    Picker("Тип", selection: $draft.kindChoice) {
-                        ForEach(SourceKindChoice.allCases) { Text($0.title).tag($0) }
+        EditorPage {
+            EditorHeader(name: $draft.name, prompt: "Название") {
+                Image(systemName: symbol).foregroundStyle(.secondary)
+            } accessory: {
+                Toggle("Включён", isOn: $draft.enabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .labelsHidden()
+                    .help(draft.enabled ? "Включён" : "Выключен")
+                if !isNew {
+                    Menu {
+                        Button("Удалить…", role: .destructive) { confirmsDeletion = true }
+                    } label: {
+                        Image(systemName: "ellipsis")
                     }
-                }
-                kindSection
-                Section("Расписание") {
-                    Picker(draft.kindChoice == .manualExport ? "Напоминать об экспорте" : "Запускать", selection: $draft.schedule) {
-                        ForEach(Schedule.allCases, id: \.self) { Text(Texts.schedule($0)).tag($0) }
-                    }
-                }
-                Section("Куда бэкапить") {
-                    if model.config.destinations.isEmpty {
-                        Text("Сначала добавьте назначение в разделе «Назначения».").foregroundStyle(.secondary)
-                    }
-                    ForEach(model.config.destinations) { destination in
-                        Toggle(isOn: membership(of: destination.id)) {
-                            Label(destination.name, systemImage: StatusStyle.symbol(for: destination.kind))
-                        }
-                    }
-                }
-                Section("Сколько хранить") {
-                    Stepper("По одной копии за последние дни: \(draft.retention.daily)", value: $draft.retention.daily, in: 0...365)
-                    Stepper("По одной в неделю, недель: \(draft.retention.weekly)", value: $draft.retention.weekly, in: 0...104)
-                    Stepper("По одной в месяц, месяцев: \(draft.retention.monthly)", value: $draft.retention.monthly, in: 0...120)
-                    Stepper("По одной в год, лет: \(draft.retention.yearly)", value: $draft.retention.yearly, in: 0...50)
-                    Text("Самая свежая копия хранится всегда.").font(.callout).foregroundStyle(.secondary)
-                    if !isNew {
-                        Button("Показать, что останется и что удалится") {
-                            let source = draft.build()
-                            Task { previews = await model.retentionPreview(for: source) }
-                        }
-                    }
-                }
-                Section("Инструкция") {
-                    TextEditor(text: $draft.instructions)
-                        .font(.body)
-                        .frame(minHeight: 110)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
                 }
             }
-            .formStyle(.grouped)
-            Divider()
-            footer
+        } content: {
+            kindCard
+            SettingsCard {
+                SettingsRow(title: draft.kindChoice == .manualExport ? "Напоминать об экспорте" : "Запускать") {
+                    Picker("", selection: $draft.schedule) {
+                        ForEach(Schedule.allCases, id: \.self) { Text(Texts.schedule($0)).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                SettingsRow(title: "Куда") {
+                    if model.config.destinations.isEmpty {
+                        Text("сначала добавьте назначение").foregroundStyle(.secondary)
+                    } else {
+                        TrailingFlow {
+                            ForEach(model.config.destinations) { destination in
+                                Chip(
+                                    title: destination.name,
+                                    symbol: StatusStyle.symbol(for: destination.kind),
+                                    isOn: membership(of: destination.id)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            SettingsCard {
+                DisclosureRow(title: "Хранить", summary: Texts.retention(draft.retention)) {
+                    retentionStepper("Дней", value: $draft.retention.daily, range: 0...365)
+                    retentionStepper("Недель", value: $draft.retention.weekly, range: 0...104)
+                    retentionStepper("Месяцев", value: $draft.retention.monthly, range: 0...120)
+                    retentionStepper("Лет", value: $draft.retention.yearly, range: 0...50)
+                    HStack {
+                        Text("За каждый период остаётся по одной копии. Самая свежая хранится всегда.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if !isNew {
+                            Button("Что останется…") {
+                                let source = draft.build()
+                                Task { previews = await model.retentionPreview(for: source) }
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
+                DisclosureRow(title: "Инструкция", summary: instructionsSummary) {
+                    TextEditor(text: $draft.instructions)
+                        .font(.body)
+                        .scrollContentBackground(.hidden)
+                        .padding(6)
+                        .frame(minHeight: 120)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+        } saveBar: {
+            if isNew || draft.hasChanges {
+                SaveBar(isNew: isNew, problem: draft.problem, warning: conflictWarning, cancel: onCancel) {
+                    onSave(draft.build())
+                }
+            }
         }
+        .animation(.easeOut(duration: 0.15), value: isNew || draft.hasChanges)
         .sheet(isPresented: Binding(get: { previews != nil }, set: { if !$0 { previews = nil } })) {
             RetentionPreviewSheet(previews: previews ?? [])
         }
@@ -149,78 +196,93 @@ struct SourceEditor: View {
         }
     }
 
+    private var symbol: String {
+        switch draft.kindChoice {
+        case .folder: "folder"
+        case .command: "terminal"
+        case .manualExport: "square.and.arrow.down"
+        }
+    }
+
     @ViewBuilder
-    private var kindSection: some View {
+    private var kindCard: some View {
         switch draft.kindChoice {
         case .folder:
-            Section("Папка или файл") {
-                HStack {
-                    TextField("Путь", text: $draft.folderPath)
-                    Button("Выбрать…") {
-                        if let path = FolderPicker.choose(allowsFiles: true) { draft.folderPath = path }
-                    }
+            SettingsCard {
+                SettingsRow(title: "Папка или файл") {
+                    PathField(path: $draft.folderPath, allowsFiles: true)
                 }
-                VStack(alignment: .leading) {
-                    Text("Не копировать (по одной маске в строке)")
-                    TextEditor(text: $draft.excludesText)
-                        .font(.body.monospaced())
-                        .frame(minHeight: 50)
+                DisclosureRow(title: "Не копировать", summary: excludesSummary) {
+                    CodeEditor(text: $draft.excludesText, minHeight: 60)
+                    Text("По одной маске в строке, например *.tmp")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
         case .command:
-            Section("Команда") {
-                TextEditor(text: $draft.command)
-                    .font(.body.monospaced())
-                    .frame(minHeight: 120)
-                Stepper("Останавливать через, минут: \(draft.timeoutMinutes)", value: $draft.timeoutMinutes, in: 1...720)
-                Text("Команда должна сложить результат в папку $BACKUP_OUTPUT_DIR. Для временных файлов есть $BACKUP_SCRATCH_DIR.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            SettingsCard {
+                CodeEditor(text: $draft.command, minHeight: 130)
+                    .padding(10)
+                SettingsRow(
+                    title: "Останавливать через",
+                    tip: "Команда должна сложить результат в папку $BACKUP_OUTPUT_DIR.\nДля временных файлов есть $BACKUP_SCRATCH_DIR."
+                ) {
+                    Stepper("\(draft.timeoutMinutes) мин", value: $draft.timeoutMinutes, in: 1...720)
+                }
             }
         case .manualExport:
-            Section("Ручной экспорт") {
-                HStack {
-                    TextField("Куда попадает файл", text: $draft.watchPath)
-                    Button("Выбрать…") {
-                        if let path = FolderPicker.choose() { draft.watchPath = path }
+            SettingsCard {
+                SettingsRow(title: "Куда попадает файл") {
+                    PathField(path: $draft.watchPath)
+                }
+                SettingsRow(title: "Маска файла") {
+                    TextField("", text: $draft.filePattern, prompt: Text("например, takeout-*.zip"))
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                        .font(.body.monospaced())
+                }
+                SettingsRow(title: "Файлов в одном экспорте") {
+                    Picker("", selection: $draft.fileMode) {
+                        Text("Один — забирать сразу").tag(FileMode.single)
+                        Text("Несколько — ждать «Забрать»").tag(FileMode.multiple)
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                TextField("Маска файла", text: $draft.filePattern, prompt: Text("например, takeout-*.zip"))
-                Picker("Файлов в одном экспорте", selection: $draft.fileMode) {
-                    Text("Один — забирать сразу").tag(FileMode.single)
-                    Text("Несколько — ждать «Готово, забрать»").tag(FileMode.multiple)
+                SettingsRow(title: "После бэкапа убирать файл в Корзину") {
+                    Toggle("", isOn: $draft.removeOriginal)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
                 }
-                Toggle("Убирать файл из папки в Корзину после бэкапа", isOn: $draft.removeOriginal)
             }
         }
     }
 
-    private var footer: some View {
+    private func retentionStepper(_ title: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
         HStack {
-            if !isNew {
-                Button("Удалить", role: .destructive) { confirmsDeletion = true }
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                if let problem = draft.problem {
-                    Text(problem).foregroundStyle(.red)
-                }
-                if !conflicts.isEmpty {
-                    Text("Маска пересекается с источником «\(conflicts.map(\.name).joined(separator: "», «"))» в той же папке.")
-                        .foregroundStyle(.orange)
-                }
-            }
-            .font(.callout)
+            Text(title)
             Spacer()
-            Button("Отменить", action: onCancel)
-            Button(isNew ? "Добавить" : "Сохранить") { onSave(draft.build()) }
-                .keyboardShortcut(.defaultAction)
-                .disabled(draft.problem != nil)
+            Stepper("\(value.wrappedValue)", value: value, in: range)
+                .monospacedDigit()
         }
-        .padding(12)
     }
 
-    private var conflicts: [Source] {
-        draft.kindChoice == .manualExport ? model.maskConflicts(for: draft.build()) : []
+    private var excludesSummary: String {
+        let masks = draft.excludesText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return masks.isEmpty ? "ничего" : masks.joined(separator: ", ")
+    }
+
+    private var instructionsSummary: String {
+        let firstLine = draft.instructions.split(separator: "\n").first.map(String.init) ?? ""
+        return firstLine.isEmpty ? "нет" : firstLine
+    }
+
+    private var conflictWarning: String? {
+        guard draft.kindChoice == .manualExport else { return nil }
+        let conflicts = model.maskConflicts(for: draft.build())
+        guard !conflicts.isEmpty else { return nil }
+        return "Маска пересекается с источником «\(conflicts.map(\.name).joined(separator: "», «"))» в той же папке."
     }
 
     private func membership(of id: UUID) -> Binding<Bool> {

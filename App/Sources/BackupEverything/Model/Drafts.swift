@@ -76,6 +76,8 @@ struct SourceDraft {
         return trimmed(name).isEmpty ? "Укажите название." : nil
     }
 
+    var hasChanges: Bool { build() != base }
+
     func build() -> Source {
         var source = base
         source.name = trimmed(name)
@@ -160,6 +162,8 @@ struct DestinationDraft {
         default: return nil
         }
     }
+
+    var hasChanges: Bool { build() != base }
 
     func build() -> Destination {
         var destination = base

@@ -10,12 +10,15 @@ struct DestinationsView: View {
     @State private var isNew = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            List(model.config.destinations, selection: $selection) { destination in
-                Label(destination.name, systemImage: StatusStyle.symbol(for: destination.kind)).tag(destination.id)
+        EditorLayout(items: model.config.destinations, selection: $selection) { destination in
+            HStack(spacing: 11) {
+                DestinationIcon(destination: destination).frame(width: 18)
+                Text(destination.name)
             }
-            .frame(width: 230)
-            Divider()
+        } addMenu: {
+            Button("Папка или внешний диск") { start(.localFolder(path: "")) }
+            Button("Облако (rclone)") { start(.rclone(remote: "", path: "backups")) }
+        } detail: {
             if let draft {
                 DestinationEditor(
                     draft: Binding(get: { self.draft ?? draft }, set: { self.draft = $0 }),
@@ -26,22 +29,17 @@ struct DestinationsView: View {
                 )
                 .id(draft.id)
             } else {
-                EmptyState(symbol: "externaldrive", title: "Назначения", message: "Выберите назначение слева или добавьте новое кнопкой «+».")
+                EmptyState(symbol: "externaldrive", title: "Назначений пока нет", message: "Добавьте папку, диск или облако кнопкой «Добавить» слева.")
             }
         }
         .navigationTitle("Назначения")
-        .toolbar {
-            Menu("Добавить", systemImage: "plus") {
-                Button("Папка или внешний диск") { start(.localFolder(path: "")) }
-                Button("Облако (rclone)") { start(.rclone(remote: "", path: "backups")) }
-            }
-        }
         .onAppear {
-            if let id = UUID(uuidString: storedSelection), model.config.destination(id) != nil { selection = id }
+            let stored = UUID(uuidString: storedSelection).flatMap { model.config.destination($0) }
+            selection = (stored ?? model.config.destinations.first)?.id
         }
         .onChange(of: selection) { _, id in
-            storedSelection = id?.uuidString ?? ""
             guard let id, let destination = model.config.destination(id) else { return }
+            storedSelection = id.uuidString
             draft = DestinationDraft(destination)
             isNew = false
         }
@@ -57,6 +55,7 @@ struct DestinationsView: View {
         Task {
             await model.save(destination)
             isNew = false
+            draft = DestinationDraft(destination)
             selection = destination.id
         }
     }
@@ -64,14 +63,22 @@ struct DestinationsView: View {
     private func delete(_ destination: Destination) {
         Task {
             await model.delete(destination)
-            cancel()
+            showFirst()
         }
     }
 
     private func cancel() {
-        draft = nil
-        selection = nil
+        if !isNew, let id = draft?.id, let saved = model.config.destination(id) {
+            draft = DestinationDraft(saved)
+        } else {
+            showFirst()
+        }
+    }
+
+    private func showFirst() {
         isNew = false
+        draft = model.config.destinations.first.map(DestinationDraft.init)
+        selection = draft?.id
     }
 }
 
@@ -86,39 +93,73 @@ struct DestinationEditor: View {
     @State private var remotes: [String] = []
     @State private var confirmsDeletion = false
 
+    private var saved: Destination? {
+        isNew ? nil : model.config.destination(draft.id)
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section("Основное") {
-                    TextField("Название", text: $draft.name, prompt: Text("например, Внешний HDD"))
-                    Picker("Тип", selection: $draft.typeChoice) {
-                        ForEach(DestinationTypeChoice.allCases) { Text($0.title).tag($0) }
-                    }
+        EditorPage {
+            EditorHeader(name: $draft.name, prompt: draft.typeChoice == .local ? "Название, например Внешний HDD" : "Название, например Облако") {
+                if let saved {
+                    DestinationIcon(destination: saved)
+                        .hoverTip(DestinationDetails.text(of: saved, model: model))
+                } else {
+                    Image(systemName: draft.typeChoice == .local ? "externaldrive" : "cloud").foregroundStyle(.secondary)
                 }
-                switch draft.typeChoice {
-                case .local: localSection
-                case .rclone: rcloneSection
-                }
-                Section("Как часто должно быть доступно") {
-                    Picker("Режим", selection: $draft.isPeriodic) {
-                        Text("Всегда на связи").tag(false)
-                        Text("Подключаю время от времени").tag(true)
+            } accessory: {
+                if let saved {
+                    Menu {
+                        Button("Удалить…", role: .destructive) { confirmsDeletion = true }
+                    } label: {
+                        Image(systemName: "ellipsis")
                     }
-                    if draft.isPeriodic {
-                        Stepper("Напоминать подключить, если не было дней: \(draft.days)", value: $draft.days, in: 1...365)
-                        Text("Пока срок не вышел, приложение молчит. При подключении диск получит свежую копию каждого источника.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if !isNew, let saved = model.config.destination(draft.id) {
-                    DestinationInfo(destination: saved)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .id(saved.id)
                 }
             }
-            .formStyle(.grouped)
-            Divider()
-            footer
+            if let saved, let attention = attention(for: saved) {
+                Text(attention)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .padding(.leading, 32)
+                    .padding(.top, -8)
+            }
+        } content: {
+            SettingsCard {
+                switch draft.typeChoice {
+                case .local: localRows
+                case .rclone: rcloneRows
+                }
+                SettingsRow(title: "Подключение") {
+                    Picker("", selection: $draft.isPeriodic) {
+                        Text("Всегда на связи").tag(false)
+                        Text("Время от времени").tag(true)
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                if draft.isPeriodic {
+                    SettingsRow(
+                        title: "Напоминать, если не подключал",
+                        tip: "Пока срок не вышел, приложение молчит.\nПри подключении диск получит свежую копию каждого источника."
+                    ) {
+                        Stepper("\(draft.days) дн", value: $draft.days, in: 1...365)
+                    }
+                }
+            }
+            if let saved {
+                DestinationCopies(destination: saved)
+            }
+        } saveBar: {
+            if isNew || draft.hasChanges {
+                SaveBar(isNew: isNew, problem: draft.problem, cancel: onCancel) {
+                    onSave(draft.build())
+                }
+            }
         }
+        .animation(.easeOut(duration: 0.15), value: isNew || draft.hasChanges)
         .task(id: draft.typeChoice) {
             if draft.typeChoice == .rclone { remotes = await model.rcloneRemotes() }
         }
@@ -129,121 +170,212 @@ struct DestinationEditor: View {
         }
     }
 
-    private var localSection: some View {
-        Section("Папка") {
-            HStack {
-                TextField("Путь", text: $draft.path)
-                Button("Выбрать…") {
-                    if let path = FolderPicker.choose() { draft.path = path }
-                }
-            }
-            Text("Для внешнего диска выберите папку на нём. Приложение не создаёт эту папку само: если диск не подключён, бэкап просто ждёт.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+    private func attention(for destination: Destination) -> String? {
+        let waiting = model.waitingSources(for: destination).map(\.name)
+        let parts = [
+            model.condition(of: destination).problem,
+            waiting.isEmpty ? nil : "ждут: \(waiting.joined(separator: ", "))",
+        ].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private var localRows: some View {
+        SettingsRow(
+            title: "Папка",
+            tip: "Для внешнего диска выберите папку на нём.\nПриложение не создаёт эту папку само:\nесли диск не подключён, бэкап просто ждёт."
+        ) {
+            PathField(path: $draft.path)
         }
     }
 
     @ViewBuilder
-    private var rcloneSection: some View {
-        Section("Облако") {
-            if !model.isRcloneInstalled {
-                Text("Не найден rclone. Установите его в терминале командой `brew install rclone` и откройте этот экран заново.")
-                    .foregroundStyle(.orange)
-            } else if remotes.isEmpty {
-                Text("В rclone пока нет подключённых облаков. Выполните в терминале `rclone config`, выберите «n» (new remote), дайте имя, выберите сервис и пройдите вход в браузере. Затем нажмите «Обновить».")
+    private var rcloneRows: some View {
+        if !model.isRcloneInstalled {
+            Text("Не найден rclone. Установите его в терминале командой `brew install rclone` и откройте этот экран заново.")
+                .foregroundStyle(.orange)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if remotes.isEmpty {
+            HStack(alignment: .top) {
+                Text("В rclone пока нет подключённых облаков. Выполните в терминале `rclone config`, выберите «n» (new remote), дайте имя, выберите сервис и пройдите вход в браузере.")
                     .foregroundStyle(.secondary)
-            } else {
-                Picker("Подключённое облако", selection: $draft.remote) {
+                Spacer()
+                refreshButton
+            }
+            .padding(14)
+        } else {
+            SettingsRow(title: "Облако") {
+                Picker("", selection: $draft.remote) {
                     Text("Не выбрано").tag("")
                     ForEach(remotes, id: \.self) { Text($0).tag($0) }
                 }
+                .labelsHidden()
+                .fixedSize()
+                refreshButton
             }
-            TextField("Папка в облаке", text: $draft.remotePath)
-            Button("Обновить список облаков") {
-                Task { remotes = await model.rcloneRemotes() }
-            }
+        }
+        SettingsRow(title: "Папка в облаке") {
+            TextField("", text: $draft.remotePath, prompt: Text("backups"))
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
         }
     }
 
-    private var footer: some View {
-        HStack {
-            if !isNew {
-                Button("Удалить", role: .destructive) { confirmsDeletion = true }
-            }
-            if let problem = draft.problem {
-                Text(problem).font(.callout).foregroundStyle(.red)
-            }
-            Spacer()
-            Button("Отменить", action: onCancel)
-            Button(isNew ? "Добавить" : "Сохранить") { onSave(draft.build()) }
-                .keyboardShortcut(.defaultAction)
-                .disabled(draft.problem != nil)
+    private var refreshButton: some View {
+        Button {
+            Task { remotes = await model.rcloneRemotes() }
+        } label: {
+            Image(systemName: "arrow.clockwise")
         }
-        .padding(12)
+        .buttonStyle(.borderless)
+        .help("Обновить список облаков")
     }
 }
 
-struct DestinationInfo: View {
+struct DestinationCopies: View {
     @Environment(AppModel.self) private var model
     let destination: Destination
 
-    @State private var isAvailable: Bool?
     @State private var usedBytes: Int64?
-    @State private var snapshots: [UUID: [Snapshot]] = [:]
+    @State private var snapshots: [UUID: [Snapshot]]?
 
     var body: some View {
-        Section("Состояние") {
-            LabeledContent("Доступность") {
-                switch isAvailable {
-                case .none: ProgressView().controlSize(.small)
-                case .some(true): Label("Доступно", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                case .some(false): Label("Недоступно", systemImage: "xmark.circle").foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Копии")
+                Spacer()
+                if let usedBytes { Text(Texts.bytes(usedBytes)) }
             }
-            LabeledContent("Занято", value: usedBytes.map(Texts.bytes) ?? "—")
-            LabeledContent("Последний полный догон", value: model.lastCaughtUp(destination).map { Texts.relative($0) } ?? "—")
-            let waiting = model.waitingSources(for: destination)
-            if !waiting.isEmpty {
-                LabeledContent("Ждут доставки", value: waiting.map(\.name).joined(separator: ", "))
-            }
-        }
-        .task(id: destination) { await load() }
-        ForEach(sources) { source in
-            Section("Копии: \(source.name)") {
-                let items = snapshots[source.id] ?? []
-                if items.isEmpty {
-                    Text("Копий пока нет.").foregroundStyle(.secondary)
-                }
-                ForEach(items, id: \.self) { snapshot in
-                    HStack {
-                        Text(Texts.dateTime(snapshot.date))
-                        Spacer()
-                        if let url = model.localURL(of: snapshot, source: source, in: destination) {
-                            Button("Показать в Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([url])
-                            }
-                        } else {
-                            Text(snapshot.name).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                        }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+            if sources.isEmpty {
+                note("Сюда пока не бэкапится ни один источник.")
+            } else if let snapshots {
+                SettingsCard {
+                    ForEach(sources) { source in
+                        CopiesRow(source: source, destination: destination, snapshots: snapshots[source.id] ?? [])
                     }
                 }
+            } else if model.condition(of: destination).isConnected {
+                ProgressView().controlSize(.small).padding(.horizontal, 14)
+            } else {
+                note("Не подключено — копии не видны.")
             }
         }
+        .task(id: LoadKey(destination: destination, isConnected: model.condition(of: destination).isConnected, runs: model.runs.count)) {
+            await load()
+        }
+    }
+
+    private struct LoadKey: Equatable {
+        let destination: Destination
+        let isConnected: Bool
+        let runs: Int
     }
 
     private var sources: [Source] {
         model.config.sources.filter { $0.destinationIds.contains(destination.id) }
     }
 
+    private func note(_ text: String) -> some View {
+        Text(text).foregroundStyle(.secondary).padding(.horizontal, 14)
+    }
+
     private func load() async {
-        isAvailable = nil
-        usedBytes = nil
-        let available = await model.isAvailable(destination)
-        isAvailable = available
-        guard available else { return }
-        for source in sources {
-            snapshots[source.id] = await model.snapshots(of: source, in: destination)
+        guard await model.isAvailable(destination) else {
+            snapshots = nil
+            usedBytes = nil
+            return
         }
+        var loaded: [UUID: [Snapshot]] = [:]
+        for source in sources {
+            loaded[source.id] = await model.snapshots(of: source, in: destination).sorted { $0.date > $1.date }
+        }
+        snapshots = loaded
         usedBytes = await model.usedBytes(destination)
+    }
+}
+
+struct CopiesRow: View {
+    @Environment(AppModel.self) private var model
+    let source: Source
+    let destination: Destination
+    let snapshots: [Snapshot]
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: StatusStyle.symbol(for: source.kind))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    Text(source.name).fontWeight(.medium).lineLimit(1)
+                    Text(snapshots.isEmpty ? "копий ещё нет" : Texts.copies(snapshots.count))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Text(Texts.age(snapshots.first?.date))
+                        .font(.callout)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .opacity(snapshots.isEmpty ? 0 : 1)
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 40)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(snapshots.isEmpty)
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(snapshots, id: \.self) { snapshot in
+                        SnapshotLine(snapshot: snapshot, url: model.localURL(of: snapshot, source: source, in: destination))
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+    }
+}
+
+struct SnapshotLine: View {
+    let snapshot: Snapshot
+    let url: URL?
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack {
+            Text(Texts.dateTime(snapshot.date))
+            Spacer()
+            if let url {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help("Показать в Finder")
+                .opacity(isHovered ? 1 : 0)
+            } else {
+                Text(snapshot.name).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+        }
+        .font(.callout)
+        .padding(.leading, 44)
+        .padding(.trailing, 14)
+        .frame(height: 26)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }

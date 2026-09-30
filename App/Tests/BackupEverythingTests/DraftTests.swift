@@ -66,4 +66,25 @@ struct DraftTests {
         draft.days = 0
         #expect(draft.build().expectedEvery == .days(1))
     }
+
+    @Test func sourceDraftKnowsWhenItDiffersFromTheSavedSource() {
+        var draft = SourceDraft(source(.folder(path: "~/Obsidian", excludes: [".trash"])))
+        #expect(!draft.hasChanges)
+        draft.name = "Источник  "
+        draft.excludesText = ".trash\n"
+        #expect(!draft.hasChanges)
+        draft.schedule = .daily
+        #expect(draft.hasChanges)
+        draft.schedule = .weekly
+        #expect(!draft.hasChanges)
+    }
+
+    @Test func destinationDraftKnowsWhenItDiffersFromTheSavedDestination() {
+        var draft = DestinationDraft(Destination(name: "HDD", kind: .localFolder(path: "/Volumes/HDD")))
+        #expect(!draft.hasChanges)
+        draft.days = 10
+        #expect(!draft.hasChanges)
+        draft.isPeriodic = true
+        #expect(draft.hasChanges)
+    }
 }

@@ -203,6 +203,10 @@ final class AppModel {
         state.debts(forDestination: destination.id).compactMap { config.source($0.sourceId) }
     }
 
+    func condition(of destination: Destination) -> DestinationCondition {
+        DestinationCondition.of(destination.id, report: report, unavailable: unavailableDestinations)
+    }
+
     func lastCaughtUp(_ destination: Destination) -> Date? {
         state.destinationState(destination.id).lastCaughtUp
     }

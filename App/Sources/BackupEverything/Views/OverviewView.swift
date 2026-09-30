@@ -316,47 +316,33 @@ struct DestinationStrip: View {
     var body: some View {
         HStack(spacing: 18) {
             ForEach(model.config.destinations) { destination in
-                let problem = problem(of: destination)
-                let isOffline = model.unavailableDestinations.contains(destination.id)
+                let condition = model.condition(of: destination)
                 HStack(spacing: 6) {
-                    Image(systemName: StatusStyle.symbol(for: destination.kind))
-                        .overlay(alignment: .bottomTrailing) {
-                            if isOffline {
-                                Image(systemName: "minus.circle.fill")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .background(Circle().fill(.background).padding(-1))
-                                    .offset(x: 5, y: 4)
-                            }
-                        }
-                    Text(problem.map { "\(destination.name) · \($0)" } ?? destination.name)
-                        .padding(.leading, isOffline ? 3 : 0)
+                    DestinationIcon(destination: destination, marksAvailable: false)
+                    Text(condition.problem.map { "\(destination.name) · \($0)" } ?? destination.name)
+                        .padding(.leading, condition.isConnected ? 0 : 3)
+                        .foregroundStyle(style(condition))
                 }
                 .font(.callout)
-                .foregroundStyle(style(problem: problem, isOffline: isOffline))
-                .hoverTip(details(of: destination, isOffline: isOffline))
+                .hoverTip(DestinationDetails.text(of: destination, model: model))
             }
         }
         .padding(.horizontal, 4)
     }
 
-    private func problem(of destination: Destination) -> String? {
-        for item in model.report.items {
-            switch item {
-            case let .connectDestination(id) where id == destination.id: return "пора подключить"
-            case let .destinationUnavailable(id) where id == destination.id: return "недоступно"
-            default: continue
-            }
+    private func style(_ condition: DestinationCondition) -> AnyShapeStyle {
+        switch condition {
+        case .available: AnyShapeStyle(.secondary)
+        case .offline: AnyShapeStyle(.tertiary)
+        case .needsConnection, .unreachable: AnyShapeStyle(.orange)
         }
-        return nil
     }
+}
 
-    private func style(problem: String?, isOffline: Bool) -> AnyShapeStyle {
-        if problem != nil { return AnyShapeStyle(.orange) }
-        return isOffline ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary)
-    }
-
-    private func details(of destination: Destination, isOffline: Bool) -> String {
-        var lines = [isOffline ? "Сейчас не подключено" : "Доступно"]
+@MainActor
+enum DestinationDetails {
+    static func text(of destination: Destination, model: AppModel) -> String {
+        var lines = [model.condition(of: destination).isConnected ? "Доступно" : "Сейчас не подключено"]
         let waiting = model.waitingSources(for: destination)
         if let caughtUp = model.lastCaughtUp(destination) {
             lines.append("Получило всё: \(Texts.relative(caughtUp))")
