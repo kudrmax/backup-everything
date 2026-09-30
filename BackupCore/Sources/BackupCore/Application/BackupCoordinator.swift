@@ -1,0 +1,218 @@
+import Foundation
+
+public actor BackupCoordinator {
+    private let store: Store
+    private let engine: BackupEngine
+    private let inbox: ManualExportInbox
+    private let stores: any DestinationStoreFactory
+    private let time: any TimeSource
+    private let planner: SchedulePlanner
+    private let reporter: StatusReporter
+    private let reminders = ReminderPlanner()
+    private let reducer = StateReducer()
+    private var queueTail: Task<Void, Never>?
+
+    public init(
+        store: Store,
+        engine: BackupEngine,
+        inbox: ManualExportInbox,
+        stores: any DestinationStoreFactory,
+        time: any TimeSource,
+        calendar: Calendar
+    ) {
+        self.store = store
+        self.engine = engine
+        self.inbox = inbox
+        self.stores = stores
+        self.time = time
+        self.planner = SchedulePlanner(calendar: calendar)
+        self.reporter = StatusReporter(planner: planner)
+    }
+
+    public func tick() async throws -> TickResult {
+        try await enqueue { try await self.performTick() }
+    }
+
+    public func runNow(sourceId: UUID) async throws -> TickResult {
+        try await enqueue { try await self.performRunNow(sourceId: sourceId) }
+    }
+
+    public func runAllNow() async throws -> TickResult {
+        try await enqueue { try await self.performRunAllNow() }
+    }
+
+    public func confirmPickup(sourceId: UUID) async throws -> TickResult {
+        try await enqueue { try await self.performConfirmPickup(sourceId: sourceId) }
+    }
+
+    public func statusReport() async throws -> StatusReport {
+        let config = try store.loadConfig()
+        let state = try store.loadState()
+        return await report(config: config, state: state, now: time.now)
+    }
+
+    public func nextWake() async throws -> Date? {
+        let config = try store.loadConfig()
+        let state = try store.loadState()
+        let now = time.now
+        let report = await report(config: config, state: state, now: now)
+        return planner.nextWake(config: config, state: state, now: now, needsAttention: report.overall != .ok)
+    }
+
+    private func enqueue<Value: Sendable>(_ operation: @escaping @Sendable () async throws -> Value) async throws -> Value {
+        let previous = queueTail
+        let task = Task<Value, Error> {
+            await previous?.value
+            return try await operation()
+        }
+        queueTail = Task { _ = try? await task.value }
+        return try await task.value
+    }
+
+    private func performTick() async throws -> TickResult {
+        let config = try store.loadConfig()
+        var state = try store.loadState()
+        reducer.dropOrphans(config: config, state: &state)
+        let now = time.now
+        let debtorsBefore = Set(state.debts.map(\.destinationId))
+        var runs: [RunRecord] = []
+
+        let due = planner.dueAutomaticSources(config: config, state: state, now: now)
+        let dueIds = Set(due.map(\.id))
+        let retryableSourceIds = Set(planner.retryableDebts(state: state, now: now).map(\.sourceId))
+        for source in config.sources where source.enabled && !dueIds.contains(source.id) {
+            guard retryableSourceIds.contains(source.id) else { continue }
+            if source.isManualExport, inbox.pendingPackage(for: source.id) == nil {
+                state.debts.removeAll { $0.sourceId == source.id }
+                continue
+            }
+            let debtors = state.debts.filter { $0.sourceId == source.id }.compactMap { config.destination($0.destinationId) }
+            try await execute(source, debtors, .catchUp, state: &state, runs: &runs)
+        }
+        for source in config.sources where source.enabled {
+            guard case let .manualExport(_, _, fileMode, _) = source.kind, fileMode == .single else { continue }
+            try await pickUp(source, config: config, state: &state, runs: &runs)
+        }
+        for source in due {
+            try await execute(source, config.destinations(of: source), .scheduled, state: &state, runs: &runs)
+        }
+
+        let notices = await closingNotices(config: config, state: &state, runs: runs, debtorsBefore: debtorsBefore)
+        try store.saveState(state)
+        return TickResult(runs: runs, notices: notices)
+    }
+
+    private func performRunNow(sourceId: UUID) async throws -> TickResult {
+        let config = try store.loadConfig()
+        var state = try store.loadState()
+        var runs: [RunRecord] = []
+        guard let source = config.source(sourceId) else { return TickResult() }
+        if source.isManualExport {
+            try await pickUp(source, config: config, state: &state, runs: &runs)
+        } else {
+            try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
+        }
+        return TickResult(runs: runs, notices: failureNotices(runs))
+    }
+
+    private func performRunAllNow() async throws -> TickResult {
+        let config = try store.loadConfig()
+        var state = try store.loadState()
+        var runs: [RunRecord] = []
+        for source in config.sources where source.enabled && !source.isManualExport && !source.destinationIds.isEmpty {
+            try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
+        }
+        return TickResult(runs: runs, notices: failureNotices(runs))
+    }
+
+    private func performConfirmPickup(sourceId: UUID) async throws -> TickResult {
+        let config = try store.loadConfig()
+        var state = try store.loadState()
+        var runs: [RunRecord] = []
+        guard let source = config.source(sourceId) else { return TickResult() }
+        try await pickUp(source, config: config, state: &state, runs: &runs)
+        return TickResult(runs: runs, notices: failureNotices(runs))
+    }
+
+    private func pickUp(_ source: Source, config: Config, state: inout AppState, runs: inout [RunRecord]) async throws {
+        guard case let .manualExport(watchPath, filePattern, _, removeOriginal) = source.kind,
+              !source.destinationIds.isEmpty else { return }
+        let now = time.now
+        let since = state.sourceState(source.id).lastPickup ?? source.createdAt
+        let scan = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: since, now: now)
+        guard scan.isReady else { return }
+        _ = try inbox.pickUp(sourceId: source.id, files: scan.files, removeOriginal: removeOriginal, at: now)
+        state.updateSource(source.id) { $0.lastPickup = now }
+        try store.saveState(state)
+        try await execute(source, config.destinations(of: source), .pickup, state: &state, runs: &runs)
+    }
+
+    private func execute(
+        _ source: Source,
+        _ destinations: [Destination],
+        _ trigger: RunTrigger,
+        state: inout AppState,
+        runs: inout [RunRecord]
+    ) async throws {
+        let record = await engine.run(source: source, destinations: destinations, trigger: trigger)
+        reducer.apply(record, to: &state)
+        try store.saveState(state)
+        if record.isDeferredOnly && trigger != .manual { return }
+        try store.appendRun(record)
+        runs.append(record)
+    }
+
+    private func closingNotices(
+        config: Config,
+        state: inout AppState,
+        runs: [RunRecord],
+        debtorsBefore: Set<UUID>
+    ) async -> [Notice] {
+        var notices = failureNotices(runs)
+        for destination in config.destinations where debtorsBefore.contains(destination.id) {
+            guard case .days = destination.expectedEvery, state.debts(forDestination: destination.id).isEmpty else { continue }
+            notices.append(.destinationCaughtUp(destinationId: destination.id, destinationName: destination.name))
+        }
+        let now = time.now
+        let report = await report(config: config, state: state, now: now)
+        let reminded = reminders.dueReminders(in: report, state: state, now: now)
+        reminders.record(reminded, report: report, state: &state, now: now)
+        for item in reminded {
+            switch item {
+            case let .manualExportDue(sourceId):
+                if let source = config.source(sourceId) {
+                    notices.append(.manualExportDue(sourceId: sourceId, sourceName: source.name))
+                }
+            case let .connectDestination(destinationId):
+                if let destination = config.destination(destinationId) {
+                    notices.append(.connectDestination(destinationId: destinationId, destinationName: destination.name))
+                }
+            default:
+                break
+            }
+        }
+        return notices
+    }
+
+    private func failureNotices(_ runs: [RunRecord]) -> [Notice] {
+        runs.compactMap { run in
+            run.firstFailure.map { .runFailed(sourceId: run.sourceId, sourceName: run.sourceName, message: $0) }
+        }
+    }
+
+    private func report(config: Config, state: AppState, now: Date) async -> StatusReport {
+        var unavailable: Set<UUID> = []
+        for destination in config.destinations where !state.debts(forDestination: destination.id).isEmpty {
+            if !(await stores.store(for: destination).isAvailable()) {
+                unavailable.insert(destination.id)
+            }
+        }
+        var scans: [UUID: InboxScan] = [:]
+        for source in config.sources where source.enabled {
+            guard case let .manualExport(watchPath, filePattern, _, _) = source.kind else { continue }
+            let since = state.sourceState(source.id).lastPickup ?? source.createdAt
+            scans[source.id] = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: since, now: now)
+        }
+        return reporter.report(config: config, state: state, now: now, unavailableDestinations: unavailable, inboxScans: scans)
+    }
+}
