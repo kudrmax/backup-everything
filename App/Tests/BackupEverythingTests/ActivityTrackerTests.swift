@@ -37,9 +37,9 @@ struct ActivityTrackerTests {
     }
 
     @Test func stageTextsArePlainRussian() {
-        #expect(Texts.stage(.queued, destinationName: nil) == "В очереди")
-        #expect(Texts.stage(.collecting, destinationName: nil) == "Собирает данные…")
-        #expect(Texts.stage(.delivering(destinationId: disk), destinationName: "HDD") == "Записывает в «HDD»…")
+        #expect(Texts.stage(.queued, destinationName: nil) == "в очереди")
+        #expect(Texts.stage(.collecting, destinationName: nil) == "готовит копию…")
+        #expect(Texts.stage(.delivering(destinationId: disk), destinationName: "HDD") == "копирует на «HDD»…")
     }
 
     @Test func deliveryStateCombinesLastOutcomeAndDebt() {

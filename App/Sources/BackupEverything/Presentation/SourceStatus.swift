@@ -50,6 +50,25 @@ enum SourceStatus: Equatable {
         }
     }
 
+    var note: String? {
+        switch self {
+        case .ok, .neverRun: nil
+        case .disabled: "выключен"
+        case let .failed(message): Self.headline(of: message)
+        case .overdue: "давно не было бэкапа"
+        case .noDestinations: "не выбрано, куда бэкапить"
+        case let .filesFound(count, bytes, downloading):
+            "\(Texts.files(count)) · \(Texts.bytes(bytes))" + (downloading ? " · идёт загрузка" : "")
+        case .exportDue: "пора сделать экспорт"
+        }
+    }
+
+    private static func headline(of message: String) -> String {
+        let cuts = [": ", ". "].compactMap { message.range(of: $0)?.lowerBound }
+        guard let cut = cuts.min() else { return message }
+        return String(message[..<cut])
+    }
+
     private var rank: Int {
         switch self {
         case .failed: 0

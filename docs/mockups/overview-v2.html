@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обзор — макет 2</title>
+<style>
+  :root {
+    --page: #d9d9d9; --window: #ececec; --sidebar: #e3e3e3; --card: #f7f7f7; --line: rgba(0,0,0,.08);
+    --text: #1d1d1f; --muted: #6e6e73; --faint: #b0b0b5; --select: rgba(0,0,0,.08); --button: #fff; --tip: #2b2b2d;
+    --green: #30b14c; --orange: #f0892b; --red: #e5443b; --blue: #2f7cf6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --page: #111; --window: #1e1e1e; --sidebar: #262626; --card: #2a2a2a; --line: rgba(255,255,255,.09);
+            --text: #f2f2f2; --muted: #a0a0a5; --faint: #5c5c60; --select: rgba(255,255,255,.1); --button: #3a3a3c; --tip: #48484a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 16px 80px; background: var(--page); color: var(--text);
+         font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  .window { max-width: 900px; margin: 0 auto; background: var(--window); border-radius: 12px;
+            display: grid; grid-template-columns: 180px 1fr; border: 1px solid var(--line); box-shadow: 0 18px 50px rgba(0,0,0,.25); }
+  .sidebar { background: var(--sidebar); padding: 14px 10px; border-right: 1px solid var(--line); border-radius: 12px 0 0 12px; }
+  .lights { display: flex; gap: 8px; padding: 4px 6px 18px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; }
+  .nav { padding: 6px 10px; border-radius: 6px; display: flex; gap: 8px; align-items: center; }
+  .nav.on { background: var(--select); }
+  .nav svg { color: var(--blue); }
+  svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  main { padding: 26px 28px 30px; min-width: 0; }
+
+  .hero { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  .hero h2 { font-size: 20px; font-weight: 600; margin: 0; flex: 1; }
+  .hero .now { color: var(--blue); display: flex; align-items: center; gap: 7px; }
+  .mark { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 14px; }
+
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  .row { display: grid; grid-template-columns: 18px 1fr auto auto 58px; align-items: center; gap: 14px;
+         padding: 0 14px; height: 46px; border-top: 1px solid var(--line); position: relative; }
+  .row:first-child { border-top: none; }
+  .row:hover { background: var(--select); }
+  .row:first-child:hover { border-radius: 10px 10px 0 0; } .row:last-child:hover { border-radius: 0 0 10px 10px; }
+  .title { min-width: 0; overflow: hidden; display: flex; align-items: baseline; gap: 10px; }
+  .title b { font-weight: 500; white-space: nowrap; }
+  .title span { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title span.err { color: var(--red); } .title span.run { color: var(--blue); }
+  .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .dests { display: flex; gap: 8px; }
+  .dests svg.g { color: var(--green); } .dests svg.o { color: var(--orange); } .dests svg.r { color: var(--red); } .dests svg.b { color: var(--blue); }
+
+  .state { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 700; }
+  .state.g { background: var(--green); } .state.o { background: var(--orange); } .state.r, .mark.r { background: var(--red); }
+  .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(47,124,246,.2); border-top-color: var(--blue); animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pulse { animation: pulse 1.2s ease-in-out infinite; } @keyframes pulse { 50% { opacity: .35; } }
+
+  .act { display: flex; justify-content: flex-end; gap: 2px; }
+  button { font: inherit; color: var(--text); background: var(--button); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: default; }
+  button.primary { background: var(--blue); color: #fff; border-color: transparent; }
+  button.icon { background: none; border: none; padding: 4px; color: var(--muted); display: inline-flex; border-radius: 5px; }
+  button.icon:hover { background: var(--select); color: var(--text); }
+  .row .hover { visibility: hidden; } .row:hover .hover { visibility: visible; }
+
+  .drives { display: flex; gap: 18px; margin: 16px 4px 0; color: var(--muted); font-size: 12px; }
+  .drives div { display: flex; align-items: center; gap: 6px; }
+  .drives .o { color: var(--orange); }
+  .drives div { white-space: nowrap; }
+
+  [data-tip] { position: relative; }
+  [data-tip]:hover::after { content: attr(data-tip); position: absolute; z-index: 5; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+      background: var(--tip); color: #fff; font-size: 12px; font-weight: 400; line-height: 1.45; padding: 6px 9px; border-radius: 6px;
+      white-space: pre; pointer-events: none; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+  .row > .state[data-tip]:hover::after, .row > .spin[data-tip]:hover::after { left: 0; transform: none; }
+  .note { max-width: 900px; margin: 16px auto 0; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="drive" viewBox="0 0 16 16"><path d="M3.5 3h9l2 6v4h-13V9l2-6zM1.5 9h13M11 11.2h1"/></symbol>
+  <symbol id="cloud" viewBox="0 0 16 16"><path d="M4.5 12.5a3 3 0 010-6 4 4 0 017.6 1.2 2.4 2.4 0 01-.6 4.8h-7z"/></symbol>
+  <symbol id="play" viewBox="0 0 16 16"><path d="M5 3.5l7 4.5-7 4.5v-9z"/></symbol>
+  <symbol id="dots" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="12.5" cy="8" r=".8"/></symbol>
+  <symbol id="grid" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></symbol>
+  <symbol id="down" viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M2.5 11v2.5h11V11"/></symbol>
+  <symbol id="clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.2 1.5"/></symbol>
+</svg>
+
+<div class="window">
+  <aside class="sidebar">
+    <div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+    <div class="nav on"><svg><use href="#grid"/></svg>Обзор</div>
+    <div class="nav"><svg><use href="#down"/></svg>Источники</div>
+    <div class="nav"><svg><use href="#drive"/></svg>Назначения</div>
+    <div class="nav"><svg><use href="#clock"/></svg>История</div>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <div class="mark r">✕</div>
+      <h2>1 ошибка</h2>
+      <div class="now"><span class="spin"></span>Bitwarden</div>
+      <button class="icon" data-tip="Запустить всё"><svg><use href="#play"/></svg></button>
+    </div>
+
+    <div class="list">
+      <div class="row">
+        <span class="state g" data-tip="В порядке">✓</span>
+        <div class="title"><b>Obsidian</b></div>
+        <span class="when" data-tip="Последний бэкап: сегодня, 17:35&#10;Следующий: завтра, 17:35&#10;Размер: 214 МБ · хранится копий: 11">5 мин</span>
+        <div class="dests">
+          <svg class="g" data-tip="Основная папка&#10;доставлено 5 минут назад"><use href="#drive"/></svg>
+          <svg class="o" data-tip="Внешний HDD — не подключён&#10;последняя доставка 34 дня назад"><use href="#drive"/></svg>
+        </div>
+        <div class="act hover"><button class="icon" data-tip="Запустить"><svg><use href="#play"/></svg></button><button class="icon"><svg><use href="#dots"/></svg></button></div>
+      </div>
+
+      <div class="row">
+        <span class="spin" data-tip="Идёт бэкап"></span>
+        <div class="title"><b>Bitwarden</b><span class="run">записывает…</span></div>
+        <span class="when" data-tip="Последний бэкап: 23 сентября, 17:30&#10;Размер: 1,2 МБ · хранится копий: 8">7 дн</span>
+        <div class="dests"><svg class="b pulse" data-tip="Основная папка&#10;записывается…"><use href="#drive"/></svg></div>
+        <div class="act"></div>
+      </div>
+
+      <div class="row">
+        <span class="state r" data-tip="Ошибка при последнем запуске">✕</span>
+        <div class="title"><b>GitHub</b><span class="err" data-tip="Команда завершилась с кодом 1&#10;gh: To get started with GitHub CLI, please run: gh auth login&#10;Повтор через 41 минуту">нужен вход в gh</span></div>
+        <span class="when" data-tip="Последний бэкап: 21 сентября, 09:12&#10;Следующий: повтор через 41 минуту&#10;Размер: 1,8 ГБ · хранится копий: 6">9 дн</span>
+        <div class="dests">
+          <svg class="g" data-tip="Основная папка&#10;доставлено 9 дней назад"><use href="#drive"/></svg>
+          <svg class="o" data-tip="Внешний HDD — не подключён&#10;последняя доставка 34 дня назад"><use href="#drive"/></svg>
+        </div>
+        <div class="act hover"><button class="icon" data-tip="Запустить"><svg><use href="#play"/></svg></button><button class="icon"><svg><use href="#dots"/></svg></button></div>
+      </div>
+
+      <div class="row">
+        <span class="state o" data-tip="Нужно твоё действие">!</span>
+        <div class="title"><b>Google Photos</b><span data-tip="takeout-001.zip&#10;takeout-002.zip&#10;takeout-003.zip">3 файла · 12 ГБ</span></div>
+        <span class="when" data-tip="Последний бэкап: 28 августа, 20:02&#10;Размер: 48 ГБ · хранится копий: 3">33 дн</span>
+        <div class="dests"><svg class="g" data-tip="Основная папка&#10;доставлено 33 дня назад"><use href="#drive"/></svg></div>
+        <div class="act"><button class="primary">Забрать</button></div>
+      </div>
+
+      <div class="row">
+        <span class="state g" data-tip="В порядке">✓</span>
+        <div class="title"><b>Claude</b></div>
+        <span class="when" data-tip="Последний бэкап: 12 сентября, 11:40&#10;Экспорт пора делать через 12 дней&#10;Размер: 36 МБ · хранится копий: 4">18 дн</span>
+        <div class="dests"><svg class="g" data-tip="Облако&#10;доставлено 18 дней назад"><use href="#cloud"/></svg></div>
+        <div class="act hover"><button class="icon"><svg><use href="#dots"/></svg></button></div>
+      </div>
+    </div>
+
+    <div class="drives">
+      <div data-tip="Доступно · занято 51,4 ГБ"><svg><use href="#drive"/></svg>Основная папка</div>
+      <div class="o" data-tip="Не подключался 34 дня&#10;Ждут доставки: Obsidian, GitHub"><svg><use href="#drive"/></svg>Внешний HDD · пора подключить</div>
+      <div data-tip="Доступно · занято 84 МБ"><svg><use href="#cloud"/></svg>Облако</div>
+    </div>
+  </main>
+</div>
+
+<p class="note">Наведи курсор на значки, время и подписи — подробности появляются там. Кнопки «запустить» и «⋯» видны при наведении на строку.</p>
+</body>
+</html>

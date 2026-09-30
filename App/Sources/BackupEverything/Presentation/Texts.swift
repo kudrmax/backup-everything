@@ -56,6 +56,47 @@ enum Texts {
         return "\(number) \(units[unit])"
     }
 
+    static func age(_ date: Date?, now: Date = Date()) -> String {
+        guard let date else { return "—" }
+        let seconds = Int(now.timeIntervalSince(date))
+        let days = seconds / 86_400
+        if seconds < 60 { return "сейчас" }
+        if seconds < 3600 { return "\(seconds / 60) мин" }
+        if days < 1 { return "\(seconds / 3600) ч" }
+        if days < 60 { return "\(days) дн" }
+        if days < 720 { return "\(days / 30) мес" }
+        return "\(days / 365) г"
+    }
+
+    static func errors(_ count: Int) -> String {
+        "\(count) \(plural(count, "ошибка", "ошибки", "ошибок"))"
+    }
+
+    static func files(_ count: Int) -> String {
+        "\(count) \(plural(count, "файл", "файла", "файлов"))"
+    }
+
+    static func headline(_ report: StatusReport) -> String {
+        var failed: Set<UUID> = []
+        for item in report.items {
+            switch item {
+            case let .runFailed(sourceId, _), let .severelyOverdue(sourceId): failed.insert(sourceId)
+            default: break
+            }
+        }
+        if !failed.isEmpty { return errors(failed.count) }
+        return report.items.isEmpty ? "Всё в порядке" : "Нужно твоё действие"
+    }
+
+    private static func plural(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
+        let tens = count % 100
+        let units = count % 10
+        if (11...14).contains(tens) { return many }
+        if units == 1 { return one }
+        if (2...4).contains(units) { return few }
+        return many
+    }
+
     static func dateTime(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Locale(identifier: "ru_RU")))
     }
@@ -93,9 +134,9 @@ enum Texts {
 
     static func stage(_ stage: SourceStage, destinationName: String?) -> String {
         switch stage {
-        case .queued: "В очереди"
-        case .collecting: "Собирает данные…"
-        case .delivering: "Записывает в «\(destinationName ?? "назначение")»…"
+        case .queued: "в очереди"
+        case .collecting: "готовит копию…"
+        case .delivering: "копирует на «\(destinationName ?? "назначение")»…"
         }
     }
 

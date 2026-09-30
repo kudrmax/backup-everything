@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обзор — макет</title>
+<style>
+  :root {
+    --page: #d9d9d9; --window: #ececec; --sidebar: #e3e3e3; --card: #f7f7f7; --line: rgba(0,0,0,.09);
+    --text: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6; --select: rgba(0,0,0,.09);
+    --green: #30b14c; --orange: #f0892b; --red: #e5443b; --blue: #2f7cf6;
+    --green-bg: rgba(48,177,76,.13); --orange-bg: rgba(240,137,43,.15); --red-bg: rgba(229,68,59,.12); --blue-bg: rgba(47,124,246,.12);
+    --button: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #111; --window: #1e1e1e; --sidebar: #262626; --card: #2a2a2a; --line: rgba(255,255,255,.1);
+      --text: #f2f2f2; --muted: #a0a0a5; --faint: #6c6c70; --select: rgba(255,255,255,.12); --button: #3a3a3c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 16px; background: var(--page); color: var(--text);
+         font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  .window { max-width: 1080px; margin: 0 auto; background: var(--window); border-radius: 12px; overflow: hidden;
+            display: grid; grid-template-columns: 190px 1fr; border: 1px solid var(--line); box-shadow: 0 18px 50px rgba(0,0,0,.25); }
+  .sidebar { background: var(--sidebar); padding: 14px 10px; border-right: 1px solid var(--line); }
+  .lights { display: flex; gap: 8px; padding: 4px 6px 18px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .nav { padding: 6px 10px; border-radius: 6px; display: flex; gap: 8px; align-items: center; }
+  .nav.on { background: var(--select); }
+  .nav svg { color: var(--blue); }
+  main { min-width: 0; }
+  .toolbar { display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  .toolbar h1 { font-size: 15px; font-weight: 600; margin: 0; flex: 1; }
+  .content { padding: 20px; display: grid; gap: 22px; }
+  button { font: inherit; color: var(--text); background: var(--button); border: 1px solid var(--line); border-radius: 6px;
+           padding: 4px 11px; box-shadow: 0 .5px 1px rgba(0,0,0,.12); cursor: default; }
+  button.primary { background: var(--blue); color: #fff; border-color: transparent; }
+  button.icon { background: transparent; border: none; box-shadow: none; padding: 4px; color: var(--muted); display: inline-flex; border-radius: 5px; }
+  button.icon:hover { background: var(--select); color: var(--text); }
+  svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  .hero { display: flex; align-items: center; gap: 12px; }
+  .hero .mark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 19px; font-weight: 700; }
+  .hero h2 { font-size: 20px; font-weight: 600; margin: 0; }
+  .hero p { margin: 1px 0 0; color: var(--muted); }
+  .running { color: var(--blue); }
+
+  .label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 7px 4px; }
+  .group { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .row { display: grid; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: none; }
+  .attention .row { grid-template-columns: 20px 1fr auto; }
+  .sources .row { grid-template-columns: 20px minmax(150px, 1.3fr) minmax(120px, .9fr) minmax(110px, .8fr) minmax(170px, 1.4fr) auto; }
+  .sources .head { font-size: 11px; color: var(--faint); padding-top: 7px; padding-bottom: 7px; }
+  .name { display: flex; align-items: center; gap: 8px; font-weight: 500; min-width: 0; }
+  .name svg { color: var(--muted); }
+  .sub { color: var(--muted); font-size: 12px; }
+  .sub.err { color: var(--red); }
+  .sub.run { color: var(--blue); }
+  .state { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 700; }
+  .g { background: var(--green); } .o { background: var(--orange); } .r { background: var(--red); } .b { background: var(--blue); }
+  .spin { border: 2px solid var(--blue-bg); border-top-color: var(--blue); background: none; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { font-size: 12px; padding: 2px 8px 2px 6px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .chip i { font-style: normal; font-weight: 700; font-size: 10px; }
+  .chip.g { background: var(--green-bg); color: var(--green); }
+  .chip.o { background: var(--orange-bg); color: var(--orange); }
+  .chip.r { background: var(--red-bg); color: var(--red); }
+  .chip.b { background: var(--blue-bg); color: var(--blue); }
+  .chip.n { background: var(--select); color: var(--muted); }
+  .actions { display: flex; gap: 2px; justify-content: flex-end; }
+
+  .dests { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .dest { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .dest .name { margin-bottom: 8px; }
+  .dest dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 12px; }
+  .dest dt { color: var(--muted); } .dest dd { margin: 0; text-align: right; }
+  .note { max-width: 1080px; margin: 18px auto 0; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="folder" viewBox="0 0 16 16"><path d="M1.5 4.5v8h13v-7h-6l-1.5-2h-5.5z"/></symbol>
+  <symbol id="term" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6l2 2-2 2M8.5 10.5h3"/></symbol>
+  <symbol id="down" viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M2.5 11v2.5h11V11"/></symbol>
+  <symbol id="drive" viewBox="0 0 16 16"><path d="M3.5 3h9l2 6v4h-13V9l2-6zM1.5 9h13M11 11.2h1"/></symbol>
+  <symbol id="cloud" viewBox="0 0 16 16"><path d="M4.5 12.5a3 3 0 010-6 4 4 0 017.6 1.2 2.4 2.4 0 01-.6 4.8h-7z"/></symbol>
+  <symbol id="play" viewBox="0 0 16 16"><path d="M5 3.5l7 4.5-7 4.5v-9z"/></symbol>
+  <symbol id="dots" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="12.5" cy="8" r=".8"/></symbol>
+  <symbol id="grid" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></symbol>
+  <symbol id="clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.2 1.5"/></symbol>
+</svg>
+
+<div class="window">
+  <aside class="sidebar">
+    <div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+    <div class="nav on"><svg><use href="#grid"/></svg>Обзор</div>
+    <div class="nav"><svg><use href="#down"/></svg>Источники</div>
+    <div class="nav"><svg><use href="#drive"/></svg>Назначения</div>
+    <div class="nav"><svg><use href="#clock"/></svg>История</div>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <h1>Обзор</h1>
+      <button><span style="font-size:10px">▶</span>&nbsp; Запустить всё</button>
+    </div>
+
+    <div class="content">
+      <div class="hero">
+        <div class="mark r">✕</div>
+        <div>
+          <h2>Есть ошибки</h2>
+          <p>5 источников · 2 назначения · <span class="running">идёт бэкап: Bitwarden, в очереди: 1</span></p>
+        </div>
+      </div>
+
+      <section class="attention">
+        <p class="label">Нужно твоё действие</p>
+        <div class="group">
+          <div class="row">
+            <span class="state o">!</span>
+            <div><div class="name">Google Photos</div><div class="sub">Найдено файлов: 3, 12 ГБ. Все части скачаны?</div></div>
+            <div class="actions"><button>Инструкция</button><button class="primary">Готово, забрать</button></div>
+          </div>
+          <div class="row">
+            <span class="state o">!</span>
+            <div><div class="name">Внешний HDD</div><div class="sub">Не подключался 34 дня. Ждут доставки: Obsidian, GitHub</div></div>
+            <div class="actions"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sources">
+        <p class="label">Источники</p>
+        <div class="group">
+          <div class="row head"><span></span><span>Источник</span><span>Последний бэкап</span><span>Следующий</span><span>Куда</span><span></span></div>
+
+          <div class="row">
+            <span class="state g">✓</span>
+            <div><div class="name"><svg><use href="#folder"/></svg>Obsidian</div></div>
+            <div>5 минут назад<div class="sub">214 МБ</div></div>
+            <div>через 23 часа</div>
+            <div class="chips"><span class="chip g"><i>✓</i>Основная папка</span><span class="chip o"><i>◷</i>Внешний HDD</span></div>
+            <div class="actions"><button class="icon" title="Запустить"><svg><use href="#play"/></svg></button><button class="icon" title="Ещё"><svg><use href="#dots"/></svg></button></div>
+          </div>
+
+          <div class="row">
+            <span class="state spin"></span>
+            <div><div class="name"><svg><use href="#term"/></svg>Bitwarden</div><div class="sub run">Записывает в «Основная папка»…</div></div>
+            <div>неделю назад<div class="sub">1,2 МБ</div></div>
+            <div>сейчас</div>
+            <div class="chips"><span class="chip b"><i>↻</i>Основная папка</span></div>
+            <div class="actions"><button class="icon" title="Ещё"><svg><use href="#dots"/></svg></button></div>
+          </div>
+
+          <div class="row">
+            <span class="state r">✕</span>
+            <div><div class="name"><svg><use href="#term"/></svg>GitHub</div><div class="sub err">Команда завершилась с кодом 1: gh auth login required</div></div>
+            <div>9 дней назад<div class="sub">1,8 ГБ</div></div>
+            <div>повтор через 41 минуту</div>
+            <div class="chips"><span class="chip g"><i>✓</i>Основная папка</span><span class="chip o"><i>◷</i>Внешний HDD</span></div>
+            <div class="actions"><button class="icon" title="Запустить"><svg><use href="#play"/></svg></button><button class="icon" title="Ещё"><svg><use href="#dots"/></svg></button></div>
+          </div>
+
+          <div class="row">
+            <span class="state o">!</span>
+            <div><div class="name"><svg><use href="#down"/></svg>Google Photos</div><div class="sub">Найдено файлов: 3, 12 ГБ</div></div>
+            <div>месяц назад<div class="sub">48 ГБ</div></div>
+            <div>ждёт «Готово, забрать»</div>
+            <div class="chips"><span class="chip g"><i>✓</i>Основная папка</span></div>
+            <div class="actions"><button class="icon" title="Ещё"><svg><use href="#dots"/></svg></button></div>
+          </div>
+
+          <div class="row">
+            <span class="state g">✓</span>
+            <div><div class="name"><svg><use href="#down"/></svg>Claude</div></div>
+            <div>18 дней назад<div class="sub">36 МБ</div></div>
+            <div>экспорт через 12 дней</div>
+            <div class="chips"><span class="chip g"><i>✓</i>Основная папка</span></div>
+            <div class="actions"><button class="icon" title="Ещё"><svg><use href="#dots"/></svg></button></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <p class="label">Назначения</p>
+        <div class="dests">
+          <div class="dest">
+            <div class="name"><svg><use href="#drive"/></svg>Основная папка<span class="chip g" style="margin-left:auto"><i>✓</i>доступно</span></div>
+            <dl><dt>Занято</dt><dd>51,4 ГБ</dd><dt>Получает</dt><dd>5 источников</dd><dt>Ждут доставки</dt><dd>—</dd></dl>
+          </div>
+          <div class="dest">
+            <div class="name"><svg><use href="#drive"/></svg>Внешний HDD<span class="chip o" style="margin-left:auto"><i>◷</i>не подключён</span></div>
+            <dl><dt>Занято</dt><dd>49,8 ГБ</dd><dt>Подключался</dt><dd>34 дня назад</dd><dt>Ждут доставки</dt><dd>Obsidian, GitHub</dd></dl>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<p class="note">Макет, данные вымышленные. Меню «⋯» у источника: «Инструкция», «Изменить», «Показать копии». Наведение на плашку назначения показывает, когда туда доставлено в последний раз.</p>
+</body>
+</html>

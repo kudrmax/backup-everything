@@ -52,14 +52,16 @@ struct MenuBarView: View {
         HStack(spacing: 8) {
             Image(systemName: StatusStyle.symbol(model.report.overall))
                 .foregroundStyle(StatusStyle.color(model.report.overall))
-            Text(Texts.overall(model.report.overall)).font(.headline)
+            Text(Texts.headline(model.report)).font(.headline)
             Spacer()
             if model.isWorking {
                 ProgressView().controlSize(.small)
             }
         }
         if model.isWorking {
-            Text(WorkingText.summary(model)).font(.callout).foregroundStyle(.secondary)
+            Text(model.currentSourceName.map { "Идёт бэкап: \($0)" } ?? "Идёт проверка…")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 }

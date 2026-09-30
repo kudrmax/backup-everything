@@ -54,6 +54,10 @@ struct MainWindow: View {
                 switch section.wrappedValue ?? .overview {
                 case .overview:
                     OverviewView(
+                        editSource: { source in
+                            UserDefaults.standard.set(source.id.uuidString, forKey: "selectedSource")
+                            storedSection = Section.sources.rawValue
+                        },
                         openSources: { storedSection = Section.sources.rawValue },
                         openDestinations: { storedSection = Section.destinations.rawValue }
                     )

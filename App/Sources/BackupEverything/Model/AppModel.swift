@@ -188,6 +188,10 @@ final class AppModel {
         return nil
     }
 
+    func lastSize(of source: Source) -> Int64? {
+        runs.first { $0.sourceId == source.id && $0.totalBytes != nil }?.totalBytes
+    }
+
     func isWaiting(_ source: Source, for destination: Destination) -> Bool {
         state.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
     }

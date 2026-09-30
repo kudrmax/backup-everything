@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обзор — варианты</title>
+<style>
+  :root {
+    --page: #ececec; --card: #f7f7f7; --line: rgba(0,0,0,.08); --text: #1d1d1f; --muted: #6e6e73; --select: rgba(0,0,0,.08); --tip: #2b2b2d;
+    --green: #30b14c; --orange: #f0892b; --red: #e5443b; --blue: #2f7cf6; --grey: #b4b4b9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --page: #1e1e1e; --card: #2a2a2a; --line: rgba(255,255,255,.09); --text: #f2f2f2; --muted: #a0a0a5; --select: rgba(255,255,255,.1); --tip: #48484a; --grey: #6a6a6e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 20px 80px; background: var(--page); color: var(--text);
+         font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  .wrap { max-width: 620px; margin: 0 auto; }
+  h1 { font-size: 17px; font-weight: 600; margin: 34px 0 4px; }
+  h1:first-child { margin-top: 0; }
+  .q { color: var(--muted); margin: 0 0 14px; }
+  .variant { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-weight: 600; }
+  .variant span { background: var(--text); color: var(--page); border-radius: 5px; padding: 1px 7px; font-size: 12px; }
+  .moment { font-size: 11px; color: var(--muted); margin: 10px 0 4px 4px; }
+  svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  .row { display: grid; grid-template-columns: 18px minmax(0,1fr) auto auto; align-items: center; gap: 14px; padding: 0 14px; height: 44px; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: none; }
+  .title { display: flex; align-items: baseline; gap: 10px; overflow: hidden; }
+  .title b { font-weight: 500; white-space: nowrap; }
+  .title span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .title span.run { color: var(--blue); }
+  .when { color: var(--muted); font-size: 12px; }
+
+  .state { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 700; }
+  .state.g { background: var(--green); } .state.r { background: var(--red); }
+  .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(47,124,246,.2); border-top-color: var(--blue); animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pulse { animation: pulse 1.2s ease-in-out infinite; } @keyframes pulse { 50% { opacity: .3; } }
+
+  .dests { display: flex; gap: 10px; align-items: center; }
+  .d { position: relative; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+  .d.g { color: var(--green); } .d.o { color: var(--orange); } .d.r { color: var(--red); } .d.b { color: var(--blue); } .d.n { color: var(--grey); }
+  .d em { position: absolute; left: 9px; top: 8px; width: 11px; height: 11px; border-radius: 50%; background: currentColor; border: 1.5px solid var(--card);
+          display: grid; place-items: center; font-style: normal; }
+  .d em::after { content: attr(data-m); color: #fff; font-size: 7px; font-weight: 800; line-height: 1; }
+  .badged { gap: 14px; }
+
+  [data-tip] { position: relative; }
+  [data-tip]:hover::after { content: attr(data-tip); position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; background: var(--tip); color: #fff;
+      font-size: 12px; font-weight: 400; line-height: 1.45; padding: 6px 9px; border-radius: 6px; white-space: pre; pointer-events: none; }
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="drive" viewBox="0 0 16 16"><path d="M3.5 3h9l2 6v4h-13V9l2-6zM1.5 9h13M11 11.2h1"/></symbol>
+  <symbol id="cloud" viewBox="0 0 16 16"><path d="M4.5 12.5a3 3 0 010-6 4 4 0 017.6 1.2 2.4 2.4 0 01-.6 4.8h-7z"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<h1>Вопрос 1. Как показывать, что бэкап идёт</h1>
+<p class="q">Один источник, два диска. Три момента подряд.</p>
+
+<div class="variant"><span>1А</span>Текст только пока готовится копия, дальше говорит значок</div>
+<p class="moment">сначала — готовит копию</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b><span class="run">готовит копию…</span></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d g"><svg><use href="#drive"/></svg></span></div></div></div>
+<p class="moment">потом — пишет на первый диск</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d b pulse"><svg><use href="#drive"/></svg></span><span class="d g"><svg><use href="#drive"/></svg></span></div></div></div>
+<p class="moment">в конце — первый готов, пишет на второй</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d b pulse"><svg><use href="#drive"/></svg></span></div></div></div>
+
+<div class="variant"><span>1Б</span>Текст на каждом шаге, с именем диска</div>
+<p class="moment">сначала — готовит копию</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b><span class="run">готовит копию…</span></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d g"><svg><use href="#drive"/></svg></span></div></div></div>
+<p class="moment">потом — пишет на первый диск</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b><span class="run">копирует на «Основная папка»…</span></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d b pulse"><svg><use href="#drive"/></svg></span><span class="d g"><svg><use href="#drive"/></svg></span></div></div></div>
+<p class="moment">в конце — первый готов, пишет на второй</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b><span class="run">копирует на «Внешний HDD»…</span></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d b pulse"><svg><use href="#drive"/></svg></span></div></div></div>
+
+<div class="variant"><span>1В</span>Счётчик шагов вместо слов</div>
+<p class="moment">сначала — готовит копию</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b><span class="run">шаг 1 из 3</span></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d g"><svg><use href="#drive"/></svg></span></div></div></div>
+<p class="moment">потом — пишет на первый диск</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b><span class="run">шаг 2 из 3</span></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d b pulse"><svg><use href="#drive"/></svg></span><span class="d g"><svg><use href="#drive"/></svg></span></div></div></div>
+<p class="moment">в конце — первый готов, пишет на второй</p>
+<div class="list"><div class="row"><span class="spin"></span><div class="title"><b>Obsidian</b><span class="run">шаг 3 из 3</span></div><span class="when">1 дн</span>
+  <div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d b pulse"><svg><use href="#drive"/></svg></span></div></div></div>
+
+
+<h1>Вопрос 2. Как показывать состояние назначения</h1>
+<p class="q">Четыре источника: всё доставлено; один диск ждёт; запись на диск упала; копий ещё нет.</p>
+
+<div class="variant"><span>2А</span>Только цвет</div>
+<div class="list">
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Obsidian</b></div><span class="when">5 мин</span><div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d g"><svg><use href="#cloud"/></svg></span></div></div>
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Bitwarden</b></div><span class="when">2 дн</span><div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d o"><svg><use href="#drive"/></svg></span></div></div>
+  <div class="row"><span class="state r">✕</span><div class="title"><b>GitHub</b></div><span class="when">9 дн</span><div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d r"><svg><use href="#cloud"/></svg></span></div></div>
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Новый источник</b></div><span class="when">—</span><div class="dests"><span class="d n"><svg><use href="#drive"/></svg></span></div></div>
+</div>
+
+<div class="variant"><span>2Б</span>Цвет и метка на значке</div>
+<div class="list">
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Obsidian</b></div><span class="when">5 мин</span><div class="dests badged"><span class="d g"><svg><use href="#drive"/></svg><em data-m="✓"></em></span><span class="d g"><svg><use href="#cloud"/></svg><em data-m="✓"></em></span></div></div>
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Bitwarden</b></div><span class="when">2 дн</span><div class="dests badged"><span class="d g"><svg><use href="#drive"/></svg><em data-m="✓"></em></span><span class="d o"><svg><use href="#drive"/></svg><em data-m="◷"></em></span></div></div>
+  <div class="row"><span class="state r">✕</span><div class="title"><b>GitHub</b></div><span class="when">9 дн</span><div class="dests badged"><span class="d g"><svg><use href="#drive"/></svg><em data-m="✓"></em></span><span class="d r"><svg><use href="#cloud"/></svg><em data-m="✕"></em></span></div></div>
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Новый источник</b></div><span class="when">—</span><div class="dests badged"><span class="d n"><svg><use href="#drive"/></svg></span></div></div>
+</div>
+
+<div class="variant"><span>2В</span>Цвет, а у проблемных — ещё и имя</div>
+<div class="list">
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Obsidian</b></div><span class="when">5 мин</span><div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d g"><svg><use href="#cloud"/></svg></span></div></div>
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Bitwarden</b></div><span class="when">2 дн</span><div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d o"><svg><use href="#drive"/></svg>Внешний HDD ждёт</span></div></div>
+  <div class="row"><span class="state r">✕</span><div class="title"><b>GitHub</b></div><span class="when">9 дн</span><div class="dests"><span class="d g"><svg><use href="#drive"/></svg></span><span class="d r"><svg><use href="#cloud"/></svg>Облако: ошибка</span></div></div>
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Новый источник</b></div><span class="when">—</span><div class="dests"><span class="d n"><svg><use href="#drive"/></svg></span></div></div>
+</div>
+
+<div class="variant"><span>2Г</span>Значки только у проблемных, с именем; если всё доставлено — пусто</div>
+<div class="list">
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Obsidian</b></div><span class="when">5 мин</span><div class="dests"></div></div>
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Bitwarden</b></div><span class="when">2 дн</span><div class="dests"><span class="d o"><svg><use href="#drive"/></svg>Внешний HDD ждёт</span></div></div>
+  <div class="row"><span class="state r">✕</span><div class="title"><b>GitHub</b></div><span class="when">9 дн</span><div class="dests"><span class="d r"><svg><use href="#cloud"/></svg>Облако: ошибка</span></div></div>
+  <div class="row"><span class="state g">✓</span><div class="title"><b>Новый источник</b></div><span class="when">—</span><div class="dests"><span class="d n"><svg><use href="#drive"/></svg>копий ещё нет</span></div></div>
+</div>
+
+</div>
+</body>
+</html>
