@@ -22,7 +22,7 @@ public struct SchedulePlanner: Sendable {
         return true
     }
 
-    /// Файл ручного экспорта или первого ручного шага принимается, только когда его ждут: подошёл срок или нажата кнопка.
+    /// Шаг человека в начале источника принимается, только когда его ждут: подошёл срок или нажата кнопка.
     public func awaitsFile(_ source: Source, state: SourceState, now: Date) -> Bool {
         guard state.armedAt == nil else { return true }
         return dueDate(for: source, state: state).map { $0 <= now } ?? false
@@ -38,8 +38,7 @@ public struct SchedulePlanner: Sendable {
 
     public func dueAutomaticSources(config: Config, state: AppState, now: Date) -> [Source] {
         config.sources.filter { source in
-            !source.deliversFromPending
-                && !source.isDevice
+            !source.needsHuman
                 && !config.destinations(of: source).isEmpty
                 && isDue(source, state: state.sourceState(source.id), now: now)
         }

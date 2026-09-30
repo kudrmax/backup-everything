@@ -4,7 +4,7 @@ import Testing
 
 struct SourcePresentationTests {
     @Test func sourceSavedBeforeDescriptionsAndIconsStillLoads() throws {
-        var source = Source(name: "Obsidian", slug: "obsidian", kind: .folder(path: "~/Obsidian", excludes: []), schedule: .daily, createdAt: Fixtures.date("2026-09-28 10:00:00"))
+        var source = Source(name: "Obsidian", slug: "obsidian", steps: [.folder("~/Obsidian", excludes: [])], schedule: .daily, createdAt: Fixtures.date("2026-09-28 10:00:00"))
         var json = try #require(JSONSerialization.jsonObject(with: JSONCoding.encoder().encode(source)) as? [String: Any])
         json["description"] = nil
         json["icon"] = nil
@@ -33,7 +33,7 @@ struct SourcePresentationTests {
     @Test func sourceMadeFromTemplateCarriesItsDescription() {
         let source = ConfigEditor().makeSource(
             name: "GitHub",
-            kind: .folder(path: "~/x", excludes: []),
+            steps: [.folder("~/x", excludes: [])],
             description: "Все репозитории",
             instructions: "шаги",
             now: Fixtures.date("2026-09-28 10:00:00"),

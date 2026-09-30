@@ -32,7 +32,7 @@ struct StatusReporterTests {
     private func photos(_ schedule: Schedule = .monthly) -> Source {
         Fixtures.source(
             name: "Photos",
-            kind: .manualExport(watchPath: "/d", filePattern: "takeout-*.zip", fileMode: .multiple, removeOriginal: true),
+            steps: [.file("takeout-*.zip", in: "/d", mode: .multiple, removeOriginal: true)],
             schedule: schedule,
             destinations: [cloud]
         )
@@ -130,12 +130,12 @@ struct StatusReporterTests {
         let cloud = Fixtures.localDestination("Cloud", at: URL(fileURLWithPath: "/tmp/cloud"))
         let steps = [
             SourceStep(name: "Открыть страницу", kind: .command(command: "true", timeoutSeconds: 60)),
-            SourceStep(name: "Файл", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "x-*.csv", includeInCopy: true)),
+            SourceStep(name: "Файл", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "x-*.csv", fileMode: .single, includeInCopy: true, removeOriginal: true)),
         ]
-        let chain = Fixtures.source(name: "Chain", kind: .steps(steps: steps), schedule: .manual, destinations: [cloud])
+        let chain = Fixtures.source(name: "Chain", steps: steps, schedule: .manual, destinations: [cloud])
         let manualFirst = Fixtures.source(
             name: "Claude",
-            kind: .steps(steps: [steps[1], steps[0]]),
+            steps: [steps[1], steps[0]],
             schedule: .monthly,
             destinations: [cloud],
             createdAt: Fixtures.date("2026-09-01 00:00:00")
@@ -152,7 +152,7 @@ struct StatusReporterTests {
         state.updateSource(chain.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now) }
         state.updateSource(manualFirst.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "Команда завершилась с кодом 1. нет архивов") }
         #expect(items(state) == [
-            .stepAwaitingFile(sourceId: chain.id),
+            .manualExportDue(sourceId: chain.id),
             .runFailed(sourceId: manualFirst.id, message: "Команда завершилась с кодом 1. нет архивов"),
         ])
     }
@@ -161,10 +161,10 @@ struct StatusReporterTests {
         let now = Fixtures.date("2026-09-28 10:00:00")
         let cloud = Fixtures.localDestination("Cloud", at: URL(fileURLWithPath: "/tmp/cloud"))
         let steps = [
-            SourceStep(name: "Файл", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: false)),
+            SourceStep(name: "Файл", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
             SourceStep(name: "Команда", kind: .command(command: "true", timeoutSeconds: 60)),
         ]
-        let source = Fixtures.source(name: "Claude", kind: .steps(steps: steps), schedule: .manual, destinations: [cloud])
+        let source = Fixtures.source(name: "Claude", steps: steps, schedule: .manual, destinations: [cloud])
         var state = AppState()
         state.updateSource(source.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "ссылки сгорели") }
         let reporter = StatusReporter(planner: SchedulePlanner(calendar: Fixtures.calendar))

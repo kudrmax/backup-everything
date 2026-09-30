@@ -1,7 +1,7 @@
 import Foundation
 
 public struct Config: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     public var sources: [Source]

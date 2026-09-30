@@ -40,11 +40,11 @@ struct DomainTests {
         let cloud = Destination(name: "Cloud", kind: .rclone(remote: "gdrive", path: "backups"))
         let config = Config(
             sources: [
-                Fixtures.source(name: "Obsidian", kind: .folder(path: "~/Obsidian", excludes: [".trash"]), destinations: [disk, cloud]),
-                Fixtures.source(name: "GitHub", kind: .command(command: "gh repo list", timeoutSeconds: 60), schedule: .weekly),
+                Fixtures.source(name: "Obsidian", steps: [.folder("~/Obsidian", excludes: [".trash"])], destinations: [disk, cloud]),
+                Fixtures.source(name: "GitHub", steps: [.command("gh repo list", timeoutSeconds: 60)], schedule: .weekly),
                 Fixtures.source(
                     name: "Photos",
-                    kind: .manualExport(watchPath: "~/Downloads", filePattern: "takeout-*.zip", fileMode: .multiple, removeOriginal: true),
+                    steps: [.file("takeout-*.zip", in: "~/Downloads", mode: .multiple, removeOriginal: true)],
                     schedule: .monthly
                 ),
             ],
@@ -54,51 +54,76 @@ struct DomainTests {
         #expect(try JSONCoding.decoder().decode(Config.self, from: data) == config)
     }
 
-    @Test func sourceKindHasReadableJSONShape() throws {
+    @Test func stepsHaveReadableJSONShape() throws {
         let json = #"{"folder":{"path":"~/Obsidian","excludes":[".trash"]}}"#
-        let kind = try JSONCoding.decoder().decode(SourceKind.self, from: Data(json.utf8))
-        #expect(kind == .folder(path: "~/Obsidian", excludes: [".trash"]))
+        #expect(try JSONCoding.decoder().decode(StepKind.self, from: Data(json.utf8)) == .folder(path: "~/Obsidian", excludes: [".trash"]))
+        let step = SourceStep.device("/Volumes/PB", instructions: "подключи", id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)
+        let encoded = String(decoding: try JSONCoding.encoder(pretty: false).encode(step), as: UTF8.self)
+        #expect(encoded == #"{"id":"00000000-0000-0000-0000-000000000001","kind":{"device":{"instructions":"подключи","path":"/Volumes/PB"}},"name":"Подключить устройство"}"#)
     }
 
-    @Test func stepChainRoundTripsThroughReadableJSON() throws {
-        let steps = [
-            SourceStep(
-                id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-                name: "Запросить экспорт",
-                kind: .manual(instructions: "скачай манифест", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: false)
-            ),
-            SourceStep(
-                id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
-                name: "Скачать архивы",
-                kind: .command(command: "echo hi", timeoutSeconds: 3600)
-            ),
-        ]
-        let source = Fixtures.source(name: "Claude", kind: .steps(steps: steps), schedule: .monthly)
-        let data = try JSONCoding.encoder().encode(source)
-        #expect(try JSONCoding.decoder().decode(Source.self, from: data) == source)
-
-        let json = #"{"steps":{"steps":[{"id":"00000000-0000-0000-0000-000000000002","name":"Скачать архивы","kind":{"command":{"command":"echo hi","timeoutSeconds":3600}}}]}}"#
-        #expect(try JSONCoding.decoder().decode(SourceKind.self, from: Data(json.utf8)) == .steps(steps: [steps[1]]))
+    @Test func everyStepKindRoundTripsThroughJSON() throws {
+        let source = Fixtures.source(name: "Всё сразу", steps: [
+            .device("/Volumes/PB", instructions: "подключи"),
+            .file("manifest-*.json", in: "~/Downloads", mode: .multiple, includeInCopy: false, removeOriginal: false, instructions: "скачай"),
+            .command("echo hi", timeoutSeconds: 60),
+            .folder("/Volumes/PB/Books", excludes: [".cache"]),
+        ])
+        #expect(try JSONCoding.decoder().decode(Source.self, from: JSONCoding.encoder().encode(source)) == source)
     }
 
-    @Test func sourceKnowsWhichFilesItWaitsFor() {
-        let manual = SourceStep(name: "A", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: false))
-        let command = SourceStep(name: "B", kind: .command(command: "true", timeoutSeconds: 60))
-        let chain = Fixtures.source(kind: .steps(steps: [manual, command]))
-        #expect(chain.isStepChain)
-        #expect(chain.deliversFromPending)
-        #expect(chain.steps.map(\.isManual) == [true, false])
+    @Test func sourcesSavedAsOldKindsBecomeSteps() throws {
+        let owner = UUID(uuidString: "3A907808-6476-4794-85A6-52CECF2B501F")!
+        func legacy(_ kind: String, instructions: String = "как выгрузить") throws -> Source {
+            let json = #"{"id":"\#(owner.uuidString)","name":"X","slug":"x","kind":\#(kind),"schedule":"monthly","retention":{"daily":0,"weekly":0,"monthly":12,"yearly":0},"destinationIds":[],"instructions":"\#(instructions)","enabled":true,"createdAt":"2026-09-30T10:00:00Z"}"#
+            return try JSONCoding.decoder().decode(Source.self, from: Data(json.utf8))
+        }
+
+        let folder = try legacy(#"{"folder":{"path":"~/Obsidian","excludes":[".trash"]}}"#)
+        #expect(folder.steps.map(\.kind) == [.folder(path: "~/Obsidian", excludes: [".trash"])])
+        #expect(folder.instructions == "как выгрузить")
+
+        let command = try legacy(#"{"command":{"command":"gh repo list","timeoutSeconds":600}}"#)
+        #expect(command.steps.map(\.kind) == [.command(command: "gh repo list", timeoutSeconds: 600)])
+
+        let export = try legacy(#"{"manualExport":{"watchPath":"~/Downloads","filePattern":"takeout-*.zip","fileMode":"multiple","removeOriginal":false}}"#)
+        #expect(export.steps.map(\.kind) == [.file(instructions: "как выгрузить", watchPath: "~/Downloads", filePattern: "takeout-*.zip", fileMode: .multiple, includeInCopy: true, removeOriginal: false)])
+        #expect(export.instructions.isEmpty)
+
+        let device = try legacy(#"{"device":{"path":"/Volumes/PocketBook","excludes":[".cache"]}}"#, instructions: "подключи кабелем")
+        #expect(device.steps.map(\.kind) == [
+            .device(instructions: "подключи кабелем", path: "/Volumes/PocketBook"),
+            .folder(path: "/Volumes/PocketBook", excludes: [".cache"]),
+        ])
+        #expect(device.instructions.isEmpty)
+        #expect(try legacy(#"{"device":{"path":"/Volumes/PocketBook","excludes":[]}}"#).steps.map(\.id) == device.steps.map(\.id), "id шагов не меняются от чтения к чтению")
+
+        let chain = try legacy(#"{"steps":{"steps":[{"id":"00000000-0000-0000-0000-000000000002","name":"Манифест","kind":{"manual":{"instructions":"скачай","watchPath":"~/Downloads","filePattern":"manifest-*.json","includeInCopy":false}}}]}}"#)
+        #expect(chain.steps == [SourceStep(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            name: "Манифест",
+            kind: .file(instructions: "скачай", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)
+        )])
+        #expect(chain.instructions == "как выгрузить")
+    }
+
+    @Test func sourceKnowsWhatItNeedsFromAHuman() {
+        let chain = Fixtures.source(steps: [.file("manifest-*.json", in: "~/Downloads", includeInCopy: false), .command("true", timeoutSeconds: 60)])
+        #expect(chain.needsHuman)
+        #expect(chain.singleFolder == nil)
+        #expect(chain.trashesPickedUpFiles)
         #expect(chain.watchedFiles == [WatchedFile(watchPath: "~/Downloads", filePattern: "manifest-*.json")])
 
-        let export = Fixtures.source(kind: .manualExport(watchPath: "~/Downloads", filePattern: "takeout-*.zip", fileMode: .multiple, removeOriginal: true))
-        #expect(!export.isStepChain)
-        #expect(export.deliversFromPending)
-        #expect(export.watchedFiles == [WatchedFile(watchPath: "~/Downloads", filePattern: "takeout-*.zip")])
+        let device = Fixtures.source(steps: [.device("/Volumes/PB"), .folder("/Volumes/PB")])
+        #expect(device.needsHuman)
+        #expect(device.hasDevice)
+        #expect(!device.trashesPickedUpFiles)
+        #expect(device.watchedFiles.isEmpty)
 
         let folder = Fixtures.source()
-        #expect(!folder.deliversFromPending)
-        #expect(folder.steps.isEmpty)
-        #expect(folder.watchedFiles.isEmpty)
+        #expect(!folder.needsHuman)
+        #expect(folder.singleFolder?.path == "/tmp/none")
+        #expect(Fixtures.source(steps: [.folder("/a"), .command("true", timeoutSeconds: 1)]).singleFolder == nil)
     }
 
     @Test func stateSavedBeforeChainsStillLoadsAndChainRoundTrips() throws {

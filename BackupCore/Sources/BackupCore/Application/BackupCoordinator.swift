@@ -18,6 +18,7 @@ public actor BackupCoordinator {
         case tick
         case runAll
         case runNow
+        case confirm
     }
 
     public init(
@@ -104,8 +105,8 @@ public actor BackupCoordinator {
         let retryableSourceIds = Set(planner.retryableDebts(state: state, now: now).map(\.sourceId))
         var catchUps: [Source] = []
         for source in config.sources where source.enabled && !dueIds.contains(source.id) {
-            guard retryableSourceIds.contains(source.id), !source.isDevice || isConnected(source) else { continue }
-            if source.deliversFromPending, inbox.pendingPackage(for: source.id) == nil {
+            guard retryableSourceIds.contains(source.id) else { continue }
+            if source.needsHuman, inbox.pendingPackage(for: source.id) == nil {
                 state.debts.removeAll { $0.sourceId == source.id }
                 continue
             }
@@ -116,26 +117,15 @@ public actor BackupCoordinator {
             let debtors = state.debts.filter { $0.sourceId == source.id }.compactMap { config.destination($0.destinationId) }
             try await execute(source, debtors, .catchUp, state: &state, runs: &runs)
         }
-        for source in config.sources where source.enabled {
-            guard case let .manualExport(_, _, fileMode, _) = source.kind, fileMode == .single else { continue }
-            try await pickUp(source, config: config, respectRetryDelay: true, state: &state, runs: &runs)
-        }
         for source in due {
             try await execute(source, config.destinations(of: source), .scheduled, state: &state, runs: &runs)
         }
-        var unplugNotices: [Notice] = []
-        for source in config.sources where source.enabled && source.isDevice {
-            let sourceState = state.sourceState(source.id)
-            let destinations = config.destinations(of: source)
-            guard !destinations.isEmpty, isConnected(source), planner.awaitsFile(source, state: sourceState, now: now) else { continue }
-            if let retryAfter = sourceState.retryAfter, retryAfter > now, sourceState.armedAt == nil { continue }
-            try await copyDevice(source, destinations, .scheduled, state: &state, runs: &runs, notices: &unplugNotices)
-        }
-        for source in config.sources where source.enabled && source.isStepChain {
-            try await advanceChain(source, config: config, mode: .tick, state: &state, runs: &runs)
+        var runNotices: [Notice] = []
+        for source in config.sources where source.enabled && source.needsHuman {
+            try await advanceChain(source, config: config, mode: .tick, state: &state, runs: &runs, notices: &runNotices)
         }
 
-        let notices = missing + unplugNotices + (await closingNotices(config: config, state: &state, runs: runs, debtorsBefore: debtorsBefore))
+        let notices = missing + runNotices + (await closingNotices(config: config, state: &state, runs: runs, debtorsBefore: debtorsBefore))
         try store.saveState(state)
         return TickResult(runs: runs, notices: notices)
     }
@@ -147,57 +137,43 @@ public actor BackupCoordinator {
         guard let source = config.source(sourceId) else { return TickResult() }
         let destinations = config.destinations(of: source)
         guard !destinations.isEmpty else { return TickResult() }
-        if source.isDevice {
-            guard isConnected(source) else {
-                state.updateSource(source.id) { $0.armedAt = $0.armedAt ?? self.time.now }
-                try store.saveState(state)
-                return TickResult()
-            }
-            var unplugNotices: [Notice] = []
-            try await copyDevice(source, destinations, .manual, state: &state, runs: &runs, notices: &unplugNotices)
-            return TickResult(runs: runs, notices: unplugNotices + failureNotices(runs))
+        guard source.needsHuman else {
+            try await execute(source, destinations, .manual, state: &state, runs: &runs)
+            return TickResult(runs: runs, notices: failureNotices(runs))
         }
-        if source.deliversFromPending, state.sourceState(source.id).chain == nil {
+        if state.sourceState(source.id).chain == nil {
             state.updateSource(source.id) { $0.armedAt = $0.armedAt ?? self.time.now }
             try store.saveState(state)
         }
-        if source.isStepChain {
-            try await advanceChain(source, config: config, mode: .runNow, state: &state, runs: &runs)
-        } else if source.isManualExport {
-            try await pickUp(source, config: config, respectRetryDelay: false, state: &state, runs: &runs)
-        } else {
-            try await execute(source, destinations, .manual, state: &state, runs: &runs)
-        }
-        return TickResult(runs: runs, notices: failureNotices(runs))
+        var notices: [Notice] = []
+        try await advanceChain(source, config: config, mode: .runNow, state: &state, runs: &runs, notices: &notices)
+        return TickResult(runs: runs, notices: notices + failureNotices(runs))
     }
 
     private func performRunAllNow() async throws -> TickResult {
         let config = try store.loadConfig()
         var state = try store.loadState()
         var runs: [RunRecord] = []
-        let sources = config.sources.filter { source in
-            source.enabled
-                && !source.deliversFromPending
-                && (!source.isDevice || isConnected(source))
-                && !config.destinations(of: source).isEmpty
-        }
+        let sources = config.sources.filter { $0.enabled && !$0.needsHuman && !config.destinations(of: $0).isEmpty }
         announce(sources)
         for source in sources {
             try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
         }
-        for source in config.sources where source.enabled && source.isStepChain {
-            try await advanceChain(source, config: config, mode: .runAll, state: &state, runs: &runs)
+        var notices: [Notice] = []
+        for source in config.sources where source.enabled && source.needsHuman {
+            try await advanceChain(source, config: config, mode: .runAll, state: &state, runs: &runs, notices: &notices)
         }
-        return TickResult(runs: runs, notices: failureNotices(runs))
+        return TickResult(runs: runs, notices: notices + failureNotices(runs))
     }
 
     private func performConfirmPickup(sourceId: UUID) async throws -> TickResult {
         let config = try store.loadConfig()
         var state = try store.loadState()
         var runs: [RunRecord] = []
-        guard let source = config.source(sourceId) else { return TickResult() }
-        try await pickUp(source, config: config, respectRetryDelay: false, state: &state, runs: &runs)
-        return TickResult(runs: runs, notices: failureNotices(runs))
+        guard let source = config.source(sourceId), source.needsHuman else { return TickResult() }
+        var notices: [Notice] = []
+        try await advanceChain(source, config: config, mode: .confirm, state: &state, runs: &runs, notices: &notices)
+        return TickResult(runs: runs, notices: notices + failureNotices(runs))
     }
 
     private func verifyCopies(config: Config, state: inout AppState, now: Date) async -> [Notice] {
@@ -237,26 +213,6 @@ public actor BackupCoordinator {
         return notices
     }
 
-    private func isConnected(_ source: Source) -> Bool {
-        guard case let .device(path, _) = source.kind else { return false }
-        return FileManager.default.fileExists(atPath: Paths.url(path).path)
-    }
-
-    private func copyDevice(
-        _ source: Source,
-        _ destinations: [Destination],
-        _ trigger: RunTrigger,
-        state: inout AppState,
-        runs: inout [RunRecord],
-        notices: inout [Notice]
-    ) async throws {
-        state.updateSource(source.id) { $0.armedAt = nil }
-        try store.saveState(state)
-        try await execute(source, destinations, trigger, state: &state, runs: &runs)
-        guard let run = runs.last, run.sourceId == source.id, run.collectError == nil else { return }
-        notices.append(.deviceCanBeUnplugged(sourceId: source.id, sourceName: source.name))
-    }
-
     private func forgetRemovedSources(_ config: Config) {
         let known = Set(config.sources.map(\.id))
         for id in chains.sourceIds() where !known.contains(id) {
@@ -272,47 +228,16 @@ public actor BackupCoordinator {
         progress(.queued(sourceIds: sources.map(\.id)))
     }
 
-    private func pickUp(
-        _ source: Source,
-        config: Config,
-        respectRetryDelay: Bool,
-        state: inout AppState,
-        runs: inout [RunRecord]
-    ) async throws {
-        guard case let .manualExport(watchPath, filePattern, _, removeOriginal) = source.kind else { return }
-        let destinations = config.destinations(of: source)
-        guard !destinations.isEmpty else { return }
-        let now = time.now
-        let sourceState = state.sourceState(source.id)
-        guard planner.awaitsFile(source, state: sourceState, now: now) else { return }
-        if respectRetryDelay, let retryAfter = sourceState.retryAfter, retryAfter > now { return }
-        let scan = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: sourceState.lastPickup ?? source.createdAt, now: now)
-        guard scan.isReady else { return }
-        do {
-            _ = try inbox.pickUp(sourceId: source.id, files: scan.files, removeOriginal: removeOriginal, at: now)
-        } catch {
-            let failure = RunRecord(
-                sourceId: source.id,
-                sourceName: source.name,
-                trigger: .pickup,
-                startedAt: now,
-                finishedAt: now,
-                collectError: "Не удалось забрать файлы: \(error.localizedDescription)"
-            )
-            try register(failure, trigger: .pickup, state: &state, runs: &runs)
-            return
-        }
-        state.updateSource(source.id) {
-            $0.lastPickup = now
-            $0.armedAt = nil
-        }
-        try store.saveState(state)
-        try await execute(source, destinations, .pickup, state: &state, runs: &runs)
-    }
-
+    /// Отменить можно только запуск, начатый кнопкой: ожидание по сроку — это напоминание, оно держится до бэкапа.
     private func performCancelWaiting(sourceId: UUID) async throws -> TickResult {
         var state = try store.loadState()
-        state.updateSource(sourceId) { $0.armedAt = nil }
+        if state.sourceState(sourceId).chain != nil {
+            try chains.discard(sourceId: sourceId)
+        }
+        state.updateSource(sourceId) {
+            $0.armedAt = nil
+            $0.chain = nil
+        }
         try store.saveState(state)
         return TickResult()
     }
@@ -334,20 +259,28 @@ public actor BackupCoordinator {
         config: Config,
         mode: ChainMode,
         state: inout AppState,
-        runs: inout [RunRecord]
+        runs: inout [RunRecord],
+        notices: inout [Notice]
     ) async throws {
         let destinations = config.destinations(of: source)
-        guard !destinations.isEmpty else { return }
+        guard !destinations.isEmpty, let first = source.steps.first else { return }
         var didWork = false
         while true {
             let sourceState = state.sourceState(source.id)
             let startedAt = time.now
-            let opensWithCommand = source.steps.first?.isManual == false
+            let opensWithoutWaiting = switch first.kind {
+            case .folder, .command: true
+            case .device: !chains.awaitsDevice(source, chain: nil)
+            case .file: false
+            }
+            let retryDue = sourceState.chain?.retryAfter.map { $0 <= startedAt } ?? false
             let permissions = ChainPermissions(
                 mayStart: mode == .runNow
-                    || (mode == .runAll && opensWithCommand)
+                    || (mode == .runAll && opensWithoutWaiting)
                     || planner.awaitsFile(source, state: sourceState, now: startedAt),
-                mayRetry: mode == .runNow && !didWork
+                mayRetry: (mode == .runNow && !didWork) || retryDue,
+                mayConfirm: mode == .confirm,
+                start: mode == .tick && sourceState.armedAt == nil ? .schedule : .button
             )
             let transition = await chains.advance(source, chain: sourceState.chain, lastPickup: sourceState.lastPickup, permissions: permissions)
             switch transition {
@@ -361,8 +294,12 @@ public actor BackupCoordinator {
                     $0.chain = chain
                 }
                 try store.saveState(state)
-            case let .failed(chain):
-                state.updateSource(source.id) { $0.chain = chain }
+            case var .failed(chain):
+                if Self.retriesByItself(chain, in: source) {
+                    chain.retryAfter = time.now.addingTimeInterval(SchedulePlanner.retryInterval)
+                }
+                let failedChain = chain
+                state.updateSource(source.id) { $0.chain = failedChain }
                 try store.saveState(state)
                 let failure = RunRecord(
                     sourceId: source.id,
@@ -370,7 +307,7 @@ public actor BackupCoordinator {
                     trigger: .pickup,
                     startedAt: startedAt,
                     finishedAt: time.now,
-                    collectError: Self.stepFailure(chain, in: source)
+                    collectError: Self.stepFailure(failedChain, in: source)
                 )
                 try store.appendRun(failure)
                 runs.append(failure)
@@ -386,16 +323,28 @@ public actor BackupCoordinator {
                     state.debts.append(Debt(sourceId: source.id, destinationId: destination.id, since: startedAt))
                 }
                 try store.saveState(state)
+                if source.hasDevice {
+                    notices.append(.deviceCanBeUnplugged(sourceId: source.id, sourceName: source.name))
+                }
                 try await execute(source, destinations, .pickup, state: &state, runs: &runs)
                 return
             }
         }
     }
 
+    /// Упавший шаг повторяется сам через час. Кроме команды после шага человека: она могла израсходовать то, что человек подготовил (одноразовые ссылки).
+    private static func retriesByItself(_ chain: ChainState, in source: Source) -> Bool {
+        let steps = source.steps
+        guard chain.stepIndex < steps.count else { return false }
+        guard case .command = steps[chain.stepIndex].kind else { return true }
+        return !steps[..<chain.stepIndex].contains(where: \.needsHuman)
+    }
+
     private static func stepFailure(_ chain: ChainState, in source: Source) -> String {
         let steps = source.steps
         let index = min(chain.stepIndex, steps.count - 1)
-        return "Шаг \(index + 1) из \(steps.count) «\(steps[index].name)». \(chain.failure ?? "")"
+        guard steps.count > 1 else { return chain.failure ?? "" }
+        return SourceError.stepFailed(index: index, count: steps.count, name: steps[index].name, reason: chain.failure ?? "").localizedDescription
     }
 
     private func execute(
@@ -467,24 +416,20 @@ public actor BackupCoordinator {
             }
         }
         var scans: [UUID: InboxScan] = [:]
-        for source in config.sources where source.enabled {
+        var missingDevices: Set<UUID> = []
+        for source in config.sources where source.enabled && source.needsHuman {
             let sourceState = state.sourceState(source.id)
-            let awaited = planner.awaitsFile(source, state: sourceState, now: now)
-            if source.isStepChain, sourceState.chain != nil || awaited {
-                scans[source.id] = chains.awaitedFiles(source, chain: sourceState.chain, lastPickup: sourceState.lastPickup)
-            }
-            guard awaited, case let .manualExport(watchPath, filePattern, _, _) = source.kind else { continue }
-            let since = sourceState.lastPickup ?? source.createdAt
-            scans[source.id] = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: since, now: now)
+            guard sourceState.chain != nil || planner.awaitsFile(source, state: sourceState, now: now) else { continue }
+            scans[source.id] = chains.awaitedFiles(source, chain: sourceState.chain, lastPickup: sourceState.lastPickup)
+            if chains.awaitsDevice(source, chain: sourceState.chain) { missingDevices.insert(source.id) }
         }
-        let connected = Set(config.sources.filter { $0.isDevice && isConnected($0) }.map(\.id))
         return reporter.report(
             config: config,
             state: state,
             now: now,
             unavailableDestinations: unavailable,
             inboxScans: scans,
-            connectedDevices: connected
+            missingDevices: missingDevices
         )
     }
 }

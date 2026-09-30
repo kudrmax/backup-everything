@@ -10,25 +10,22 @@ public enum ChainTransition: Sendable, Equatable {
 public struct ChainPermissions: Sendable, Equatable {
     public var mayStart: Bool
     public var mayRetry: Bool
+    public var mayConfirm: Bool
+    public var start: RunStart
 
-    public init(mayStart: Bool, mayRetry: Bool) {
+    public init(mayStart: Bool, mayRetry: Bool, mayConfirm: Bool = false, start: RunStart = .schedule) {
         self.mayStart = mayStart
         self.mayRetry = mayRetry
+        self.mayConfirm = mayConfirm
+        self.start = start
     }
 }
 
+/// Проводит по шагам источник, в котором есть шаг человека. Один вызов — один переход; результат копится в pending.
 public struct StepChainRunner: Sendable {
-    private struct Folders {
-        let root: URL
-        var input: URL { root.appendingPathComponent("input", isDirectory: true) }
-        var output: URL { root.appendingPathComponent("output", isDirectory: true) }
-        var scratch: URL { root.appendingPathComponent("scratch", isDirectory: true) }
-        var all: [URL] { [input, output, scratch] }
-    }
-
     private let chainsRoot: URL
     private let inbox: ManualExportInbox
-    private let shell: ShellCommand
+    private let executor: StepExecutor
     private let time: any TimeSource
     private let trash: ManualExportInbox.Trash
     private let progress: ProgressHandler
@@ -43,7 +40,7 @@ public struct StepChainRunner: Sendable {
     ) {
         self.chainsRoot = chainsRoot
         self.inbox = inbox
-        self.shell = ShellCommand(runner: runner)
+        self.executor = StepExecutor(runner: runner)
         self.time = time
         self.trash = trash
         self.progress = progress
@@ -60,33 +57,35 @@ public struct StepChainRunner: Sendable {
         if chain?.failure != nil, !permissions.mayRetry { return .stay }
         guard chain != nil || permissions.mayStart else { return .stay }
 
-        var next = chain ?? ChainState(stepIndex: 0, stepId: steps[0].id, startedAt: now, stepEnteredAt: now)
+        var next = chain ?? ChainState(stepIndex: 0, stepId: steps[0].id, startedAt: now, stepEnteredAt: now, startedBy: permissions.start)
         next.failure = nil
+        next.retryAfter = nil
         let folders = folders(source.id)
         do {
             if chain == nil { try discard(sourceId: source.id) }
             guard next.stepIndex < steps.count else {
                 return .completed(try assemble(source.id, chain: next, folders: folders, at: now))
             }
-            switch steps[next.stepIndex].kind {
-            case let .manual(_, _, _, includeInCopy):
+            let step = steps[next.stepIndex]
+            switch step.kind {
+            case let .file(_, _, _, fileMode, includeInCopy, removeOriginal):
                 guard let scan = currentStepScan(source, chain: chain, lastPickup: lastPickup, now: now), scan.isReady else { return .stay }
-                try prepare(folders)
-                try take(scan.files, into: includeInCopy ? folders.output : folders.input)
-            case let .command(command, timeoutSeconds):
-                try prepare(folders)
+                if fileMode == .multiple, !permissions.mayConfirm { return .stay }
+                try folders.prepare()
+                do {
+                    try take(scan.files, into: includeInCopy ? folders.output : folders.input, keepOriginals: !removeOriginal)
+                } catch {
+                    throw SourceError.pickupFailed(error.localizedDescription)
+                }
+            case let .device(_, path):
+                guard FileManager.default.fileExists(atPath: Paths.url(path).path) else { return .stay }
+            case .folder, .command:
+                try folders.prepare()
                 progress(.collecting(sourceId: source.id))
                 progress(.step(sourceId: source.id, index: next.stepIndex, count: steps.count))
-                _ = try await shell.run(
-                    command,
-                    timeoutSeconds: timeoutSeconds,
-                    environment: [
-                        "BACKUP_INPUT_DIR": folders.input.path,
-                        "BACKUP_OUTPUT_DIR": folders.output.path,
-                        "BACKUP_SCRATCH_DIR": folders.scratch.path,
-                    ],
-                    status: { [progress] text in progress(.status(sourceId: source.id, text: text)) }
-                )
+                _ = try await executor.run(step.kind, in: folders) { [progress] text in
+                    progress(.status(sourceId: source.id, text: text))
+                }
             }
         } catch {
             next.failure = error.localizedDescription
@@ -99,9 +98,14 @@ public struct StepChainRunner: Sendable {
     }
 
     public func awaitedFiles(_ source: Source, chain: ChainState?, lastPickup: Date?) -> InboxScan? {
-        let steps = source.steps
-        guard !steps.isEmpty else { return nil }
-        return currentStepScan(source, chain: chain, lastPickup: lastPickup, now: time.now)
+        currentStepScan(source, chain: chain, lastPickup: lastPickup, now: time.now)
+    }
+
+    /// Текущий шаг — подключить устройство, а его нет.
+    public func awaitsDevice(_ source: Source, chain: ChainState?) -> Bool {
+        let index = chain?.stepIndex ?? 0
+        guard index < source.steps.count, case let .device(_, path) = source.steps[index].kind else { return false }
+        return !FileManager.default.fileExists(atPath: Paths.url(path).path)
     }
 
     public func sourceIds() -> [UUID] {
@@ -130,12 +134,12 @@ public struct StepChainRunner: Sendable {
     private func currentStepScan(_ source: Source, chain: ChainState?, lastPickup: Date?, now: Date) -> InboxScan? {
         let steps = source.steps
         let index = chain?.stepIndex ?? 0
-        guard index < steps.count, case let .manual(_, watchPath, filePattern, _) = steps[index].kind else { return nil }
+        guard index < steps.count, case let .file(_, watchPath, filePattern, _, _, _) = steps[index].kind else { return nil }
         let since = chain.flatMap { $0.stepIndex > 0 ? $0.stepEnteredAt : nil } ?? lastPickup ?? source.createdAt
         return inbox.scan(watchPath: watchPath, filePattern: filePattern, since: since, now: now)
     }
 
-    private func assemble(_ sourceId: UUID, chain: ChainState, folders: Folders, at date: Date) throws -> PendingPackage {
+    private func assemble(_ sourceId: UUID, chain: ChainState, folders: WorkFolders, at date: Date) throws -> PendingPackage {
         let produced = (try? FileManager.default.contentsOfDirectory(atPath: folders.output.path)) ?? []
         if produced.isEmpty, let stored = inbox.pendingPackage(for: sourceId), isProduct(stored, of: chain) {
             try? discard(sourceId: sourceId)
@@ -147,35 +151,38 @@ public struct StepChainRunner: Sendable {
         return package
     }
 
-    /// Сборку могли прервать сразу после переноса результата в pending: такой пакет — уже готовый результат этой цепочки.
+    /// Сборку могли прервать сразу после переноса результата в pending: такой пакет — уже готовый результат этого запуска.
     private func isProduct(_ package: PendingPackage, of chain: ChainState) -> Bool {
         package.collectedAt.addingTimeInterval(1) > chain.startedAt
     }
 
-    private func prepare(_ folders: Folders) throws {
-        for directory in folders.all {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-    }
-
-    private func take(_ files: [URL], into directory: URL) throws {
+    /// Забрать все файлы или ни одного: при ошибке уже перенесённые возвращаются на место.
+    private func take(_ files: [URL], into directory: URL, keepOriginals: Bool) throws {
         let fileManager = FileManager.default
-        var moved: [(original: URL, taken: URL)] = []
+        var taken: [(original: URL, copy: URL)] = []
         do {
             for file in files {
-                let taken = directory.appendingPathComponent(file.lastPathComponent)
-                try fileManager.moveItem(at: file, to: taken)
-                moved.append((file, taken))
+                let target = directory.appendingPathComponent(file.lastPathComponent)
+                if keepOriginals {
+                    try fileManager.copyItem(at: file, to: target)
+                } else {
+                    try fileManager.moveItem(at: file, to: target)
+                }
+                taken.append((file, target))
             }
         } catch {
-            for item in moved.reversed() {
-                try? fileManager.moveItem(at: item.taken, to: item.original)
+            for item in taken.reversed() {
+                if keepOriginals {
+                    try? fileManager.removeItem(at: item.copy)
+                } else {
+                    try? fileManager.moveItem(at: item.copy, to: item.original)
+                }
             }
             throw error
         }
     }
 
-    private func folders(_ sourceId: UUID) -> Folders {
-        Folders(root: chainsRoot.appendingPathComponent(sourceId.uuidString, isDirectory: true))
+    private func folders(_ sourceId: UUID) -> WorkFolders {
+        WorkFolders(root: chainsRoot.appendingPathComponent(sourceId.uuidString, isDirectory: true))
     }
 }

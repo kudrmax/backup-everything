@@ -1,18 +1,36 @@
 import Foundation
 
+/// Кто начал запуск: от этого зависит, жёлто ли напоминать о шаге человека или спокойно ждать.
+public enum RunStart: String, Codable, Sendable {
+    case schedule
+    case button
+}
+
 public struct ChainState: Codable, Sendable, Equatable {
     public var stepIndex: Int
     public var stepId: UUID?
     public var startedAt: Date
     public var stepEnteredAt: Date
     public var failure: String?
+    public var startedBy: RunStart?
+    public var retryAfter: Date?
 
-    public init(stepIndex: Int, stepId: UUID? = nil, startedAt: Date, stepEnteredAt: Date, failure: String? = nil) {
+    public init(
+        stepIndex: Int,
+        stepId: UUID? = nil,
+        startedAt: Date,
+        stepEnteredAt: Date,
+        failure: String? = nil,
+        startedBy: RunStart? = nil,
+        retryAfter: Date? = nil
+    ) {
         self.stepIndex = stepIndex
         self.stepId = stepId
         self.startedAt = startedAt
         self.stepEnteredAt = stepEnteredAt
         self.failure = failure
+        self.startedBy = startedBy
+        self.retryAfter = retryAfter
     }
 }
 

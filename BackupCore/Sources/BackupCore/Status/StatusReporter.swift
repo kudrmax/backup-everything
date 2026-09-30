@@ -15,7 +15,6 @@ public enum AttentionItem: Sendable, Equatable {
     case severelyOverdue(sourceId: UUID)
     case manualExportDue(sourceId: UUID)
     case filesAwaitingPickup(sourceId: UUID, fileCount: Int, totalBytes: Int64, downloadInProgress: Bool)
-    case stepAwaitingFile(sourceId: UUID)
     case waitingForFile(sourceId: UUID)
     case deviceDue(sourceId: UUID)
     case waitingForDevice(sourceId: UUID)
@@ -57,7 +56,7 @@ public struct StatusReporter: Sendable {
         now: Date,
         unavailableDestinations: Set<UUID>,
         inboxScans: [UUID: InboxScan],
-        connectedDevices: Set<UUID> = []
+        missingDevices: Set<UUID> = []
     ) -> StatusReport {
         var items: [AttentionItem] = []
         for source in config.sources where source.enabled {
@@ -66,23 +65,15 @@ public struct StatusReporter: Sendable {
                 items.append(.noDestinations(sourceId: source.id))
                 continue
             }
-            let heldBack = source.isStepChain ? inboxScans[source.id].flatMap { $0.downloadInProgress && !$0.files.isEmpty ? $0 : nil } : nil
+            let scan = inboxScans[source.id]
+            let heldBack = scan.flatMap { $0.downloadInProgress && !$0.files.isEmpty ? $0 : nil }
             if let message = (heldBack == nil ? sourceState.chain?.failure : nil) ?? sourceState.lastError {
                 items.append(.runFailed(sourceId: source.id, message: message))
             }
             if planner.isSeverelyOverdue(source, state: sourceState, now: now) {
                 items.append(.severelyOverdue(sourceId: source.id))
             }
-            if source.isDevice {
-                if !connectedDevices.contains(source.id) {
-                    if planner.isDue(source, state: sourceState, now: now) {
-                        items.append(.deviceDue(sourceId: source.id))
-                    } else if sourceState.armedAt != nil {
-                        items.append(.waitingForDevice(sourceId: source.id))
-                    }
-                }
-                continue
-            }
+            guard source.needsHuman else { continue }
             if let heldBack {
                 items.append(.filesAwaitingPickup(
                     sourceId: source.id,
@@ -92,23 +83,13 @@ public struct StatusReporter: Sendable {
                 ))
                 continue
             }
-            if source.isStepChain {
-                items.append(contentsOf: chainItems(source, state: sourceState, now: now))
-                continue
-            }
-            guard source.isManualExport else { continue }
-            if let scan = inboxScans[source.id], !scan.files.isEmpty {
-                items.append(.filesAwaitingPickup(
-                    sourceId: source.id,
-                    fileCount: scan.files.count,
-                    totalBytes: scan.totalBytes,
-                    downloadInProgress: scan.downloadInProgress
-                ))
-            } else if planner.isDue(source, state: sourceState, now: now) {
-                items.append(.manualExportDue(sourceId: source.id))
-            } else if sourceState.armedAt != nil {
-                items.append(.waitingForFile(sourceId: source.id))
-            }
+            items.append(contentsOf: humanStepItems(
+                source,
+                state: sourceState,
+                scan: scan,
+                deviceMissing: missingDevices.contains(source.id),
+                now: now
+            ))
         }
         for destination in config.destinations where unavailableDestinations.contains(destination.id) {
             guard !state.debts(forDestination: destination.id).isEmpty else { continue }
@@ -124,15 +105,29 @@ public struct StatusReporter: Sendable {
         return StatusReport(items: items)
     }
 
-    private func chainItems(_ source: Source, state: SourceState, now: Date) -> [AttentionItem] {
-        let steps = source.steps
-        guard let chain = state.chain else {
-            if steps.first?.isManual == true && planner.isDue(source, state: state, now: now) {
-                return [.manualExportDue(sourceId: source.id)]
+    /// Что показать, пока источник ждёт шаг человека: «пора …», если запуск начат сроком, и спокойное «ждёт …», если кнопкой.
+    private func humanStepItems(_ source: Source, state: SourceState, scan: InboxScan?, deviceMissing: Bool, now: Date) -> [AttentionItem] {
+        let chain = state.chain
+        guard chain?.failure == nil, chain != nil || planner.awaitsFile(source, state: state, now: now) else { return [] }
+        let index = chain?.stepIndex ?? 0
+        guard index < source.steps.count else { return [] }
+        let byButton = chain.map { $0.startedBy == .button } ?? !planner.isDue(source, state: state, now: now)
+        switch source.steps[index].kind {
+        case .file:
+            if let scan, !scan.files.isEmpty {
+                return [.filesAwaitingPickup(
+                    sourceId: source.id,
+                    fileCount: scan.files.count,
+                    totalBytes: scan.totalBytes,
+                    downloadInProgress: scan.downloadInProgress
+                )]
             }
-            return state.armedAt != nil ? [.waitingForFile(sourceId: source.id)] : []
+            return [byButton ? .waitingForFile(sourceId: source.id) : .manualExportDue(sourceId: source.id)]
+        case .device:
+            guard deviceMissing else { return [] }
+            return [byButton ? .waitingForDevice(sourceId: source.id) : .deviceDue(sourceId: source.id)]
+        case .folder, .command:
+            return []
         }
-        guard chain.failure == nil, chain.stepIndex < steps.count, steps[chain.stepIndex].isManual else { return [] }
-        return [.stepAwaitingFile(sourceId: source.id)]
     }
 }

@@ -10,6 +10,47 @@ struct SourceProviderTests {
         temp = try TempDirectory()
     }
 
+    private func commandSource(_ command: String, timeoutSeconds: Int, runner: any ProcessRunner) -> StepsSource {
+        StepsSource(sourceId: UUID(), steps: [.command(command, timeoutSeconds: timeoutSeconds)], stagingRoot: temp.path("staging"), runner: runner)
+    }
+
+    @Test func automaticStepsBuildOneCopyTogether() async throws {
+        defer { temp.remove() }
+        try temp.file("anki/collection.anki2", "db")
+        try temp.file("anki/backups/old.colpkg", "old")
+        let events = LockedBox<[RunProgress]>([])
+        let sourceId = UUID()
+        let source = StepsSource(
+            sourceId: sourceId,
+            steps: [
+                .folder(temp.path("anki").path, excludes: ["backups"]),
+                .command(#"echo notes > "$BACKUP_OUTPUT_DIR/notes.csv""#, timeoutSeconds: 30),
+            ],
+            stagingRoot: temp.path("staging"),
+            runner: SystemProcessRunner(),
+            progress: { event in events.set(events.get() + [event]) }
+        )
+        let payload = try await source.collect(at: date)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: payload.root.path).sorted() == ["collection.anki2", "notes.csv"])
+        #expect(events.get() == [.step(sourceId: sourceId, index: 0, count: 2), .step(sourceId: sourceId, index: 1, count: 2)])
+        source.finish(payload, deliveredEverywhere: true)
+        #expect(temp.names(in: "staging").isEmpty)
+    }
+
+    @Test func failedStepOfSeveralNamesItself() async {
+        defer { temp.remove() }
+        let source = StepsSource(
+            sourceId: UUID(),
+            steps: [.folder(temp.path("gone").path, name: "Книги"), .command("true", timeoutSeconds: 30)],
+            stagingRoot: temp.path("staging"),
+            runner: FakeProcessRunner()
+        )
+        await #expect(throws: SourceError.stepFailed(index: 0, count: 2, name: "Книги", reason: SourceError.pathMissing(temp.path("gone").path).localizedDescription)) {
+            try await source.collect(at: date)
+        }
+        #expect(temp.names(in: "staging").isEmpty)
+    }
+
     @Test func folderSourceReturnsFolderItself() async throws {
         defer { temp.remove() }
         try temp.file("vault/a.md")
@@ -27,12 +68,7 @@ struct SourceProviderTests {
 
     @Test func commandSourceRunsShellAndCollectsOutputDirectory() async throws {
         defer { temp.remove() }
-        let source = CommandSource(
-            command: "echo hello > \"$BACKUP_OUTPUT_DIR/out.txt\"; test -d \"$BACKUP_SCRATCH_DIR\"; echo done",
-            timeoutSeconds: 30,
-            stagingRoot: temp.path("staging"),
-            runner: SystemProcessRunner()
-        )
+        let source = commandSource("echo hello > \"$BACKUP_OUTPUT_DIR/out.txt\"; test -d \"$BACKUP_SCRATCH_DIR\"; test -d \"$BACKUP_INPUT_DIR\"; echo done", timeoutSeconds: 30, runner: SystemProcessRunner())
         let payload = try await source.collect(at: date)
         #expect(try String(contentsOf: payload.root.appendingPathComponent("out.txt"), encoding: .utf8) == "hello\n")
         #expect(payload.details?.hasSuffix("done") == true)
@@ -44,7 +80,7 @@ struct SourceProviderTests {
     @Test func commandSourceReportsFailureWithOutputAndCleansUp() async {
         defer { temp.remove() }
         let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 2, stdout: "step 1\n", stderr: "auth required\n") }
-        let source = CommandSource(command: "gh repo list", timeoutSeconds: 30, stagingRoot: temp.path("staging"), runner: runner)
+        let source = commandSource("gh repo list", timeoutSeconds: 30, runner: runner)
         await #expect(throws: SourceError.commandFailed(exitCode: 2, output: "step 1\nauth required")) {
             try await source.collect(at: date)
         }
@@ -57,7 +93,7 @@ struct SourceProviderTests {
     @Test func commandSourceReportsTimeout() async {
         defer { temp.remove() }
         let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 15, timedOut: true) }
-        let source = CommandSource(command: "sleep 100", timeoutSeconds: 5, stagingRoot: temp.path("staging"), runner: runner)
+        let source = commandSource("sleep 100", timeoutSeconds: 5, runner: runner)
         await #expect(throws: SourceError.commandTimedOut(seconds: 5, output: "")) {
             try await source.collect(at: date)
         }
@@ -66,7 +102,7 @@ struct SourceProviderTests {
     @Test func commandSourcePassesCommandOutputAsStatus() async throws {
         defer { temp.remove() }
         let runner = FakeProcessRunner(output: ["1 из 2 · first", "2 из 2 · second"])
-        let source = CommandSource(command: "gh repo list", timeoutSeconds: 30, stagingRoot: temp.path("staging"), runner: runner)
+        let source = commandSource("gh repo list", timeoutSeconds: 30, runner: runner)
         let statuses = LockedBox<[String]>([])
         let payload = try await source.collect(at: date) { status in statuses.set(statuses.get() + [status]) }
         source.finish(payload, deliveredEverywhere: true)

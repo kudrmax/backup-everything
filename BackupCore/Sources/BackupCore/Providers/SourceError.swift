@@ -6,6 +6,8 @@ public enum SourceError: Error, Equatable, LocalizedError {
     case commandTimedOut(seconds: Int, output: String)
     case emptyResult
     case nothingToCollect
+    case stepFailed(index: Int, count: Int, name: String, reason: String)
+    case pickupFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -19,6 +21,10 @@ public enum SourceError: Error, Equatable, LocalizedError {
             "Источник не дал ни одного файла. Пустая копия не создаётся."
         case .nothingToCollect:
             "Нет подхваченных файлов для этого источника."
+        case let .pickupFailed(reason):
+            "Не удалось забрать файлы: \(reason)"
+        case let .stepFailed(index, count, name, reason):
+            "Шаг \(index + 1) из \(count) «\(name)». \(reason)"
         }
     }
 }

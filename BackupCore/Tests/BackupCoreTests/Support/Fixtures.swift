@@ -26,7 +26,7 @@ enum Fixtures {
 
     static func source(
         name: String = "Obsidian",
-        kind: SourceKind = .folder(path: "/tmp/none", excludes: []),
+        steps: [SourceStep] = [.folder("/tmp/none")],
         schedule: Schedule = .daily,
         retention: RetentionRules = .standard,
         destinations: [Destination] = [],
@@ -35,7 +35,7 @@ enum Fixtures {
         Source(
             name: name,
             slug: Slug.make(from: name, existing: []),
-            kind: kind,
+            steps: steps,
             schedule: schedule,
             retention: retention,
             destinationIds: destinations.map(\.id),

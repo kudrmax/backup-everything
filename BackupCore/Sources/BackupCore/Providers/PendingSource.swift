@@ -1,13 +1,14 @@
 import Foundation
 
-public struct ManualExportSource: SourceProvider {
+/// Результат, собранный с участием человека: лежит в pending, пока не доставлен во все назначения.
+public struct PendingSource: SourceProvider {
     private let sourceId: UUID
-    private let removeOriginal: Bool
+    private let trashAfterDelivery: Bool
     private let inbox: ManualExportInbox
 
-    public init(sourceId: UUID, removeOriginal: Bool, inbox: ManualExportInbox) {
+    public init(sourceId: UUID, trashAfterDelivery: Bool, inbox: ManualExportInbox) {
         self.sourceId = sourceId
-        self.removeOriginal = removeOriginal
+        self.trashAfterDelivery = trashAfterDelivery
         self.inbox = inbox
     }
 
@@ -20,6 +21,6 @@ public struct ManualExportSource: SourceProvider {
 
     public func finish(_ payload: Payload, deliveredEverywhere: Bool) {
         guard deliveredEverywhere else { return }
-        try? inbox.removePackage(for: sourceId, toTrash: removeOriginal)
+        try? inbox.removePackage(for: sourceId, toTrash: trashAfterDelivery)
     }
 }

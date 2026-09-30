@@ -66,53 +66,13 @@ struct ManualExportInboxTests {
         #expect(inbox.scan(watchPath: temp.path("nope").path, filePattern: "*", since: created, now: now) == .empty)
     }
 
-    @Test func pickUpMovesFilesAndTrashesThemAfterDelivery() throws {
+    @Test func pendingSourceCollectsThePackageAndKeepsItUntilDeliveredEverywhere() async throws {
         defer { temp.remove() }
-        let file = try temp.file("Downloads/takeout-001.zip", "12345", modified: now.addingTimeInterval(-600))
-        let package = try inbox.pickUp(sourceId: sourceId, files: [file], removeOriginal: true, at: now)
-
-        #expect(!temp.exists("Downloads/takeout-001.zip"))
-        #expect(package.collectedAt == now)
-        #expect(inbox.pendingPackage(for: sourceId) == package)
-        #expect(FileManager.default.fileExists(atPath: package.directory.appendingPathComponent("takeout-001.zip").path))
-
-        try inbox.removePackage(for: sourceId, toTrash: true)
-        #expect(inbox.pendingPackage(for: sourceId) == nil)
-        #expect(temp.names(in: "trash") == ["takeout-001.zip"])
-    }
-
-    @Test func pickUpCopiesWhenOriginalMustStay() throws {
-        defer { temp.remove() }
-        let file = try temp.file("Downloads/Passwords.csv", "secret", modified: now.addingTimeInterval(-600))
-        _ = try inbox.pickUp(sourceId: sourceId, files: [file], removeOriginal: false, at: now)
-        #expect(temp.exists("Downloads/Passwords.csv"))
-
-        try inbox.removePackage(for: sourceId, toTrash: false)
-        #expect(temp.names(in: "trash").isEmpty)
-        #expect(temp.exists("Downloads/Passwords.csv"))
-        #expect(scan("Passwords*.csv", since: now) == .empty)
-    }
-
-    @Test func newerPackageReplacesUndeliveredOne() throws {
-        defer { temp.remove() }
-        let first = try temp.file("Downloads/takeout-a.zip", "first", modified: now.addingTimeInterval(-600))
-        _ = try inbox.pickUp(sourceId: sourceId, files: [first], removeOriginal: true, at: now)
-        let later = now.addingTimeInterval(86_400)
-        let second = try temp.file("Downloads/takeout-b.zip", "second", modified: later.addingTimeInterval(-600))
-        let package = try inbox.pickUp(sourceId: sourceId, files: [second], removeOriginal: true, at: later)
-
-        #expect(inbox.pendingPackage(for: sourceId) == package)
-        #expect(temp.names(in: "pending/\(sourceId.uuidString)") == [Fixtures.naming.name(for: later)])
-        #expect(temp.names(in: "trash") == ["takeout-a.zip"])
-    }
-
-    @Test func manualSourceCollectsPendingPackageAndKeepsItUntilDeliveredEverywhere() async throws {
-        defer { temp.remove() }
-        let source = ManualExportSource(sourceId: sourceId, removeOriginal: true, inbox: inbox)
+        let source = PendingSource(sourceId: sourceId, trashAfterDelivery: true, inbox: inbox)
         await #expect(throws: SourceError.nothingToCollect) { try await source.collect(at: now) }
 
-        let file = try temp.file("Downloads/takeout-001.zip", "12345", modified: now.addingTimeInterval(-600))
-        let package = try inbox.pickUp(sourceId: sourceId, files: [file], removeOriginal: true, at: now)
+        try temp.file("run/takeout-001.zip", "12345")
+        let package = try inbox.adopt(sourceId: sourceId, directory: temp.path("run"), at: now)
         let payload = try await source.collect(at: now.addingTimeInterval(3600))
         #expect(payload == Payload(root: package.directory, collectedAt: now))
 
@@ -120,28 +80,17 @@ struct ManualExportInboxTests {
         #expect(inbox.pendingPackage(for: sourceId) != nil)
         source.finish(payload, deliveredEverywhere: true)
         #expect(inbox.pendingPackage(for: sourceId) == nil)
+        #expect(temp.names(in: "trash") == ["takeout-001.zip"])
     }
 
-    @Test func failedPickUpRestoresOriginalsAndKeepsPreviousPackage() throws {
+    @Test func packageBuiltFromCopiesIsRemovedWithoutTheTrash() async throws {
         defer { temp.remove() }
-        let old = try temp.file("Downloads/takeout-old.zip", "old", modified: now.addingTimeInterval(-900))
-        let previous = try inbox.pickUp(sourceId: sourceId, files: [old], removeOriginal: true, at: now.addingTimeInterval(-800))
-        let first = try temp.file("Downloads/takeout-001.zip", "12345", modified: now.addingTimeInterval(-600))
-        let vanished = temp.path("Downloads/takeout-002.zip")
-
-        #expect(throws: (any Error).self) {
-            try inbox.pickUp(sourceId: sourceId, files: [first, vanished], removeOriginal: true, at: now)
-        }
-        #expect(temp.names(in: "Downloads") == ["takeout-001.zip"])
-        #expect(inbox.pendingPackage(for: sourceId) == previous)
-        #expect(temp.names(in: "pending") == [sourceId.uuidString])
+        let source = PendingSource(sourceId: sourceId, trashAfterDelivery: false, inbox: inbox)
+        try temp.file("run/book.epub", "epub")
+        _ = try inbox.adopt(sourceId: sourceId, directory: temp.path("run"), at: now)
+        source.finish(try await source.collect(at: now), deliveredEverywhere: true)
+        #expect(inbox.pendingPackage(for: sourceId) == nil)
         #expect(temp.names(in: "trash").isEmpty)
-    }
-
-    @Test func emptyPatternMatchesNothing() throws {
-        defer { temp.remove() }
-        try temp.file("Downloads/Passwords.csv", "secret", modified: now.addingTimeInterval(-600))
-        #expect(scan("") == .empty)
     }
 
     @Test func adoptedFolderBecomesThePendingPackageAndReplacesTheOldOne() throws {

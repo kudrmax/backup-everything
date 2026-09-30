@@ -59,13 +59,13 @@ struct BackupCoordinatorTests {
     }
 
     private func vault(_ destinations: [Destination]) -> Source {
-        Fixtures.source(kind: .folder(path: temp.path("vault").path, excludes: []), destinations: destinations, createdAt: created)
+        Fixtures.source(steps: [.folder(temp.path("vault").path, excludes: [])], destinations: destinations, createdAt: created)
     }
 
     private func photos(_ mode: FileMode, _ destinations: [Destination]) -> Source {
         Fixtures.source(
             name: "Photos",
-            kind: .manualExport(watchPath: temp.path("Downloads").path, filePattern: "takeout-*.zip", fileMode: mode, removeOriginal: true),
+            steps: [.file("takeout-*.zip", in: temp.path("Downloads").path, mode: mode, removeOriginal: true)],
             schedule: .monthly,
             destinations: destinations,
             createdAt: created
@@ -144,7 +144,7 @@ struct BackupCoordinatorTests {
 
     @Test func failedRunIsReportedAndRetriedAfterAnHour() async throws {
         defer { temp.remove() }
-        let source = Fixtures.source(kind: .folder(path: temp.path("moved").path, excludes: []), destinations: [cloud], createdAt: created)
+        let source = Fixtures.source(steps: [.folder(temp.path("moved").path, excludes: [])], destinations: [cloud], createdAt: created)
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
 
         let failed = try await coordinator.tick()
@@ -248,7 +248,7 @@ struct BackupCoordinatorTests {
 
     @Test func failingCatchUpIsRetriedOncePerHour() async throws {
         defer { temp.remove() }
-        let source = Fixtures.source(kind: .folder(path: temp.path("moved").path, excludes: []), destinations: [disk], createdAt: created)
+        let source = Fixtures.source(steps: [.folder(temp.path("moved").path, excludes: [])], destinations: [disk], createdAt: created)
         try store.saveConfig(Config(sources: [source], destinations: [disk]))
         _ = try await coordinator.tick()
         try temp.directory("hdd")
@@ -272,8 +272,8 @@ struct BackupCoordinatorTests {
         try store.saveConfig(Config(sources: [photos, vault([cloud])], destinations: [cloud]))
 
         let result = try await coordinator.tick()
-        #expect(result.runs.map(\.trigger) == [.pickup, .scheduled])
-        #expect(result.runs[0].collectError?.hasPrefix("Не удалось забрать файлы") == true)
+        #expect(result.runs.map(\.trigger) == [.scheduled, .pickup])
+        #expect(result.runs[1].collectError?.hasPrefix("Не удалось забрать файлы") == true)
         #expect(result.notices.count == 1)
         #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000"])
         #expect(temp.exists("Downloads/takeout-1.zip"))
@@ -298,7 +298,7 @@ struct BackupCoordinatorTests {
     @Test func announcesTheQueueBeforeRunningIt() async throws {
         defer { temp.remove() }
         let first = vault([cloud])
-        let second = Fixtures.source(name: "Второй", kind: .folder(path: temp.path("vault").path, excludes: []), destinations: [cloud], createdAt: created)
+        let second = Fixtures.source(name: "Второй", steps: [.folder(temp.path("vault").path, excludes: [])], destinations: [cloud], createdAt: created)
         try store.saveConfig(Config(sources: [first, second], destinations: [cloud]))
 
         _ = try await coordinator.tick()
@@ -391,10 +391,10 @@ struct BackupCoordinatorTests {
     private func claude(_ destinations: [Destination], command: String = #"cp "$BACKUP_INPUT_DIR"/manifest-a.json "$BACKUP_OUTPUT_DIR/archive.zip""#) -> Source {
         Fixtures.source(
             name: "Claude",
-            kind: .steps(steps: [
-                SourceStep(name: "Запросить экспорт", kind: .manual(instructions: "", watchPath: temp.path("Downloads").path, filePattern: "manifest-*.json", includeInCopy: false)),
+            steps: [
+                SourceStep(name: "Запросить экспорт", kind: .file(instructions: "", watchPath: temp.path("Downloads").path, filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
                 SourceStep(name: "Скачать архивы", kind: .command(command: command, timeoutSeconds: 60)),
-            ]),
+            ],
             schedule: .monthly,
             destinations: destinations,
             createdAt: created
@@ -502,18 +502,18 @@ struct BackupCoordinatorTests {
         #expect(!temp.exists("work/pending/\(source.id.uuidString)"))
     }
 
-    @Test func chainThatOpensWithACommandStartsOnSchedule() async throws {
+    @Test func sourceOfOneCommandRunsOnSchedule() async throws {
         defer { temp.remove() }
         let source = Fixtures.source(
             name: "Отчёт",
-            kind: .steps(steps: [SourceStep(name: "Собрать", kind: .command(command: #"echo data > "$BACKUP_OUTPUT_DIR/report.txt""#, timeoutSeconds: 60))]),
+            steps: [SourceStep(name: "Собрать", kind: .command(command: #"echo data > "$BACKUP_OUTPUT_DIR/report.txt""#, timeoutSeconds: 60))],
             schedule: .daily,
             destinations: [cloud],
             createdAt: created
         )
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
 
-        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.scheduled])
         #expect(temp.names(in: "cloud/отчёт") == ["2026-09-28_100000"])
 
         time.advance(3600)
@@ -673,7 +673,7 @@ struct BackupCoordinatorTests {
     private func pocketBook(_ destinations: [Destination], schedule: Schedule = .monthly) -> Source {
         Fixtures.source(
             name: "PocketBook",
-            kind: .device(path: temp.path("PB/Books").path, excludes: []),
+            steps: [.device(temp.path("PB/Books").path), .folder(temp.path("PB/Books").path, excludes: [])],
             schedule: schedule,
             destinations: destinations,
             createdAt: created
@@ -692,7 +692,7 @@ struct BackupCoordinatorTests {
 
         try temp.file("PB/Books/book.epub", "epub")
         let plugged = try await coordinator.tick()
-        #expect(plugged.runs.map(\.trigger) == [.scheduled])
+        #expect(plugged.runs.map(\.trigger) == [.pickup])
         #expect(plugged.notices == [.deviceCanBeUnplugged(sourceId: source.id, sourceName: "PocketBook")])
         #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub"])
         #expect(try await coordinator.statusReport().overall == .ok)
@@ -710,14 +710,14 @@ struct BackupCoordinatorTests {
         #expect(waiting.overall == .ok)
 
         try temp.file("PB/Books/book.epub", "epub")
-        #expect(try await coordinator.tick().runs.map(\.trigger) == [.scheduled])
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
         #expect(try store.loadState().sourceState(source.id).armedAt == nil)
         #expect(try await coordinator.tick().runs.isEmpty)
 
-        #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.manual])
+        #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.pickup])
     }
 
-    @Test func unpluggedDeviceIsNotAnErrorWhileItsDiskCatchesUp() async throws {
+    @Test func deviceCopyReachesALateDiskWithoutPluggingTheDeviceAgain() async throws {
         defer { temp.remove() }
         let source = pocketBook([cloud, disk])
         try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
@@ -728,7 +728,116 @@ struct BackupCoordinatorTests {
         try FileManager.default.removeItem(at: book.deletingLastPathComponent().deletingLastPathComponent())
         try temp.directory("hdd")
         time.advance(3600)
-        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "hdd/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub"])
         #expect(try await coordinator.statusReport().overall == .ok)
+    }
+
+    @Test func deviceThenCommandThenFolderMakeOneCopy() async throws {
+        defer { temp.remove() }
+        let device = temp.path("PB").path
+        let source = Fixtures.source(
+            name: "PocketBook",
+            steps: [
+                .device(device),
+                .command(#"cp "\#(device)/notes.db" "$BACKUP_OUTPUT_DIR/notes.csv""#, timeoutSeconds: 60),
+                .folder("\(device)/Books"),
+            ],
+            schedule: .monthly,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        #expect(try await coordinator.tick().runs.isEmpty)
+
+        try temp.file("PB/notes.db", "notes")
+        try temp.file("PB/Books/book.epub", "epub")
+        let result = try await coordinator.tick()
+        #expect(result.runs.map(\.trigger) == [.pickup])
+        #expect(result.notices == [.deviceCanBeUnplugged(sourceId: source.id, sourceName: "PocketBook")])
+        #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub", "notes.csv"])
+        #expect(temp.names(in: "trash").isEmpty)
+    }
+
+    @Test func failedStepRetriesByItselfUnlessItIsACommandAfterAHumanStep() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(
+            name: "PocketBook",
+            steps: [.device(temp.path("PB").path), .folder(temp.path("PB/Books").path)],
+            schedule: .monthly,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.directory("PB")
+
+        let failed = try await coordinator.tick()
+        #expect(failed.runs.first?.collectError?.hasPrefix("Шаг 2 из 2 «Скопировать папку». Не найден путь источника") == true)
+        time.advance(1800)
+        #expect(try await coordinator.tick().runs.isEmpty)
+
+        try temp.file("PB/Books/book.epub", "epub")
+        time.advance(1800)
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
+    }
+
+    @Test func fileStepCanLeaveTheOriginalWhereItWas() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(
+            name: "Passwords",
+            steps: [.file("Passwords*.csv", in: temp.path("Downloads").path, removeOriginal: false)],
+            schedule: .monthly,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/Passwords.csv", "secret", modified: start.addingTimeInterval(-60))
+
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
+        #expect(temp.names(in: "Downloads") == ["Passwords.csv"])
+        #expect(temp.names(in: "cloud/passwords/2026-09-28_100000") == ["Passwords.csv", "_snapshot.json"])
+        #expect(temp.names(in: "trash").isEmpty)
+
+        time.advance(40 * 86_400)
+        #expect(try await coordinator.tick().runs.isEmpty, "тот же файл второй раз не забирается")
+    }
+
+    @Test func runAllStartsADeviceSourceOnlyWhenTheDeviceIsHere() async throws {
+        defer { temp.remove() }
+        let source = pocketBook([cloud], schedule: .manual)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        #expect(try await coordinator.runAllNow().runs.isEmpty)
+        #expect(try store.loadState().sourceState(source.id).armedAt == nil)
+        try temp.file("PB/Books/book.epub", "epub")
+        #expect(try await coordinator.runAllNow().runs.map(\.trigger) == [.pickup])
+    }
+
+    @Test func cancellingARunStartedByTheButtonDropsWhatItCollected() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(
+            name: "Двойной",
+            steps: [
+                .file("part-*.csv", in: temp.path("Downloads").path, includeInCopy: true, name: "Первая часть"),
+                .file("last-*.csv", in: temp.path("Downloads").path, includeInCopy: true, name: "Вторая часть"),
+            ],
+            schedule: .manual,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        _ = try await coordinator.runNow(sourceId: source.id)
+        time.advance(60)
+        try temp.file("Downloads/part-1.csv", "1", modified: start.addingTimeInterval(30))
+        _ = try await coordinator.tick()
+        #expect(try store.loadState().sourceState(source.id).chain?.stepIndex == 1)
+        #expect(try await coordinator.statusReport().items == [.waitingForFile(sourceId: source.id)])
+
+        _ = try await coordinator.cancelWaiting(sourceId: source.id)
+        let state = try store.loadState().sourceState(source.id)
+        #expect(state.chain == nil)
+        #expect(state.armedAt == nil)
+        #expect(temp.names(in: "trash") == ["part-1.csv"])
+        #expect(try await coordinator.statusReport().items.isEmpty)
     }
 }

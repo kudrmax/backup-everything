@@ -41,7 +41,7 @@ struct SchedulePlannerTests {
         let orphan = Fixtures.source(name: "Orphan")
         let manual = Fixtures.source(
             name: "Photos",
-            kind: .manualExport(watchPath: "/d", filePattern: "*.zip", fileMode: .multiple, removeOriginal: true),
+            steps: [.file("*.zip", in: "/d", mode: .multiple, removeOriginal: true)],
             destinations: [cloud]
         )
         let config = Config(sources: [folder, orphan, manual], destinations: [cloud])

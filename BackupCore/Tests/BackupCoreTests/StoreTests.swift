@@ -102,7 +102,24 @@ struct StoreTests {
         defer { temp.remove() }
         try store.installBundledTemplates()
         let finance = try #require(store.loadTemplates().first { $0.id == "ios-finance" })
-        #expect(finance.kind == .manualExport(watchPath: "~/Downloads", filePattern: "", fileMode: .single, removeOriginal: true))
+        #expect(finance.steps.map(\.kind) == [.file(instructions: finance.steps[0].instructions ?? "", watchPath: "~/Downloads", filePattern: "", fileMode: .single, includeInCopy: true, removeOriginal: true)])
+    }
+
+    @Test func configInTheOldFormatIsKeptAsACopyBeforeTheFirstNewWrite() throws {
+        defer { temp.remove() }
+        let old = #"{"schemaVersion":1,"destinations":[],"sources":[{"id":"3A907808-6476-4794-85A6-52CECF2B501F","name":"Obsidian","slug":"obsidian","kind":{"folder":{"path":"~/Obsidian","excludes":[]}},"schedule":"daily","retention":{"daily":7,"weekly":4,"monthly":12,"yearly":0},"destinationIds":[],"instructions":"","enabled":true,"createdAt":"2026-09-30T10:00:00Z"}]}"#
+        try temp.file("data/config.json", old)
+
+        var config = try store.loadConfig()
+        #expect(config.schemaVersion == 2)
+        #expect(config.sources.first?.singleFolder?.path == "~/Obsidian")
+        config.sources[0].description = "Заметки"
+        try store.saveConfig(config)
+        try store.saveConfig(config)
+
+        #expect(try String(contentsOf: temp.path("data/config.v1.json"), encoding: .utf8) == old)
+        #expect(try store.loadConfig() == config)
+        #expect(temp.names(in: "data") == ["config.json", "config.v1.json"])
     }
 
     @Test func stateWrittenByOlderVersionStillLoads() throws {

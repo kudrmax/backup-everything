@@ -22,7 +22,7 @@ public struct Bootstrap: Sendable {
         let selfSource = Source(
             name: Self.selfSourceName,
             slug: Slug.make(from: Self.selfSourceName, existing: []),
-            kind: .folder(path: store.dataDirectory.path, excludes: []),
+            steps: [.folder(store.dataDirectory.path)],
             schedule: .daily,
             description: Self.selfSourceDescription,
             createdAt: now

@@ -13,9 +13,7 @@ struct ClaudeTemplateTests {
     }
 
     private var steps: [SourceStep] {
-        guard let template = BundledTemplates.all.first(where: { $0.id == "claude" }),
-              case let .steps(steps) = template.kind else { return [] }
-        return steps
+        BundledTemplates.all.first { $0.id == "claude" }?.steps ?? []
     }
 
     private var command: String {
@@ -79,7 +77,7 @@ struct ClaudeTemplateTests {
 
     @Test func templateIsAManualStepFollowedByACommand() {
         #expect(steps.map(\.name) == ["Запросить экспорт", "Скачать архивы"])
-        guard case let .manual(instructions, watchPath, filePattern, includeInCopy) = steps.first?.kind,
+        guard case let .file(instructions, watchPath, filePattern, .single, includeInCopy, true) = steps.first?.kind,
               case let .command(_, timeoutSeconds) = steps.last?.kind else {
             Issue.record("неожиданные шаги")
             return

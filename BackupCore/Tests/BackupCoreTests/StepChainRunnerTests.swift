@@ -36,7 +36,7 @@ struct StepChainRunnerTests {
     }
 
     private func manual(_ pattern: String, includeInCopy: Bool = false) -> SourceStep {
-        SourceStep(name: "Файл \(pattern)", kind: .manual(instructions: "", watchPath: temp.path("Downloads").path, filePattern: pattern, includeInCopy: includeInCopy))
+        SourceStep(name: "Файл \(pattern)", kind: .file(instructions: "", watchPath: temp.path("Downloads").path, filePattern: pattern, fileMode: .single, includeInCopy: includeInCopy, removeOriginal: true))
     }
 
     private func command(_ name: String = "Скачать архивы") -> SourceStep {
@@ -44,7 +44,7 @@ struct StepChainRunnerTests {
     }
 
     private func source(_ steps: [SourceStep]) -> Source {
-        Fixtures.source(name: "Claude", kind: .steps(steps: steps), schedule: .monthly, createdAt: created)
+        Fixtures.source(name: "Claude", steps: steps, schedule: .monthly, createdAt: created)
     }
 
     private func chain(_ source: Source, _ index: Int, startedAt: Date, stepEnteredAt: Date, failure: String? = nil) -> ChainState {
@@ -53,7 +53,8 @@ struct StepChainRunnerTests {
             stepId: index < source.steps.count ? source.steps[index].id : nil,
             startedAt: startedAt,
             stepEnteredAt: stepEnteredAt,
-            failure: failure
+            failure: failure,
+            startedBy: .schedule
         )
     }
 
@@ -283,7 +284,7 @@ struct StepChainRunnerTests {
         let original = source([manual("manifest-*.json"), command("Скачать"), command("Распаковать")])
         let position = chain(original, 1, startedAt: start, stepEnteredAt: start)
         var edited = original
-        edited.kind = .steps(steps: order.map { original.steps[$0] })
+        edited.steps = order.map { original.steps[$0] }
         try temp.file("chains/\(original.id.uuidString)/input/manifest-a.json", "{}")
         let calls = LockedBox(0)
         let runner = runner { _ in

@@ -12,24 +12,23 @@ public struct DefaultSourceProviderFactory: SourceProviderFactory {
     private let runner: any ProcessRunner
     private let stagingRoot: URL
     private let inbox: ManualExportInbox
+    private let progress: ProgressHandler
 
-    public init(runner: any ProcessRunner, stagingRoot: URL, inbox: ManualExportInbox) {
+    public init(runner: any ProcessRunner, stagingRoot: URL, inbox: ManualExportInbox, progress: @escaping ProgressHandler = { _ in }) {
         self.runner = runner
         self.stagingRoot = stagingRoot
         self.inbox = inbox
+        self.progress = progress
     }
 
     public func provider(for source: Source) -> any SourceProvider {
-        switch source.kind {
-        case let .folder(path, excludes), let .device(path, excludes):
-            FolderSource(path: path, excludes: excludes)
-        case let .command(command, timeoutSeconds):
-            CommandSource(command: command, timeoutSeconds: timeoutSeconds, stagingRoot: stagingRoot, runner: runner)
-        case let .manualExport(_, _, _, removeOriginal):
-            ManualExportSource(sourceId: source.id, removeOriginal: removeOriginal, inbox: inbox)
-        case .steps:
-            ManualExportSource(sourceId: source.id, removeOriginal: true, inbox: inbox)
+        if source.needsHuman {
+            return PendingSource(sourceId: source.id, trashAfterDelivery: source.trashesPickedUpFiles, inbox: inbox)
         }
+        if let folder = source.singleFolder {
+            return FolderSource(path: folder.path, excludes: folder.excludes)
+        }
+        return StepsSource(sourceId: source.id, steps: source.steps, stagingRoot: stagingRoot, runner: runner, progress: progress)
     }
 }
 

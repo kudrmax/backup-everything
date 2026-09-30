@@ -9,14 +9,14 @@ struct ConfigEditorTests {
     private let disk = Destination(name: "HDD", kind: .localFolder(path: "/h"))
 
     private func manual(_ name: String, _ pattern: String, folder: String = "~/Downloads") -> Source {
-        Fixtures.source(name: name, kind: .manualExport(watchPath: folder, filePattern: pattern, fileMode: .single, removeOriginal: true))
+        Fixtures.source(name: name, steps: [.file(pattern, in: folder, mode: .single, removeOriginal: true)])
     }
 
     @Test func newSourceGetsUniqueSlugAndCreationDate() {
         var config = Config()
-        let first = editor.makeSource(name: "Obsidian", kind: .folder(path: "/a", excludes: []), now: now, in: config)
+        let first = editor.makeSource(name: "Obsidian", steps: [.folder("/a", excludes: [])], now: now, in: config)
         editor.save(first, in: &config)
-        let second = editor.makeSource(name: "Obsidian", kind: .folder(path: "/b", excludes: []), now: now, in: config)
+        let second = editor.makeSource(name: "Obsidian", steps: [.folder("/b", excludes: [])], now: now, in: config)
         #expect(first.slug == "obsidian")
         #expect(second.slug == "obsidian-2")
         #expect(second.createdAt == now)
@@ -25,20 +25,20 @@ struct ConfigEditorTests {
 
     @Test func savedSourceKeepsItsNameAndSlug() {
         var config = Config()
-        var source = editor.makeSource(name: "Obsidian", kind: .folder(path: "/a", excludes: []), now: now, in: config)
+        var source = editor.makeSource(name: "Obsidian", steps: [.folder("/a", excludes: [])], now: now, in: config)
         editor.save(source, in: &config)
         source.name = "Заметки"
         source.slug = "tampered"
-        source.kind = .folder(path: "/b", excludes: [])
+        source.steps = [.folder("/b", id: source.steps[0].id)]
         editor.save(source, in: &config)
         #expect(config.sources.map(\.name) == ["Obsidian"])
         #expect(config.sources.map(\.slug) == ["obsidian"])
-        #expect(config.sources.map(\.kind) == [.folder(path: "/b", excludes: [])])
+        #expect(config.sources.first?.singleFolder?.path == "/b")
     }
 
     @Test func folderOfCopiesIsNamedAfterTheNameTheSourceIsFirstSavedWith() {
         var config = Config(sources: [Fixtures.source(name: "Anki")])
-        var source = editor.makeSource(name: "Новый источник", kind: .folder(path: "/a", excludes: []), now: now, in: config)
+        var source = editor.makeSource(name: "Новый источник", steps: [.folder("/a", excludes: [])], now: now, in: config)
         source.name = "Anki"
         editor.save(source, in: &config)
         #expect(config.sources.map(\.slug) == ["anki", "anki-2"])
@@ -85,8 +85,8 @@ struct ConfigEditorTests {
     }
 
     @Test func manualStepMaskConflictsWithManualExportInTheSameFolder() {
-        let step = SourceStep(name: "Манифест", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "*.json", includeInCopy: false))
-        let chain = Fixtures.source(name: "Claude", kind: .steps(steps: [step]))
+        let step = SourceStep(name: "Манифест", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "*.json", fileMode: .single, includeInCopy: false, removeOriginal: true))
+        let chain = Fixtures.source(name: "Claude", steps: [step])
         let export = manual("Экспорт", "data-*.json")
         let elsewhere = manual("Другая папка", "*.json", folder: "~/Desktop")
         let config = Config(sources: [chain, export, elsewhere])

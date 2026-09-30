@@ -73,35 +73,6 @@ public struct ManualExportInbox: Sendable {
         return scan
     }
 
-    public func pickUp(sourceId: UUID, files: [URL], removeOriginal: Bool, at date: Date) throws -> PendingPackage {
-        let fileManager = FileManager.default
-        let incoming = pendingRoot.appendingPathComponent(".incoming-\(UUID().uuidString)", isDirectory: true)
-        let directory = sourceDirectory(sourceId).appendingPathComponent(naming.name(for: date), isDirectory: true)
-        var moved: [(original: URL, staged: URL)] = []
-        do {
-            try fileManager.createDirectory(at: incoming, withIntermediateDirectories: true)
-            for file in files {
-                let staged = incoming.appendingPathComponent(file.lastPathComponent)
-                if removeOriginal {
-                    try fileManager.moveItem(at: file, to: staged)
-                    moved.append((file, staged))
-                } else {
-                    try fileManager.copyItem(at: file, to: staged)
-                }
-            }
-        } catch {
-            for item in moved.reversed() {
-                try? fileManager.moveItem(at: item.staged, to: item.original)
-            }
-            try? fileManager.removeItem(at: incoming)
-            throw error
-        }
-        try removePackage(for: sourceId, toTrash: removeOriginal)
-        try fileManager.createDirectory(at: sourceDirectory(sourceId), withIntermediateDirectories: true)
-        try fileManager.moveItem(at: incoming, to: directory)
-        return PendingPackage(directory: directory, collectedAt: naming.date(from: directory.lastPathComponent) ?? date)
-    }
-
     public func adopt(sourceId: UUID, directory: URL, at date: Date) throws -> PendingPackage {
         let fileManager = FileManager.default
         try removePackage(for: sourceId, toTrash: true)

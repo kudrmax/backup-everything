@@ -5,7 +5,7 @@ public struct ConfigEditor: Sendable {
 
     public func makeSource(
         name: String,
-        kind: SourceKind,
+        steps: [SourceStep],
         schedule: Schedule = .daily,
         retention: RetentionRules = .standard,
         description: String = "",
@@ -16,7 +16,7 @@ public struct ConfigEditor: Sendable {
         Source(
             name: name,
             slug: Slug.make(from: name, existing: Set(config.sources.map(\.slug))),
-            kind: kind,
+            steps: steps,
             schedule: schedule,
             retention: retention,
             description: description,

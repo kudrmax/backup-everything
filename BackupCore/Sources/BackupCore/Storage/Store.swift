@@ -45,11 +45,25 @@ public struct Store: Sendable {
         guard config.schemaVersion <= Config.currentSchemaVersion else {
             throw StoreError.unsupportedVersion(file: configURL.lastPathComponent, version: config.schemaVersion)
         }
-        return config
+        var current = config
+        current.schemaVersion = Config.currentSchemaVersion
+        return current
     }
 
     public func saveConfig(_ config: Config) throws {
+        try keepCopyOfOlderConfig()
         try write(config, to: configURL)
+    }
+
+    /// Перед первой записью в новом формате старый файл сохраняется рядом: с ним можно вернуться на прежнюю версию приложения.
+    private func keepCopyOfOlderConfig() throws {
+        guard let data = try? Data(contentsOf: configURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let version = json["schemaVersion"] as? Int,
+              version < Config.currentSchemaVersion else { return }
+        let copy = dataDirectory.appendingPathComponent("config.v\(version).json")
+        guard !FileManager.default.fileExists(atPath: copy.path) else { return }
+        try data.write(to: copy, options: .atomic)
     }
 
     public func loadState() throws -> AppState {
