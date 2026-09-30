@@ -166,24 +166,11 @@ struct SourceEditor: View {
             }
             kindCard
             SettingsSection(title: "Дополнительно") {
-                DisclosureRow(title: "Хранить", summary: Texts.retention(draft.retention)) {
-                    retentionStepper("Дней", value: $draft.retention.daily, range: 0...365)
-                    retentionStepper("Недель", value: $draft.retention.weekly, range: 0...104)
-                    retentionStepper("Месяцев", value: $draft.retention.monthly, range: 0...120)
-                    retentionStepper("Лет", value: $draft.retention.yearly, range: 0...50)
-                    HStack {
-                        Text("За каждый период остаётся по одной копии. Самая свежая хранится всегда.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        if !isNew {
-                            Button("Что останется…") {
-                                let source = draft.build()
-                                Task { previews = await model.retentionPreview(for: source) }
-                            }
-                            .controlSize(.small)
-                        }
-                    }
+                DisclosureRow(title: "Хранить копии", summary: RetentionPlan.summary(draft.retention)) {
+                    RetentionEditor(rules: $draft.retention, schedule: draft.schedule, showCopies: isNew ? nil : {
+                        let source = draft.build()
+                        Task { previews = await model.retentionPreview(for: source) }
+                    })
                 }
                 DisclosureRow(title: "Инструкция", summary: instructionsSummary) {
                     TextEditor(text: $draft.instructions)
@@ -272,15 +259,6 @@ struct SourceEditor: View {
                         .labelsHidden()
                 }
             }
-        }
-    }
-
-    private func retentionStepper(_ title: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Stepper("\(value.wrappedValue)", value: value, in: range)
-                .monospacedDigit()
         }
     }
 

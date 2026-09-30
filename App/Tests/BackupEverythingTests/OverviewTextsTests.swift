@@ -54,13 +54,6 @@ struct OverviewTextsTests {
         #expect(SourceStatus.overdue.note == "давно не было бэкапа")
     }
 
-    @Test func retentionIsSummarisedWithoutEmptyRules() {
-        #expect(Texts.retention(.standard) == "7 дней · 4 недели · 12 месяцев")
-        #expect(Texts.retention(RetentionRules(daily: 1, weekly: 1, monthly: 1, yearly: 1)) == "1 день · 1 неделя · 1 месяц · 1 год")
-        #expect(Texts.retention(RetentionRules(daily: 3, weekly: 0, monthly: 2, yearly: 5)) == "3 дня · 2 месяца · 5 лет")
-        #expect(Texts.retention(RetentionRules(daily: 0, weekly: 0, monthly: 0, yearly: 0)) == "только последнюю копию")
-    }
-
     @Test(arguments: [(0, "0 копий"), (1, "1 копия"), (3, "3 копии"), (14, "14 копий"), (21, "21 копия")])
     func copyCountIsDeclinedInRussian(count: Int, expected: String) {
         #expect(Texts.copies(count) == expected)

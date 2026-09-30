@@ -80,18 +80,6 @@ enum Texts {
         "\(count) \(plural(count, "копия", "копии", "копий"))"
     }
 
-    static func retention(_ rules: RetentionRules) -> String {
-        let parts = [
-            (rules.daily, ("день", "дня", "дней")),
-            (rules.weekly, ("неделя", "недели", "недель")),
-            (rules.monthly, ("месяц", "месяца", "месяцев")),
-            (rules.yearly, ("год", "года", "лет")),
-        ]
-        .filter { $0.0 > 0 }
-        .map { "\($0.0) \(plural($0.0, $0.1.0, $0.1.1, $0.1.2))" }
-        return parts.isEmpty ? "только последнюю копию" : parts.joined(separator: " · ")
-    }
-
     static func headline(_ report: StatusReport) -> String {
         var failed: Set<UUID> = []
         for item in report.items {
@@ -104,7 +92,7 @@ enum Texts {
         return report.items.isEmpty ? "Всё в порядке" : "Нужно твоё действие"
     }
 
-    private static func plural(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
+    static func plural(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
         let tens = count % 100
         let units = count % 10
         if (11...14).contains(tens) { return many }
