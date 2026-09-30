@@ -92,6 +92,15 @@ struct BackupEngineTests {
         #expect(provider.finished == [false])
     }
 
+    @Test func collectedResultIsReleasedEvenWhenItCannotBeRead() async {
+        defer { temp.remove() }
+        provider.result = .success(Payload(root: temp.path("vanished"), collectedAt: now))
+        let record = await run()
+        #expect(record.collectError == SourceError.pathMissing(temp.path("vanished").path).localizedDescription)
+        #expect(record.deliveries.isEmpty)
+        #expect(provider.finished == [false])
+    }
+
     @Test func writeFailureIsIsolatedAndSkipsPruning() async {
         defer { temp.remove() }
         diskStore.writeError = Boom()

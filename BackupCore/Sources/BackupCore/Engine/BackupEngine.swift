@@ -56,12 +56,16 @@ public struct BackupEngine: Sendable {
         progress(.collecting(sourceId: source.id))
         do {
             payload = try await provider.collect(at: record.startedAt)
-            stats = walker.stats(of: try walker.entries(of: payload))
-            guard stats.fileCount > 0 else {
-                provider.finish(payload, deliveredEverywhere: false)
-                throw SourceError.emptyResult
-            }
         } catch {
+            record.collectError = error.localizedDescription
+            record.finishedAt = time.now
+            return record
+        }
+        do {
+            stats = walker.stats(of: try walker.entries(of: payload))
+            guard stats.fileCount > 0 else { throw SourceError.emptyResult }
+        } catch {
+            provider.finish(payload, deliveredEverywhere: false)
             record.collectError = error.localizedDescription
             record.finishedAt = time.now
             return record
