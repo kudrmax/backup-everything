@@ -1,0 +1,59 @@
+import Foundation
+
+public struct StateReducer: Sendable {
+    public init() {}
+
+    public func apply(_ record: RunRecord, to state: inout AppState) {
+        if let collectError = record.collectError {
+            state.updateSource(record.sourceId) {
+                $0.lastError = collectError
+                $0.retryAfter = record.finishedAt.addingTimeInterval(SchedulePlanner.retryInterval)
+            }
+            return
+        }
+        for delivery in record.deliveries {
+            switch delivery.outcome {
+            case .delivered:
+                state.debts.removeAll { $0.sourceId == record.sourceId && $0.destinationId == delivery.destinationId }
+            case .unavailable:
+                upsertDebt(record, delivery, attemptedAt: nil, in: &state)
+            case .failed:
+                upsertDebt(record, delivery, attemptedAt: record.finishedAt, in: &state)
+            }
+        }
+        for delivery in record.deliveries where delivery.outcome.isDelivered {
+            if state.debts(forDestination: delivery.destinationId).isEmpty {
+                state.updateDestination(delivery.destinationId) { $0.lastCaughtUp = record.finishedAt }
+            }
+        }
+        state.updateSource(record.sourceId) {
+            $0.lastError = record.firstFailure
+            $0.retryAfter = nil
+            if record.trigger != .catchUp { $0.lastRun = record.startedAt }
+        }
+    }
+
+    public func dropOrphans(config: Config, state: inout AppState) {
+        state.debts.removeAll { debt in
+            guard let source = config.source(debt.sourceId) else { return true }
+            return config.destination(debt.destinationId) == nil || !source.destinationIds.contains(debt.destinationId)
+        }
+        let sourceKeys = Set(config.sources.map(\.id.uuidString))
+        let destinationKeys = Set(config.destinations.map(\.id.uuidString))
+        state.sources = state.sources.filter { sourceKeys.contains($0.key) }
+        state.destinations = state.destinations.filter { destinationKeys.contains($0.key) }
+    }
+
+    private func upsertDebt(_ record: RunRecord, _ delivery: Delivery, attemptedAt: Date?, in state: inout AppState) {
+        if let index = state.debts.firstIndex(where: { $0.sourceId == record.sourceId && $0.destinationId == delivery.destinationId }) {
+            if let attemptedAt { state.debts[index].lastAttempt = attemptedAt }
+        } else {
+            state.debts.append(Debt(
+                sourceId: record.sourceId,
+                destinationId: delivery.destinationId,
+                since: record.startedAt,
+                lastAttempt: attemptedAt
+            ))
+        }
+    }
+}
