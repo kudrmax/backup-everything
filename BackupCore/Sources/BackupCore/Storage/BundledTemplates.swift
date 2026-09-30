@@ -121,16 +121,88 @@ enum BundledTemplates {
     private static let claude = SourceTemplate(
         id: "claude",
         name: "Claude",
-        kind: .manualExport(watchPath: downloads, filePattern: "data-*.zip", fileMode: .single, removeOriginal: true),
+        kind: .steps(steps: [
+            SourceStep(
+                id: UUID(uuidString: "C1A0DE00-0000-4000-8000-000000000001")!,
+                name: "Запросить экспорт",
+                kind: .manual(
+                    instructions: """
+                    1. Откройте https://claude.ai → Settings → Privacy → Export data.
+                    2. Дождитесь письма и перейдите по ссылке из него.
+                    3. Скачайте файл манифеста в «Загрузки», не меняя имя.
+
+                    Архивы приложение скачает само через браузер по умолчанию: в нём должен быть выполнен вход в claude.ai, а переименование загрузок выключено.
+                    """,
+                    watchPath: downloads,
+                    filePattern: "manifest-*.json",
+                    includeInCopy: false
+                )
+            ),
+            SourceStep(
+                id: UUID(uuidString: "C1A0DE00-0000-4000-8000-000000000002")!,
+                name: "Скачать архивы",
+                kind: .command(
+                    command: #"""
+                    set -euo pipefail
+                    downloads="${BACKUP_DOWNLOADS_DIR:-$HOME/Downloads}"
+                    opener=(${=BACKUP_OPEN_COMMAND:-open -g})
+                    wait_seconds="${BACKUP_WAIT_SECONDS:-3300}"
+
+                    manifest=("$BACKUP_INPUT_DIR"/manifest-*.json(N.om[1]))
+                    [ ${#manifest} -eq 1 ] || { echo "Манифест экспорта не найден." >&2; exit 1; }
+                    created="$(plutil -extract created_at raw -o - "$manifest")"
+                    since="$(date -j -u -f '%Y-%m-%dT%H:%M:%S' "${created[1,19]}" +%s)"
+                    total="$(plutil -extract data_files raw -o - "$manifest")"
+
+                    names=(); urls=()
+                    for ((i = 0; i < total; i++)); do
+                      names+=("${$(plutil -extract "data_files.$i.filename" raw -o - "$manifest"):t}")
+                      urls+=("$(plutil -extract "data_files.$i.export_url" raw -o - "$manifest")")
+                    done
+
+                    # Браузер ставит файлу дату изменения с сервера, поэтому возраст считается и по дате появления на диске
+                    age_mark() {
+                      local born changed
+                      born="$(stat -f %B "$1")"; changed="$(stat -f %m "$1")"
+                      echo $(( born > changed ? born : changed ))
+                    }
+                    downloaded() {
+                      [ -s "$downloads/$1" ] && [ ! -e "$downloads/$1.part" ] && [ "$(age_mark "$downloads/$1")" -gt "$since" ]
+                    }
+
+                    for ((i = 1; i <= total; i++)); do
+                      downloaded "$names[i]" && continue
+                      if [ -e "$downloads/$names[i]" ] && [ ! -e "$downloads/$names[i].part" ]; then
+                        echo "В папке загрузок лежит старый файл $names[i]. Уберите его и повторите шаг." >&2
+                        exit 1
+                      fi
+                    done
+                    for ((i = 1; i <= total; i++)); do
+                      downloaded "$names[i]" || [ -e "$downloads/$names[i].part" ] || $opener "$urls[i]"
+                    done
+
+                    deadline=$(( $(date +%s) + wait_seconds ))
+                    while true; do
+                      left=()
+                      for name in $names; do downloaded "$name" || left+=("$name"); done
+                      echo "скачано $(( total - ${#left} )) из $total"
+                      [ ${#left} -eq 0 ] && break
+                      if [ "$(date +%s)" -ge "$deadline" ]; then
+                        echo "Не скачались архивы: ${(j:, :)left}. Запросите экспорт заново." >&2
+                        exit 1
+                      fi
+                      sleep 2
+                    done
+                    for name in $names; do mv "$downloads/$name" "$BACKUP_OUTPUT_DIR/$name"; done
+                    """#,
+                    timeoutSeconds: 3600
+                )
+            ),
+        ]),
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 12, yearly: 0),
-        description: "Все чаты и данные аккаунта Claude одним архивом.",
-        instructions: """
-        1. Откройте https://claude.ai → Settings → Privacy → Export data.
-        2. Дождитесь письма со ссылкой и скачайте архив в «Загрузки».
-
-        Если имя архива не начинается с `data-`, поправьте маску файла в настройках источника.
-        """
+        description: "Все чаты, проекты и память аккаунта Claude — архивы официального экспорта.",
+        instructions: "Экспорт делается в два шага: манифест скачиваете вы, архивы по ссылкам из него приложение скачивает само."
     )
 
     private static let claudeCode = SourceTemplate(
