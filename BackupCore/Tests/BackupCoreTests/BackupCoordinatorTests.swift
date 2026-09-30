@@ -535,4 +535,25 @@ struct BackupCoordinatorTests {
         time.advance(3600)
         #expect(try await coordinator.tick().notices.isEmpty)
     }
+
+    @Test func finishedChainOwesItsPackageUntilItIsDelivered() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud], command: #"mkdir "$BACKUP_OUTPUT_DIR/empty""#)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+
+        let result = try await coordinator.tick()
+
+        #expect(result.runs.first?.collectError == SourceError.emptyResult.localizedDescription)
+        #expect(try store.loadState().debts.map(\.destinationId) == [cloud.id])
+        #expect(temp.names(in: "work/pending/\(source.id.uuidString)") == ["2026-09-28_100000"])
+    }
+
+    @Test func scheduledSourcesRunBeforeStepChains() async throws {
+        defer { temp.remove() }
+        try store.saveConfig(Config(sources: [claude([cloud]), vault([cloud])], destinations: [cloud]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+
+        #expect(try await coordinator.tick().runs.map(\.sourceName) == ["Obsidian", "Claude"])
+    }
 }

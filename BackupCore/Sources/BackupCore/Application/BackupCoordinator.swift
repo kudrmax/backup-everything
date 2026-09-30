@@ -115,11 +115,11 @@ public actor BackupCoordinator {
             guard case let .manualExport(_, _, fileMode, _) = source.kind, fileMode == .single else { continue }
             try await pickUp(source, config: config, respectRetryDelay: true, state: &state, runs: &runs)
         }
-        for source in config.sources where source.enabled && source.isStepChain {
-            try await advanceChain(source, config: config, mode: .tick, state: &state, runs: &runs)
-        }
         for source in due {
             try await execute(source, config.destinations(of: source), .scheduled, state: &state, runs: &runs)
+        }
+        for source in config.sources where source.enabled && source.isStepChain {
+            try await advanceChain(source, config: config, mode: .tick, state: &state, runs: &runs)
         }
 
         let notices = missing + (await closingNotices(config: config, state: &state, runs: runs, debtorsBefore: debtorsBefore))
@@ -297,6 +297,9 @@ public actor BackupCoordinator {
                 state.updateSource(source.id) {
                     $0.chain = nil
                     $0.lastPickup = startedAt
+                }
+                for destination in destinations where !state.hasDebt(sourceId: source.id, destinationId: destination.id) {
+                    state.debts.append(Debt(sourceId: source.id, destinationId: destination.id, since: startedAt))
                 }
                 try store.saveState(state)
                 try await execute(source, destinations, .pickup, state: &state, runs: &runs)

@@ -238,4 +238,37 @@ struct StepChainRunnerTests {
         defer { temp.remove() }
         #expect(await runner().advance(source([]), chain: nil, lastPickup: nil, permissions: allowAll) == .stay)
     }
+
+    @Test func newManifestDoesNotDiscardAChainThatIsStillMoving() async throws {
+        defer { temp.remove() }
+        let source = source([manual("manifest-*.json"), command()])
+        let ready = ChainState(stepIndex: 1, startedAt: start, stepEnteredAt: start)
+        try temp.file("chains/\(source.id.uuidString)/input/manifest-a.json", "{}")
+        let runner = runner { [self] call in try writeArchive(call) }
+
+        time.advance(600)
+        try temp.file("Downloads/manifest-a (1).json", "{}", modified: start.addingTimeInterval(300))
+
+        guard case let .moved(done?) = await runner.advance(source, chain: ready, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("команда должна была выполниться")
+            return
+        }
+        #expect(done.stepIndex == 2)
+        guard case .completed = await runner.advance(source, chain: done, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("результат должен был собраться")
+            return
+        }
+        #expect(temp.names(in: "pending/\(source.id.uuidString)/2026-09-28_101000") == ["archive.zip"])
+        #expect(temp.names(in: "Downloads") == ["manifest-a (1).json"])
+    }
+
+    @Test func assemblyInterruptedAfterThePackageWasStoredStillCompletes() async throws {
+        defer { temp.remove() }
+        let source = source([command()])
+        try temp.file("handover/archive.zip", "zip")
+        let stored = try inbox.adopt(sourceId: source.id, directory: temp.path("handover"), at: start.addingTimeInterval(30))
+        let assembling = ChainState(stepIndex: 1, startedAt: start, stepEnteredAt: start.addingTimeInterval(30))
+
+        #expect(await runner().advance(source, chain: assembling, lastPickup: nil, permissions: tickOnly) == .completed(stored))
+    }
 }

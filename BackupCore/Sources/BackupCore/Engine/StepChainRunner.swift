@@ -53,7 +53,7 @@ public struct StepChainRunner: Sendable {
         let steps = source.steps
         guard !steps.isEmpty else { return .stay }
         let now = time.now
-        if let chain, chain.stepIndex > steps.count || hasFreshStart(steps[0], chain: chain, now: now) {
+        if let chain, chain.stepIndex > steps.count || hasFreshStart(steps, chain: chain, now: now) {
             try? discard(sourceId: source.id)
             return .moved(nil)
         }
@@ -66,7 +66,7 @@ public struct StepChainRunner: Sendable {
         do {
             if chain == nil { try discard(sourceId: source.id) }
             guard next.stepIndex < steps.count else {
-                return .completed(try assemble(source.id, folders: folders, at: now))
+                return .completed(try assemble(source.id, chain: next, folders: folders, at: now))
             }
             switch steps[next.stepIndex].kind {
             case let .manual(_, watchPath, filePattern, includeInCopy):
@@ -112,17 +112,28 @@ public struct StepChainRunner: Sendable {
         }
     }
 
-    private func hasFreshStart(_ first: SourceStep, chain: ChainState, now: Date) -> Bool {
-        guard chain.stepIndex > 0, case let .manual(_, watchPath, filePattern, _) = first.kind else { return false }
+    private func hasFreshStart(_ steps: [SourceStep], chain: ChainState, now: Date) -> Bool {
+        let awaitsFile = chain.stepIndex < steps.count && steps[chain.stepIndex].isManual
+        guard chain.stepIndex > 0, chain.failure != nil || awaitsFile,
+              case let .manual(_, watchPath, filePattern, _) = steps[0].kind else { return false }
         return inbox.scan(watchPath: watchPath, filePattern: filePattern, since: chain.startedAt, now: now).isReady
     }
 
-    private func assemble(_ sourceId: UUID, folders: Folders, at date: Date) throws -> PendingPackage {
+    private func assemble(_ sourceId: UUID, chain: ChainState, folders: Folders, at date: Date) throws -> PendingPackage {
         let produced = (try? FileManager.default.contentsOfDirectory(atPath: folders.output.path)) ?? []
+        if produced.isEmpty, let stored = inbox.pendingPackage(for: sourceId), isProduct(stored, of: chain) {
+            try? discard(sourceId: sourceId)
+            return stored
+        }
         guard !produced.isEmpty else { throw SourceError.emptyResult }
         let package = try inbox.adopt(sourceId: sourceId, directory: folders.output, at: date)
         try? discard(sourceId: sourceId)
         return package
+    }
+
+    /// Сборку могли прервать сразу после переноса результата в pending: такой пакет — уже готовый результат этой цепочки.
+    private func isProduct(_ package: PendingPackage, of chain: ChainState) -> Bool {
+        package.collectedAt.addingTimeInterval(1) > chain.startedAt
     }
 
     private func prepare(_ folders: Folders) throws {

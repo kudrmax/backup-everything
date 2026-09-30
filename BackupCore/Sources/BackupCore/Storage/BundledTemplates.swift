@@ -170,32 +170,44 @@ enum BundledTemplates {
                       [ -s "$downloads/$1" ] && [ ! -e "$downloads/$1.part" ] && [ "$(age_mark "$downloads/$1")" -gt "$since" ]
                     }
 
+                    # Переносит скачанный архив в копию; успех и тогда, когда он уже там
+                    collect() {
+                      [ -s "$BACKUP_OUTPUT_DIR/$1" ] && return 0
+                      downloaded "$1" || return 1
+                      mv "$downloads/$1" "$BACKUP_OUTPUT_DIR/$1"
+                    }
+
                     for ((i = 1; i <= total; i++)); do
-                      downloaded "$names[i]" && continue
+                      collect "$names[i]" && continue
                       if [ -e "$downloads/$names[i]" ] && [ ! -e "$downloads/$names[i].part" ]; then
                         echo "В папке загрузок лежит старый файл $names[i]. Уберите его и повторите шаг." >&2
                         exit 1
                       fi
                     done
                     for ((i = 1; i <= total; i++)); do
-                      downloaded "$names[i]" || [ -e "$downloads/$names[i].part" ] || $opener "$urls[i]"
+                      [ -s "$BACKUP_OUTPUT_DIR/$names[i]" ] || [ -e "$downloads/$names[i].part" ] || $opener "$urls[i]"
                     done
 
                     deadline=$(( $(date +%s) + wait_seconds ))
                     reported=-1
                     while true; do
                       left=()
-                      for name in $names; do downloaded "$name" || left+=("$name"); done
+                      for name in $names; do collect "$name" || left+=("$name"); done
                       ready=$(( total - ${#left} ))
                       if [ "$ready" -ne "$reported" ]; then echo "скачано $ready из $total"; reported=$ready; fi
                       [ ${#left} -eq 0 ] && break
                       if [ "$(date +%s)" -ge "$deadline" ]; then
-                        echo "Не скачались архивы: ${(j:, :)left}. Запросите экспорт заново." >&2
+                        advice="Запросите экспорт заново."
+                        for name in $left; do
+                          if [ -e "$downloads/$name.part" ]; then
+                            advice="В папке загрузок остались незавершённые файлы .part — если загрузка уже не идёт, удалите их и повторите шаг."
+                          fi
+                        done
+                        echo "Не скачались архивы: ${(j:, :)left}. $advice" >&2
                         exit 1
                       fi
                       sleep 2
                     done
-                    for name in $names; do mv "$downloads/$name" "$BACKUP_OUTPUT_DIR/$name"; done
                     """#,
                     timeoutSeconds: 3600
                 )

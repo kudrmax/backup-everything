@@ -132,7 +132,7 @@ struct ClaudeTemplateTests {
         try temp.file("Downloads/memories-000.zip", "partial")
         try temp.file("Downloads/memories-000.zip.part", "partial")
 
-        #expect(await failure(opener: "/usr/bin/true").hasSuffix("Не скачались архивы: memories-000.zip. Запросите экспорт заново."))
+        #expect(await failure(opener: "/usr/bin/true").hasSuffix("Не скачались архивы: memories-000.zip. В папке загрузок остались незавершённые файлы .part — если загрузка уже не идёт, удалите их и повторите шаг."))
         #expect(opened.isEmpty)
         #expect(temp.names(in: "output").isEmpty)
         #expect(temp.names(in: "Downloads") == ["memories-000.zip", "memories-000.zip.part"])
@@ -146,8 +146,8 @@ struct ClaudeTemplateTests {
         let output = await failure(opener: opener)
         #expect(output.hasSuffix("Не скачались архивы: projects-000.zip. Запросите экспорт заново."))
         #expect(output.components(separatedBy: "скачано 1 из 2").count == 2, "ход работы печатается только при изменении")
-        #expect(temp.names(in: "Downloads") == ["memories-000.zip"])
-        #expect(temp.names(in: "output").isEmpty)
+        #expect(temp.names(in: "Downloads").isEmpty)
+        #expect(temp.names(in: "output") == ["memories-000.zip"], "скачанное остаётся в копии и не потребуется при повторе шага")
     }
 
     @Test func archiveNameFromTheManifestCannotEscapeTheFolders() async throws {
@@ -164,5 +164,17 @@ struct ClaudeTemplateTests {
     @Test func stepFailsWithoutAManifest() async throws {
         defer { temp.remove() }
         #expect(await failure(opener: "/usr/bin/true").hasSuffix("Манифест экспорта не найден."))
+    }
+
+    @Test func archiveAlreadyInTheCopyIsNotOpenedAgain() async throws {
+        defer { temp.remove() }
+        try manifest(two)
+        try temp.file("output/memories-000.zip", "data")
+        let opener = try fakeBrowser(["https://claude.ai/export/x/download/2": "projects-000.zip"])
+
+        _ = try await run(opener: opener)
+
+        #expect(opened == ["https://claude.ai/export/x/download/2"])
+        #expect(temp.names(in: "output") == ["memories-000.zip", "projects-000.zip"])
     }
 }
