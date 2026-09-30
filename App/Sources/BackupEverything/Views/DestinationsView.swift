@@ -123,7 +123,7 @@ struct DestinationEditor: View {
                 Text(attention)
                     .font(.callout)
                     .foregroundStyle(.orange)
-                    .padding(.leading, 32)
+                    .padding(.leading, 40)
                     .padding(.top, -8)
             }
         } content: {

@@ -139,7 +139,7 @@ struct SourceEditor: View {
                 .textFieldStyle(.plain)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .padding(.leading, 32)
+                .padding(.leading, 40)
                 .padding(.top, -8)
                 .padding(.bottom, 4)
         } content: {

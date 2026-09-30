@@ -92,7 +92,7 @@ struct EditorHeader<Icon: View, Accessory: View>: View {
         HStack(spacing: 10) {
             icon
                 .font(.title3)
-                .frame(width: 22)
+                .frame(width: 30)
             TextField("", text: $name, prompt: Text(prompt))
                 .textFieldStyle(.plain)
                 .font(.title2.weight(.semibold))

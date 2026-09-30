@@ -20,17 +20,25 @@ struct SourceIcon: View {
     }
 
     var body: some View {
+        glyph
+            .frame(width: size, height: size)
+            .padding(Self.inset)
+            .background(.primary.opacity(0.1), in: RoundedRectangle(cornerRadius: (size + Self.inset * 2) * 0.27))
+    }
+
+    private static let inset: CGFloat = 4
+
+    @ViewBuilder
+    private var glyph: some View {
         if let image = model.iconImage(icon) {
             Image(nsImage: image)
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
         } else {
             Image(systemName: symbol)
+                .font(.system(size: size * 0.78))
                 .foregroundStyle(.secondary)
-                .frame(width: size)
         }
     }
 }
