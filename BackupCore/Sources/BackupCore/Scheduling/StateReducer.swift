@@ -9,6 +9,9 @@ public struct StateReducer: Sendable {
                 $0.lastError = collectError
                 $0.retryAfter = record.finishedAt.addingTimeInterval(SchedulePlanner.retryInterval)
             }
+            for index in state.debts.indices where state.debts[index].sourceId == record.sourceId {
+                state.debts[index].lastAttempt = record.finishedAt
+            }
             return
         }
         for delivery in record.deliveries {

@@ -96,4 +96,10 @@ struct SchedulePlannerTests {
         let config = Config(sources: [Fixtures.source(schedule: .manual, destinations: [cloud])], destinations: [cloud])
         #expect(planner.nextWake(config: config, state: AppState(), now: now, needsAttention: false) == nil)
     }
+
+    @Test func sourceWithOnlyDeletedDestinationsIsNotRunAutomatically() {
+        let source = Fixtures.source(destinations: [cloud])
+        let config = Config(sources: [source], destinations: [])
+        #expect(planner.dueAutomaticSources(config: config, state: AppState(), now: now).isEmpty)
+    }
 }

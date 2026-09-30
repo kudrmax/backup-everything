@@ -226,4 +226,53 @@ struct BackupCoordinatorTests {
         try temp.file("data/config.json", "{ broken")
         await #expect(throws: StoreError.corrupted(file: "config.json")) { try await coordinator.tick() }
     }
+
+    @Test func failingCatchUpIsRetriedOncePerHour() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(kind: .folder(path: temp.path("moved").path, excludes: []), destinations: [disk], createdAt: created)
+        try store.saveConfig(Config(sources: [source], destinations: [disk]))
+        _ = try await coordinator.tick()
+        try temp.directory("hdd")
+
+        time.advance(60)
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
+        time.advance(60)
+        #expect(try await coordinator.tick() == TickResult())
+        time.advance(3600)
+        #expect(try await coordinator.tick().runs.count == 1)
+    }
+
+    @Test func brokenPickupIsReportedAndDoesNotBlockOtherBackups() async throws {
+        let locked = try temp.file("Downloads/takeout-1.zip", "zip", modified: start.addingTimeInterval(-60))
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: locked.path)
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: locked.path)
+            temp.remove()
+        }
+        let photos = photos(.single, [cloud])
+        try store.saveConfig(Config(sources: [photos, vault([cloud])], destinations: [cloud]))
+
+        let result = try await coordinator.tick()
+        #expect(result.runs.map(\.trigger) == [.pickup, .scheduled])
+        #expect(result.runs[0].collectError?.hasPrefix("Не удалось забрать файлы") == true)
+        #expect(result.notices.count == 1)
+        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000"])
+        #expect(temp.exists("Downloads/takeout-1.zip"))
+        #expect(!temp.exists("work/pending/\(photos.id.uuidString)"))
+
+        time.advance(60)
+        #expect(try await coordinator.tick().runs.isEmpty)
+    }
+
+    @Test func sourceWhoseDestinationsWereDeletedIsNeitherRunNorGreen() async throws {
+        defer { temp.remove() }
+        let source = vault([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: []))
+
+        #expect(try await coordinator.tick() == TickResult())
+        #expect(try await coordinator.runNow(sourceId: source.id) == TickResult())
+        #expect(store.loadRuns().isEmpty)
+        #expect(try store.loadState().sourceState(source.id).lastRun == nil)
+        #expect(try await coordinator.statusReport().items == [.noDestinations(sourceId: source.id)])
+    }
 }

@@ -121,4 +121,26 @@ struct ManualExportInboxTests {
         source.finish(payload, deliveredEverywhere: true)
         #expect(inbox.pendingPackage(for: sourceId) == nil)
     }
+
+    @Test func failedPickUpRestoresOriginalsAndKeepsPreviousPackage() throws {
+        defer { temp.remove() }
+        let old = try temp.file("Downloads/takeout-old.zip", "old", modified: now.addingTimeInterval(-900))
+        let previous = try inbox.pickUp(sourceId: sourceId, files: [old], removeOriginal: true, at: now.addingTimeInterval(-800))
+        let first = try temp.file("Downloads/takeout-001.zip", "12345", modified: now.addingTimeInterval(-600))
+        let vanished = temp.path("Downloads/takeout-002.zip")
+
+        #expect(throws: (any Error).self) {
+            try inbox.pickUp(sourceId: sourceId, files: [first, vanished], removeOriginal: true, at: now)
+        }
+        #expect(temp.names(in: "Downloads") == ["takeout-001.zip"])
+        #expect(inbox.pendingPackage(for: sourceId) == previous)
+        #expect(temp.names(in: "pending") == [sourceId.uuidString])
+        #expect(temp.names(in: "trash").isEmpty)
+    }
+
+    @Test func emptyPatternMatchesNothing() throws {
+        defer { temp.remove() }
+        try temp.file("Downloads/Passwords.csv", "secret", modified: now.addingTimeInterval(-600))
+        #expect(scan("") == .empty)
+    }
 }

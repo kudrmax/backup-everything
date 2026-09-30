@@ -2,12 +2,15 @@ import Foundation
 
 public enum StoreError: Error, Equatable, LocalizedError {
     case corrupted(file: String)
+    case unreadable(file: String)
     case unsupportedVersion(file: String, version: Int)
 
     public var errorDescription: String? {
         switch self {
         case let .corrupted(file):
             "Файл \(file) повреждён и не читается."
+        case let .unreadable(file):
+            "Не удалось прочитать файл \(file). Проверьте права доступа."
         case let .unsupportedVersion(file, version):
             "Файл \(file) создан более новой версией приложения (формат \(version))."
         }
@@ -31,7 +34,10 @@ public struct Store: Sendable {
     }
 
     public func loadConfig() throws -> Config {
-        guard let data = try? Data(contentsOf: configURL) else { return Config() }
+        guard FileManager.default.fileExists(atPath: configURL.path) else { return Config() }
+        guard let data = try? Data(contentsOf: configURL) else {
+            throw StoreError.unreadable(file: configURL.lastPathComponent)
+        }
         guard let config = try? JSONCoding.decoder().decode(Config.self, from: data) else {
             throw StoreError.corrupted(file: configURL.lastPathComponent)
         }
@@ -46,7 +52,10 @@ public struct Store: Sendable {
     }
 
     public func loadState() throws -> AppState {
-        guard let data = try? Data(contentsOf: stateURL) else { return AppState() }
+        guard FileManager.default.fileExists(atPath: stateURL.path) else { return AppState() }
+        guard let data = try? Data(contentsOf: stateURL) else {
+            throw StoreError.unreadable(file: stateURL.lastPathComponent)
+        }
         guard let state = try? JSONCoding.decoder().decode(AppState.self, from: data) else {
             try setAside(stateURL)
             return AppState()

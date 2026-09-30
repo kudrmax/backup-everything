@@ -93,4 +93,11 @@ struct StateReducerTests {
         #expect(state.debts == [Debt(sourceId: source.id, destinationId: keptDestination.id, since: started)])
         #expect(Array(state.sources.keys) == [source.id.uuidString])
     }
+
+    @Test func collectFailurePostponesRetryOfTheSourceDebts() {
+        var state = AppState()
+        state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: started)]
+        reducer.apply(record([], trigger: .catchUp, collectError: "auth required"), to: &state)
+        #expect(state.debts == [Debt(sourceId: sourceId, destinationId: disk, since: started, lastAttempt: finished)])
+    }
 }

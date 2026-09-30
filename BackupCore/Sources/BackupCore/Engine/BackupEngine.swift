@@ -102,7 +102,7 @@ public struct BackupEngine: Sendable {
         }
         do {
             let snapshots = try await store.listSnapshots(sourceSlug: source.slug)
-            let doomed = retention.snapshotsToDelete(snapshots, rules: source.retention)
+            let doomed = retention.snapshotsToDelete(snapshots, rules: source.retention).filter { $0.name != snapshotName }
             for snapshot in doomed {
                 try await store.delete(snapshot, sourceSlug: source.slug)
             }

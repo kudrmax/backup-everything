@@ -31,7 +31,7 @@ public struct SchedulePlanner: Sendable {
     public func dueAutomaticSources(config: Config, state: AppState, now: Date) -> [Source] {
         config.sources.filter { source in
             !source.isManualExport
-                && !source.destinationIds.isEmpty
+                && !config.destinations(of: source).isEmpty
                 && isDue(source, state: state.sourceState(source.id), now: now)
         }
     }

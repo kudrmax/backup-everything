@@ -125,4 +125,12 @@ struct BackupEngineTests {
         #expect(record.deliveries[1].outcome == .delivered(pruned: 0, warning: nil))
         #expect(cloudStore.log == ["removeIncomplete"])
     }
+
+    @Test func freshlyWrittenSnapshotIsNeverPrunedEvenIfOlderThanExisting() async {
+        defer { temp.remove() }
+        cloudStore.snapshots = [Fixtures.snapshot("2026-09-28 20:00:00")]
+        let record = await run()
+        #expect(record.deliveries[1].outcome == .delivered(pruned: 0, warning: nil))
+        #expect(cloudStore.snapshots.map(\.name).sorted() == [name, "2026-09-28_200000"])
+    }
 }

@@ -81,6 +81,6 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
     }
 
     public var isDeferredOnly: Bool {
-        collectError == nil && deliveries.allSatisfy { $0.outcome == .unavailable }
+        collectError == nil && !deliveries.isEmpty && deliveries.allSatisfy { $0.outcome == .unavailable }
     }
 }

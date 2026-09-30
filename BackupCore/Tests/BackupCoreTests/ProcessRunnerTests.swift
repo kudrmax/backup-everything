@@ -30,7 +30,7 @@ struct ProcessRunnerTests {
         let started = Date()
         let result = try await runner.run(executable: shell, arguments: ["-c", "exec sleep 30"], environment: [:], timeout: 0.5)
         #expect(result.timedOut)
-        #expect(Date().timeIntervalSince(started) < 10)
+        #expect(Date().timeIntervalSince(started) < 3)
     }
 
     @Test func handlesOutputLargerThanPipeBuffer() async throws {
@@ -47,5 +47,25 @@ struct ProcessRunnerTests {
         await #expect(throws: (any Error).self) {
             try await runner.run(executable: URL(fileURLWithPath: "/nonexistent/tool"), arguments: [], environment: [:], timeout: nil)
         }
+    }
+
+    @Test func timeoutStopsChildProcessesToo() async throws {
+        let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("pid-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let result = try await runner.run(
+            executable: shell,
+            arguments: ["-c", "sleep 30 & echo $! > \"$PID_FILE\"; wait; echo done"],
+            environment: ["PID_FILE": pidFile.path],
+            timeout: 0.5
+        )
+        #expect(result.timedOut)
+        let text = try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let child = try #require(Int32(text))
+        var alive = true
+        for _ in 0..<30 where alive {
+            alive = kill(child, 0) == 0
+            if alive { try await Task.sleep(for: .milliseconds(100)) }
+        }
+        #expect(!alive)
     }
 }

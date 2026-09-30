@@ -56,7 +56,7 @@ public struct StatusReporter: Sendable {
         var items: [AttentionItem] = []
         for source in config.sources where source.enabled {
             let sourceState = state.sourceState(source.id)
-            if source.destinationIds.isEmpty {
+            if config.destinations(of: source).isEmpty {
                 items.append(.noDestinations(sourceId: source.id))
                 continue
             }

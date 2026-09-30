@@ -91,7 +91,7 @@ public actor BackupCoordinator {
         }
         for source in config.sources where source.enabled {
             guard case let .manualExport(_, _, fileMode, _) = source.kind, fileMode == .single else { continue }
-            try await pickUp(source, config: config, state: &state, runs: &runs)
+            try await pickUp(source, config: config, respectRetryDelay: true, state: &state, runs: &runs)
         }
         for source in due {
             try await execute(source, config.destinations(of: source), .scheduled, state: &state, runs: &runs)
@@ -107,10 +107,12 @@ public actor BackupCoordinator {
         var state = try store.loadState()
         var runs: [RunRecord] = []
         guard let source = config.source(sourceId) else { return TickResult() }
+        let destinations = config.destinations(of: source)
+        guard !destinations.isEmpty else { return TickResult() }
         if source.isManualExport {
-            try await pickUp(source, config: config, state: &state, runs: &runs)
+            try await pickUp(source, config: config, respectRetryDelay: false, state: &state, runs: &runs)
         } else {
-            try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
+            try await execute(source, destinations, .manual, state: &state, runs: &runs)
         }
         return TickResult(runs: runs, notices: failureNotices(runs))
     }
@@ -119,8 +121,10 @@ public actor BackupCoordinator {
         let config = try store.loadConfig()
         var state = try store.loadState()
         var runs: [RunRecord] = []
-        for source in config.sources where source.enabled && !source.isManualExport && !source.destinationIds.isEmpty {
-            try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
+        for source in config.sources where source.enabled && !source.isManualExport {
+            let destinations = config.destinations(of: source)
+            guard !destinations.isEmpty else { continue }
+            try await execute(source, destinations, .manual, state: &state, runs: &runs)
         }
         return TickResult(runs: runs, notices: failureNotices(runs))
     }
@@ -130,21 +134,42 @@ public actor BackupCoordinator {
         var state = try store.loadState()
         var runs: [RunRecord] = []
         guard let source = config.source(sourceId) else { return TickResult() }
-        try await pickUp(source, config: config, state: &state, runs: &runs)
+        try await pickUp(source, config: config, respectRetryDelay: false, state: &state, runs: &runs)
         return TickResult(runs: runs, notices: failureNotices(runs))
     }
 
-    private func pickUp(_ source: Source, config: Config, state: inout AppState, runs: inout [RunRecord]) async throws {
-        guard case let .manualExport(watchPath, filePattern, _, removeOriginal) = source.kind,
-              !source.destinationIds.isEmpty else { return }
+    private func pickUp(
+        _ source: Source,
+        config: Config,
+        respectRetryDelay: Bool,
+        state: inout AppState,
+        runs: inout [RunRecord]
+    ) async throws {
+        guard case let .manualExport(watchPath, filePattern, _, removeOriginal) = source.kind else { return }
+        let destinations = config.destinations(of: source)
+        guard !destinations.isEmpty else { return }
         let now = time.now
-        let since = state.sourceState(source.id).lastPickup ?? source.createdAt
-        let scan = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: since, now: now)
+        let sourceState = state.sourceState(source.id)
+        if respectRetryDelay, let retryAfter = sourceState.retryAfter, retryAfter > now { return }
+        let scan = inbox.scan(watchPath: watchPath, filePattern: filePattern, since: sourceState.lastPickup ?? source.createdAt, now: now)
         guard scan.isReady else { return }
-        _ = try inbox.pickUp(sourceId: source.id, files: scan.files, removeOriginal: removeOriginal, at: now)
+        do {
+            _ = try inbox.pickUp(sourceId: source.id, files: scan.files, removeOriginal: removeOriginal, at: now)
+        } catch {
+            let failure = RunRecord(
+                sourceId: source.id,
+                sourceName: source.name,
+                trigger: .pickup,
+                startedAt: now,
+                finishedAt: now,
+                collectError: "Не удалось забрать файлы: \(error.localizedDescription)"
+            )
+            try register(failure, trigger: .pickup, state: &state, runs: &runs)
+            return
+        }
         state.updateSource(source.id) { $0.lastPickup = now }
         try store.saveState(state)
-        try await execute(source, config.destinations(of: source), .pickup, state: &state, runs: &runs)
+        try await execute(source, destinations, .pickup, state: &state, runs: &runs)
     }
 
     private func execute(
@@ -155,6 +180,10 @@ public actor BackupCoordinator {
         runs: inout [RunRecord]
     ) async throws {
         let record = await engine.run(source: source, destinations: destinations, trigger: trigger)
+        try register(record, trigger: trigger, state: &state, runs: &runs)
+    }
+
+    private func register(_ record: RunRecord, trigger: RunTrigger, state: inout AppState, runs: inout [RunRecord]) throws {
         reducer.apply(record, to: &state)
         try store.saveState(state)
         if record.isDeferredOnly && trigger != .manual { return }

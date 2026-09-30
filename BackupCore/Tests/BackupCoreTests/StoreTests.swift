@@ -91,4 +91,17 @@ struct StoreTests {
         #expect(try String(contentsOf: temp.path("data/templates/obsidian.json"), encoding: .utf8) == "edited by user")
         #expect(store.loadTemplates().count == 6)
     }
+
+    @Test func unreadableConfigIsAnErrorNotAnEmptyConfig() throws {
+        defer { temp.remove() }
+        try temp.directory("data/config.json")
+        #expect(throws: StoreError.unreadable(file: "config.json")) { try store.loadConfig() }
+    }
+
+    @Test func financeTemplateShipsWithoutCatchAllMask() throws {
+        defer { temp.remove() }
+        try store.installBundledTemplates()
+        let finance = try #require(store.loadTemplates().first { $0.id == "ios-finance" })
+        #expect(finance.kind == .manualExport(watchPath: "~/Downloads", filePattern: "", fileMode: .single, removeOriginal: true))
+    }
 }
