@@ -31,7 +31,7 @@ enum LegacySourceKind: Decodable {
         case let .device(path, excludes):
             return (
                 [
-                    .device(path, instructions: instructions, id: Self.stepId(owner, 0)),
+                    .device("", instructions: instructions, id: Self.stepId(owner, 0)),
                     .folder(path, excludes: excludes, id: Self.stepId(owner, 1)),
                 ],
                 ""

@@ -182,7 +182,7 @@ private struct StepCard: View {
             title: "Путь на устройстве",
             tip: "Шаг ждёт, пока этот путь появится — то есть пока устройство подключено.\nЕсли оставить пустым, берётся папка следующего шага."
         ) {
-            TextField("", text: $step.devicePath, prompt: Text(followedByFolder ? "как у следующей папки" : "/Volumes/…"))
+            TextField("", text: $step.devicePath, prompt: Text(followedByFolder ? "папка следующего шага" : "/Volumes/…"))
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.trailing)
         }

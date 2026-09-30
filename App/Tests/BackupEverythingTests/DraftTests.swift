@@ -72,17 +72,22 @@ struct DraftTests {
         ])
     }
 
-    @Test func deviceWithoutItsOwnPathWaitsForTheNextFolder() {
+    @Test func deviceWithoutItsOwnPathIsSavedEmptyAndFollowsTheNextFolder() {
         var draft = SourceDraft(source([]))
         draft.name = "PocketBook"
         draft.steps = SourceStart.device.steps
-        #expect(draft.problem == "Шаг 1: укажите путь на устройстве.")
+        #expect(draft.problem == "Шаг 2: укажите папку или файл.")
         draft.steps[1].folderPath = "/Volumes/PocketBook/Books"
         #expect(draft.problem == nil)
-        #expect(draft.build().steps.map(\.kind) == [
-            .device(instructions: "", path: "/Volumes/PocketBook/Books"),
+        let built = draft.build()
+        #expect(built.steps.map(\.kind) == [
+            .device(instructions: "", path: ""),
             .folder(path: "/Volumes/PocketBook/Books", excludes: []),
         ])
+        #expect(built.devicePath(at: 0) == "/Volumes/PocketBook/Books")
+
+        draft.steps.removeLast()
+        #expect(draft.problem == "Укажите путь на устройстве.")
     }
 
     @Test func stepDraftKeepsBothFormsWhileTheKindIsSwitched() {

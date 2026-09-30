@@ -114,7 +114,9 @@ final class AppModel {
     /// Запуск начат кнопкой и ждёт человека: только такое ожидание можно отменить.
     func isWaitingForPerson(_ source: Source) -> Bool {
         let sourceState = state.sourceState(source.id)
-        guard let chain = sourceState.chain else { return sourceState.armedAt != nil }
+        guard let chain = sourceState.chain else {
+            return sourceState.armedAt != nil && !(nextDue(of: source).map { $0 <= Date() } ?? false)
+        }
         guard chain.startedBy == .button, chain.failure == nil, chain.stepIndex < source.steps.count else { return false }
         return source.steps[chain.stepIndex].needsHuman
     }
@@ -380,6 +382,8 @@ final class AppModel {
 
     private func handle(_ event: ActivityEvent) {
         switch event {
+        case let .progress(.canUnplug(sourceId, sourceName)):
+            onNotices([.deviceCanBeUnplugged(sourceId: sourceId, sourceName: sourceName)])
         case let .progress(progress):
             activity.apply(progress)
             if case .finished = progress {

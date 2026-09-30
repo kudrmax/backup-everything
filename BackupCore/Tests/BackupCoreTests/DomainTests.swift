@@ -92,7 +92,7 @@ struct DomainTests {
 
         let device = try legacy(#"{"device":{"path":"/Volumes/PocketBook","excludes":[".cache"]}}"#, instructions: "подключи кабелем")
         #expect(device.steps.map(\.kind) == [
-            .device(instructions: "подключи кабелем", path: "/Volumes/PocketBook"),
+            .device(instructions: "подключи кабелем", path: ""),
             .folder(path: "/Volumes/PocketBook", excludes: [".cache"]),
         ])
         #expect(device.instructions.isEmpty)

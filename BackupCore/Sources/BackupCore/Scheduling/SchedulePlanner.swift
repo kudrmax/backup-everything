@@ -24,8 +24,11 @@ public struct SchedulePlanner: Sendable {
 
     /// Шаг человека в начале источника принимается, только когда его ждут: подошёл срок или нажата кнопка.
     public func awaitsFile(_ source: Source, state: SourceState, now: Date) -> Bool {
-        guard state.armedAt == nil else { return true }
-        return dueDate(for: source, state: state).map { $0 <= now } ?? false
+        state.armedAt != nil || dueDateReached(source, state: state, now: now)
+    }
+
+    public func dueDateReached(_ source: Source, state: SourceState, now: Date) -> Bool {
+        dueDate(for: source, state: state).map { $0 <= now } ?? false
     }
 
     public func isSeverelyOverdue(_ source: Source, state: SourceState, now: Date) -> Bool {

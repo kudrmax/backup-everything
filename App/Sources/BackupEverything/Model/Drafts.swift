@@ -105,14 +105,14 @@ struct StepDraft: Identifiable, Equatable {
         }
     }
 
-    var problem: String? {
+    func problem(followedByFolder: Bool) -> String? {
         if trimmed(name).isEmpty { return "укажите название." }
         switch kindChoice {
         case .folder where trimmed(folderPath).isEmpty: return "укажите папку или файл."
         case .command where trimmed(command).isEmpty: return "укажите команду."
         case .file where trimmed(watchPath).isEmpty: return "укажите папку, куда попадает файл."
         case .file where trimmed(filePattern).isEmpty: return "укажите маску файла, например manifest-*.json."
-        case .device where trimmed(devicePath).isEmpty: return "укажите путь на устройстве."
+        case .device where trimmed(devicePath).isEmpty && !followedByFolder: return "укажите путь на устройстве."
         default: return nil
         }
     }
@@ -177,8 +177,9 @@ struct SourceDraft {
 
     var problem: String? {
         if steps.isEmpty { return "Добавьте хотя бы один шаг." }
-        for (index, step) in resolvedSteps.enumerated() {
-            if let problem = step.problem {
+        for (index, step) in steps.enumerated() {
+            let followedByFolder = steps[(index + 1)...].contains { $0.kindChoice == .folder }
+            if let problem = step.problem(followedByFolder: followedByFolder) {
                 return steps.count == 1 ? problem.prefix(1).uppercased() + problem.dropFirst() : "Шаг \(index + 1): \(problem)"
             }
         }
@@ -202,19 +203,8 @@ struct SourceDraft {
         source.instructions = instructions
         source.icon = icon
         source.enabled = enabled
-        source.steps = resolvedSteps.map { $0.build() }
+        source.steps = steps.map { $0.build() }
         return source
-    }
-
-    /// Устройство без своего пути ждёт папку следующего шага: обычно это одна и та же папка на устройстве.
-    private var resolvedSteps: [StepDraft] {
-        steps.enumerated().map { index, step in
-            guard step.kindChoice == .device, step.devicePath.trimmingCharacters(in: .whitespaces).isEmpty,
-                  let folder = steps[(index + 1)...].first(where: { $0.kindChoice == .folder }) else { return step }
-            var resolved = step
-            resolved.devicePath = folder.folderPath
-            return resolved
-        }
     }
 
     private func trimmed(_ text: String) -> String {

@@ -693,7 +693,7 @@ struct BackupCoordinatorTests {
         try temp.file("PB/Books/book.epub", "epub")
         let plugged = try await coordinator.tick()
         #expect(plugged.runs.map(\.trigger) == [.pickup])
-        #expect(plugged.notices == [.deviceCanBeUnplugged(sourceId: source.id, sourceName: "PocketBook")])
+        #expect(events.get().contains(.canUnplug(sourceId: source.id, sourceName: "PocketBook")))
         #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub"])
         #expect(try await coordinator.statusReport().overall == .ok)
     }
@@ -754,7 +754,7 @@ struct BackupCoordinatorTests {
         try temp.file("PB/Books/book.epub", "epub")
         let result = try await coordinator.tick()
         #expect(result.runs.map(\.trigger) == [.pickup])
-        #expect(result.notices == [.deviceCanBeUnplugged(sourceId: source.id, sourceName: "PocketBook")])
+        #expect(events.get().contains(.canUnplug(sourceId: source.id, sourceName: "PocketBook")))
         #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub", "notes.csv"])
         #expect(temp.names(in: "trash").isEmpty)
     }
@@ -839,5 +839,103 @@ struct BackupCoordinatorTests {
         #expect(state.armedAt == nil)
         #expect(temp.names(in: "trash") == ["part-1.csv"])
         #expect(try await coordinator.statusReport().items.isEmpty)
+    }
+
+    @Test func unpluggingMidCopyWaitsForTheDeviceAgainInsteadOfFailing() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(
+            name: "PocketBook",
+            steps: [.device(temp.path("PB").path), .folder(temp.path("PB/Books").path)],
+            schedule: .monthly,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        var state = AppState()
+        state.updateSource(source.id) { $0.chain = ChainState(stepIndex: 1, stepId: source.steps[1].id, startedAt: start, stepEnteredAt: start, startedBy: .schedule) }
+        try store.saveState(state)
+        try temp.file("work/chains/\(source.id.uuidString)/output/half.epub", "half")
+
+        #expect(try await coordinator.tick().runs.isEmpty)
+        let waiting = try store.loadState().sourceState(source.id).chain
+        #expect(waiting?.stepIndex == 0)
+        #expect(waiting?.failure == nil)
+        #expect(try await coordinator.statusReport().items == [.deviceDue(sourceId: source.id)])
+    }
+
+    @Test func failedCopyLeavesNothingBehindSoTheRetrySucceeds() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(
+            name: "Двойной",
+            steps: [
+                .file("part-*.csv", in: temp.path("Downloads").path),
+                .folder(temp.path("books").path),
+            ],
+            schedule: .monthly,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/part-1.csv", "1", modified: start.addingTimeInterval(-60))
+        try temp.file("books/a.epub", "a")
+        let locked = try temp.file("books/b.epub", "b")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path) }
+
+        #expect(try await coordinator.tick().runs.first?.collectError != nil)
+        #expect(temp.names(in: "work/chains/\(source.id.uuidString)/output") == ["part-1.csv"])
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path)
+        time.advance(3600)
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
+        #expect(temp.names(in: "cloud/двойной/2026-09-28_110000") == ["_snapshot.json", "a.epub", "b.epub", "part-1.csv"])
+    }
+
+    @Test func unplugNoticeGoesOutBeforeDelivery() async throws {
+        defer { temp.remove() }
+        let source = pocketBook([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("PB/Books/book.epub", "epub")
+
+        let result = try await coordinator.tick()
+        #expect(!result.notices.contains(.deviceCanBeUnplugged(sourceId: source.id, sourceName: "PocketBook")))
+        let log = events.get()
+        let released = try #require(log.firstIndex(of: .canUnplug(sourceId: source.id, sourceName: "PocketBook")))
+        let delivering = try #require(log.firstIndex(of: .delivering(sourceId: source.id, destinationId: cloud.id)))
+        #expect(released < delivering)
+    }
+
+    @Test func multiFilePickupThatFailedCanBeTakenAgain() async throws {
+        let locked = try temp.file("Downloads/takeout-1.zip", "one", modified: start.addingTimeInterval(-600))
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: locked.path)
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: locked.path)
+            temp.remove()
+        }
+        let source = photos(.multiple, [cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        #expect(try await coordinator.confirmPickup(sourceId: source.id).runs.first?.collectError?.hasPrefix("Не удалось забрать файлы") == true)
+        let report = try await coordinator.statusReport()
+        #expect(report.items.contains(.filesAwaitingPickup(sourceId: source.id, fileCount: 1, totalBytes: 3, downloadInProgress: false)))
+
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: locked.path)
+        #expect(try await coordinator.confirmPickup(sourceId: source.id).runs.map(\.trigger) == [.pickup])
+    }
+
+    @Test func deviceWithoutItsOwnPathWaitsForTheFolderOfTheNextStep() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(
+            name: "PocketBook",
+            steps: [.device(""), .folder(temp.path("PB/Books").path)],
+            schedule: .monthly,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(try await coordinator.statusReport().items == [.deviceDue(sourceId: source.id)])
+        try temp.file("PB/Books/book.epub", "epub")
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
     }
 }

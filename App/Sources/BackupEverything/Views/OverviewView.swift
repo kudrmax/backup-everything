@@ -295,7 +295,13 @@ struct SourceRow: View {
 
     private func runTitle(_ chain: ChainState?) -> String {
         if chain?.failure != nil { return "Повторить шаг" }
-        if source.needsHuman && chain == nil { return "Запустить: ждать файл экспорта" }
+        if chain == nil, let first = source.steps.first {
+            switch first.kind {
+            case .file: return "Запустить: ждать файл экспорта"
+            case .device: return "Запустить: ждать подключения"
+            case .folder, .command: break
+            }
+        }
         return "Запустить"
     }
 

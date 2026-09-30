@@ -278,8 +278,8 @@ public actor BackupCoordinator {
                 mayStart: mode == .runNow
                     || (mode == .runAll && opensWithoutWaiting)
                     || planner.awaitsFile(source, state: sourceState, now: startedAt),
-                mayRetry: (mode == .runNow && !didWork) || retryDue,
-                mayConfirm: mode == .confirm,
+                mayRetry: ((mode == .runNow || mode == .confirm) && !didWork) || retryDue,
+                mayConfirm: mode == .confirm || (mode == .runNow && !didWork),
                 start: mode == .tick && sourceState.armedAt == nil ? .schedule : .button
             )
             let transition = await chains.advance(source, chain: sourceState.chain, lastPickup: sourceState.lastPickup, permissions: permissions)
@@ -314,9 +314,10 @@ public actor BackupCoordinator {
                 progress(.finished(sourceId: source.id))
                 return
             case .completed:
+                let runStartedAt = sourceState.chain?.startedAt ?? startedAt
                 state.updateSource(source.id) {
                     $0.chain = nil
-                    $0.lastPickup = startedAt
+                    $0.lastPickup = runStartedAt
                     $0.armedAt = nil
                 }
                 for destination in destinations where !state.hasDebt(sourceId: source.id, destinationId: destination.id) {
@@ -324,7 +325,7 @@ public actor BackupCoordinator {
                 }
                 try store.saveState(state)
                 if source.hasDevice {
-                    notices.append(.deviceCanBeUnplugged(sourceId: source.id, sourceName: source.name))
+                    progress(.canUnplug(sourceId: source.id, sourceName: source.name))
                 }
                 try await execute(source, destinations, .pickup, state: &state, runs: &runs)
                 return

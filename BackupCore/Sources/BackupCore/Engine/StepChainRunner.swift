@@ -77,14 +77,28 @@ public struct StepChainRunner: Sendable {
                 } catch {
                     throw SourceError.pickupFailed(error.localizedDescription)
                 }
-            case let .device(_, path):
-                guard FileManager.default.fileExists(atPath: Paths.url(path).path) else { return .stay }
+            case .device:
+                guard let path = source.devicePath(at: next.stepIndex), exists(path) else { return .stay }
             case .folder, .command:
                 try folders.prepare()
                 progress(.collecting(sourceId: source.id))
                 progress(.step(sourceId: source.id, index: next.stepIndex, count: steps.count))
-                _ = try await executor.run(step.kind, in: folders) { [progress] text in
-                    progress(.status(sourceId: source.id, text: text))
+                let before = contents(of: folders.output)
+                do {
+                    _ = try await executor.run(step.kind, in: folders) { [progress] text in
+                        progress(.status(sourceId: source.id, text: text))
+                    }
+                } catch {
+                    for added in contents(of: folders.output).subtracting(before) {
+                        try? FileManager.default.removeItem(at: folders.output.appendingPathComponent(added))
+                    }
+                    if let device = unpluggedDevice(before: next.stepIndex, in: source) {
+                        next.stepIndex = device
+                        next.stepId = steps[device].id
+                        next.stepEnteredAt = time.now
+                        return .moved(next)
+                    }
+                    throw error
                 }
             }
         } catch {
@@ -104,8 +118,8 @@ public struct StepChainRunner: Sendable {
     /// Текущий шаг — подключить устройство, а его нет.
     public func awaitsDevice(_ source: Source, chain: ChainState?) -> Bool {
         let index = chain?.stepIndex ?? 0
-        guard index < source.steps.count, case let .device(_, path) = source.steps[index].kind else { return false }
-        return !FileManager.default.fileExists(atPath: Paths.url(path).path)
+        guard index < source.steps.count, case .device = source.steps[index].kind else { return false }
+        return source.devicePath(at: index).map { !exists($0) } ?? true
     }
 
     public func sourceIds() -> [UUID] {
@@ -124,6 +138,21 @@ public struct StepChainRunner: Sendable {
         if fileManager.fileExists(atPath: folders.root.path) {
             try fileManager.removeItem(at: folders.root)
         }
+    }
+
+    private func exists(_ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: Paths.url(path).path)
+    }
+
+    private func contents(of directory: URL) -> Set<String> {
+        Set((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+    }
+
+    /// Шаг после устройства упал, а устройства уже нет: его отключили посреди копирования. Это ожидание, а не ошибка.
+    private func unpluggedDevice(before index: Int, in source: Source) -> Int? {
+        guard let device = source.steps[..<index].lastIndex(where: { if case .device = $0.kind { true } else { false } }),
+              let path = source.devicePath(at: device), !exists(path) else { return nil }
+        return device
     }
 
     private func isOutOfPlace(_ chain: ChainState, in steps: [SourceStep]) -> Bool {

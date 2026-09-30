@@ -102,6 +102,16 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
+    /// Путь, появления которого ждёт шаг устройства. Пустой путь — это папка следующего шага «Скопировать папку».
+    public func devicePath(at index: Int) -> String? {
+        guard index < steps.count, case let .device(_, path) = steps[index].kind else { return nil }
+        if !path.isEmpty { return path }
+        for step in steps[(index + 1)...] {
+            if case let .folder(folder, _) = step.kind, !folder.isEmpty { return folder }
+        }
+        return nil
+    }
+
     public var hasDevice: Bool {
         steps.contains { if case .device = $0.kind { true } else { false } }
     }

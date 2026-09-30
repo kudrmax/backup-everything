@@ -108,10 +108,14 @@ public struct StatusReporter: Sendable {
     /// Что показать, пока источник ждёт шаг человека: «пора …», если запуск начат сроком, и спокойное «ждёт …», если кнопкой.
     private func humanStepItems(_ source: Source, state: SourceState, scan: InboxScan?, deviceMissing: Bool, now: Date) -> [AttentionItem] {
         let chain = state.chain
-        guard chain?.failure == nil, chain != nil || planner.awaitsFile(source, state: state, now: now) else { return [] }
+        guard chain != nil || planner.awaitsFile(source, state: state, now: now) else { return [] }
         let index = chain?.stepIndex ?? 0
         guard index < source.steps.count else { return [] }
-        let byButton = chain.map { $0.startedBy == .button } ?? !planner.isDue(source, state: state, now: now)
+        if chain?.failure != nil {
+            guard case .file = source.steps[index].kind, let scan, !scan.files.isEmpty else { return [] }
+            return [.filesAwaitingPickup(sourceId: source.id, fileCount: scan.files.count, totalBytes: scan.totalBytes, downloadInProgress: scan.downloadInProgress)]
+        }
+        let byButton = chain.map { $0.startedBy == .button } ?? !planner.dueDateReached(source, state: state, now: now)
         switch source.steps[index].kind {
         case .file:
             if let scan, !scan.files.isEmpty {

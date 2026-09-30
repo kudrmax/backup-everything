@@ -54,6 +54,8 @@ struct ActivityTracker {
             statuses[sourceId] = text
         case let .step(sourceId, index, count):
             steps[sourceId] = (index, count)
+        case .canUnplug:
+            break
         case let .delivering(sourceId, destinationId):
             stages[sourceId] = .delivering(destinationId: destinationId)
             starts[sourceId] = starts[sourceId] ?? date
