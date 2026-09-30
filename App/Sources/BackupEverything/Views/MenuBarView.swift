@@ -4,39 +4,24 @@ import SwiftUI
 struct MenuBarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
-    @State private var launchesAtLogin = LoginItem.isEnabled
-    @State private var loginProblem: String?
+    @AppStorage("section") private var storedSection = MainWindow.Section.overview.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
-            if let problem = model.problem {
-                Text(problem).font(.callout).foregroundStyle(.red)
-            }
-            if !model.report.items.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(model.report.items.enumerated()), id: \.offset) { _, item in
-                        AttentionRow(item: item)
-                    }
+            Button("Открыть окно", systemImage: "macwindow", action: showWindow)
+            Divider()
+            status
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    storedSection = MainWindow.Section.overview.rawValue
+                    showWindow()
                 }
-            }
             Divider()
             Button("Запустить всё сейчас", systemImage: "play.fill") {
                 Task { await model.runAll() }
             }
             .disabled(model.isWorking)
-            Button("Открыть окно", systemImage: "macwindow") {
-                openWindow(id: MainWindow.id)
-                NSApp.activate(ignoringOtherApps: true)
-            }
-            Toggle("Запускать при входе", isOn: $launchesAtLogin)
-                .onChange(of: launchesAtLogin) { _, enabled in
-                    loginProblem = LoginItem.setEnabled(enabled)
-                    launchesAtLogin = LoginItem.isEnabled
-                }
-            if let loginProblem {
-                Text(loginProblem).font(.caption).foregroundStyle(.secondary)
-            }
             Divider()
             Button("Выйти", systemImage: "power") {
                 NSApp.terminate(nil)
@@ -47,23 +32,35 @@ struct MenuBarView: View {
         .frame(width: 340, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: model.headlineSymbol)
-                .foregroundStyle(model.headlineColor)
-            Text(model.headline).font(.headline)
-            Spacer()
-            if model.isWorking {
-                ProgressView().controlSize(.small)
+    private func showWindow() {
+        openWindow(id: MainWindow.id)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var status: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: model.headlineSymbol)
+                    .foregroundStyle(model.headlineColor)
+                Text(model.headline).font(.headline)
+                Spacer()
+                if model.isWorking {
+                    ProgressView().controlSize(.small)
+                }
             }
-        }
-        if model.isWorking {
-            Text(model.currentRunLine ?? "Идёт проверка…")
-                .font(.callout)
-                .foregroundStyle(.blue)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            if model.isWorking {
+                Text(model.currentRunLine ?? "Идёт проверка…")
+                    .font(.callout)
+                    .foregroundStyle(.blue)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            if let problem = model.problem {
+                Text(problem).font(.callout).foregroundStyle(.red)
+            }
+            ForEach(Array(model.report.items.enumerated()), id: \.offset) { _, item in
+                AttentionRow(item: item)
+            }
         }
     }
 }

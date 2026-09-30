@@ -8,6 +8,7 @@ struct MainWindow: View {
         case sources
         case destinations
         case history
+        case settings
 
         var id: String { rawValue }
 
@@ -17,6 +18,7 @@ struct MainWindow: View {
             case .sources: "Источники"
             case .destinations: "Назначения"
             case .history: "История"
+            case .settings: "Настройки"
             }
         }
 
@@ -26,6 +28,7 @@ struct MainWindow: View {
             case .sources: "tray.and.arrow.up"
             case .destinations: "externaldrive"
             case .history: "clock.arrow.circlepath"
+            case .settings: "gearshape"
             }
         }
     }
@@ -64,6 +67,7 @@ struct MainWindow: View {
                 case .sources: SourcesView()
                 case .destinations: DestinationsView()
                 case .history: HistoryView()
+                case .settings: SettingsView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

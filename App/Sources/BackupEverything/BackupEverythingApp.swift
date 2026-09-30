@@ -10,7 +10,8 @@ struct BackupEverythingApp: App {
             MenuBarView()
                 .environment(model)
         } label: {
-            Image(systemName: StatusStyle.menuBarSymbol(model.report.overall, working: model.isWorking))
+            MenuBarIcon()
+                .environment(model)
         }
         .menuBarExtraStyle(.window)
 

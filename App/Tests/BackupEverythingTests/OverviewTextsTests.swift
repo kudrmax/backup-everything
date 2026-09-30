@@ -101,4 +101,10 @@ struct OverviewTextsTests {
         )
         #expect(text == AttentionText(title: "GitHub", detail: "Ошибка: Команда завершилась с кодом 1"))
     }
+
+    @Test func menuBarIconIsTintedOnlyWhenSomethingNeedsAttention() {
+        #expect(MenuBarTint.of(.ok) == .standard)
+        #expect(MenuBarTint.of(.attention) == .attention)
+        #expect(MenuBarTint.of(.error) == .error)
+    }
 }
