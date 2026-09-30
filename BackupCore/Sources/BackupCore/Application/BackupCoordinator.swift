@@ -87,7 +87,7 @@ public actor BackupCoordinator {
         var catchUps: [Source] = []
         for source in config.sources where source.enabled && !dueIds.contains(source.id) {
             guard retryableSourceIds.contains(source.id) else { continue }
-            if source.isManualExport, inbox.pendingPackage(for: source.id) == nil {
+            if source.deliversFromPending, inbox.pendingPackage(for: source.id) == nil {
                 state.debts.removeAll { $0.sourceId == source.id }
                 continue
             }
@@ -118,7 +118,7 @@ public actor BackupCoordinator {
         guard let source = config.source(sourceId) else { return TickResult() }
         let destinations = config.destinations(of: source)
         guard !destinations.isEmpty else { return TickResult() }
-        if source.isManualExport {
+        if source.deliversFromPending {
             try await pickUp(source, config: config, respectRetryDelay: false, state: &state, runs: &runs)
         } else {
             try await execute(source, destinations, .manual, state: &state, runs: &runs)
@@ -130,7 +130,7 @@ public actor BackupCoordinator {
         let config = try store.loadConfig()
         var state = try store.loadState()
         var runs: [RunRecord] = []
-        let sources = config.sources.filter { $0.enabled && !$0.isManualExport && !config.destinations(of: $0).isEmpty }
+        let sources = config.sources.filter { $0.enabled && !$0.deliversFromPending && !config.destinations(of: $0).isEmpty }
         announce(sources)
         for source in sources {
             try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)

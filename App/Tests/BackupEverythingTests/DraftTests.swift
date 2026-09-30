@@ -14,6 +14,10 @@ struct DraftTests {
         SourceKind.folder(path: "~/Obsidian", excludes: [".trash", "*.tmp"]),
         SourceKind.command(command: "gh repo list", timeoutSeconds: 600),
         SourceKind.manualExport(watchPath: "~/Downloads", filePattern: "takeout-*.zip", fileMode: .multiple, removeOriginal: false),
+        SourceKind.steps(steps: [
+            SourceStep(name: "Манифест", kind: .manual(instructions: "скачай", watchPath: "~/Downloads", filePattern: "manifest-*.json", includeInCopy: false)),
+            SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 3600)),
+        ]),
     ])
     func sourceDraftRoundTripsEveryKind(kind: SourceKind) {
         let original = source(kind)
@@ -100,5 +104,12 @@ struct DraftTests {
         #expect(draft.hasChanges)
         #expect(draft.build().description == "Заметки и настройки")
         #expect(draft.build().icon == nil)
+    }
+
+    @Test func stepChainWithoutStepsCannotBeSaved() {
+        var draft = SourceDraft(source(.steps(steps: [])))
+        #expect(draft.problem == "Добавьте хотя бы один шаг.")
+        draft.steps = [SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 60))]
+        #expect(draft.problem == nil)
     }
 }

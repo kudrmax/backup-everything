@@ -1,24 +1,41 @@
 import Foundation
 
+public struct ChainState: Codable, Sendable, Equatable {
+    public var stepIndex: Int
+    public var startedAt: Date
+    public var stepEnteredAt: Date
+    public var failure: String?
+
+    public init(stepIndex: Int, startedAt: Date, stepEnteredAt: Date, failure: String? = nil) {
+        self.stepIndex = stepIndex
+        self.startedAt = startedAt
+        self.stepEnteredAt = stepEnteredAt
+        self.failure = failure
+    }
+}
+
 public struct SourceState: Codable, Sendable, Equatable {
     public var lastRun: Date?
     public var lastSuccess: Date?
     public var lastPickup: Date?
     public var lastError: String?
     public var retryAfter: Date?
+    public var chain: ChainState?
 
     public init(
         lastRun: Date? = nil,
         lastSuccess: Date? = nil,
         lastPickup: Date? = nil,
         lastError: String? = nil,
-        retryAfter: Date? = nil
+        retryAfter: Date? = nil,
+        chain: ChainState? = nil
     ) {
         self.lastRun = lastRun
         self.lastSuccess = lastSuccess
         self.lastPickup = lastPickup
         self.lastError = lastError
         self.retryAfter = retryAfter
+        self.chain = chain
     }
 }
 

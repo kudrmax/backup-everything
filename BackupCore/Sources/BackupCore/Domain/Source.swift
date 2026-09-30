@@ -9,6 +9,7 @@ public enum SourceKind: Codable, Sendable, Equatable {
     case folder(path: String, excludes: [String])
     case command(command: String, timeoutSeconds: Int)
     case manualExport(watchPath: String, filePattern: String, fileMode: FileMode, removeOriginal: Bool)
+    case steps(steps: [SourceStep])
 }
 
 public struct Source: Codable, Sendable, Equatable, Identifiable {
@@ -72,5 +73,33 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
     public var isManualExport: Bool {
         if case .manualExport = kind { return true }
         return false
+    }
+
+    public var steps: [SourceStep] {
+        if case let .steps(steps) = kind { return steps }
+        return []
+    }
+
+    public var isStepChain: Bool {
+        if case .steps = kind { return true }
+        return false
+    }
+
+    public var deliversFromPending: Bool {
+        isManualExport || isStepChain
+    }
+
+    public var watchedFiles: [WatchedFile] {
+        switch kind {
+        case .folder, .command:
+            []
+        case let .manualExport(watchPath, filePattern, _, _):
+            [WatchedFile(watchPath: watchPath, filePattern: filePattern)]
+        case let .steps(steps):
+            steps.compactMap { step in
+                guard case let .manual(_, watchPath, filePattern, _) = step.kind else { return nil }
+                return WatchedFile(watchPath: watchPath, filePattern: filePattern)
+            }
+        }
     }
 }

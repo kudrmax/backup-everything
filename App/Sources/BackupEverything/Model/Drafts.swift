@@ -5,6 +5,7 @@ enum SourceKindChoice: String, CaseIterable, Identifiable {
     case folder
     case command
     case manualExport
+    case steps
 
     var id: String { rawValue }
 
@@ -13,6 +14,7 @@ enum SourceKindChoice: String, CaseIterable, Identifiable {
         case .folder: "Папка"
         case .command: "Команда"
         case .manualExport: "Ручной экспорт"
+        case .steps: "По шагам"
         }
     }
 }
@@ -38,6 +40,7 @@ struct SourceDraft {
     var filePattern = ""
     var fileMode = FileMode.single
     var removeOriginal = true
+    var steps: [SourceStep] = []
 
     init(_ source: Source) {
         base = source
@@ -64,6 +67,9 @@ struct SourceDraft {
             self.filePattern = filePattern
             self.fileMode = fileMode
             self.removeOriginal = removeOriginal
+        case let .steps(steps):
+            kindChoice = .steps
+            self.steps = steps
         }
     }
 
@@ -75,6 +81,7 @@ struct SourceDraft {
         case .command where trimmed(command).isEmpty: return "Укажите команду."
         case .manualExport where trimmed(watchPath).isEmpty: return "Укажите папку, куда попадает экспорт."
         case .manualExport where trimmed(filePattern).isEmpty: return "Укажите маску файла, например Passwords*.csv."
+        case .steps where steps.isEmpty: return "Добавьте хотя бы один шаг."
         default: break
         }
         return trimmed(name).isEmpty ? "Укажите название." : nil
@@ -106,6 +113,8 @@ struct SourceDraft {
                 fileMode: fileMode,
                 removeOriginal: removeOriginal
             )
+        case .steps:
+            source.kind = .steps(steps: steps)
         }
         return source
     }

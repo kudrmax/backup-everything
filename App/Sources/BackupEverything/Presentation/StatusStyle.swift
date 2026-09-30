@@ -32,6 +32,7 @@ enum StatusStyle {
         case .folder: "folder"
         case .command: "terminal"
         case .manualExport: "square.and.arrow.down"
+        case .steps: "list.number"
         }
     }
 

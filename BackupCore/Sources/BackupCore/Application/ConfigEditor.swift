@@ -55,16 +55,19 @@ public struct ConfigEditor: Sendable {
     }
 
     public func maskConflicts(for source: Source, in config: Config) -> [Source] {
-        guard case let .manualExport(watchPath, filePattern, _, _) = source.kind, !filePattern.isEmpty else { return [] }
-        let folder = Paths.url(watchPath).standardizedFileURL
+        let own = source.watchedFiles.filter { !$0.filePattern.isEmpty }
+        guard !own.isEmpty else { return [] }
         return config.sources.filter { other in
-            guard other.id != source.id,
-                  case let .manualExport(otherPath, otherPattern, _, _) = other.kind,
-                  !otherPattern.isEmpty,
-                  Paths.url(otherPath).standardizedFileURL == folder else { return false }
-            return GlobPattern(filePattern).matches(Self.sample(of: otherPattern))
-                || GlobPattern(otherPattern).matches(Self.sample(of: filePattern))
+            other.id != source.id && other.watchedFiles.contains { theirs in
+                !theirs.filePattern.isEmpty && own.contains { Self.overlap($0, theirs) }
+            }
         }
+    }
+
+    private static func overlap(_ first: WatchedFile, _ second: WatchedFile) -> Bool {
+        guard Paths.url(first.watchPath).standardizedFileURL == Paths.url(second.watchPath).standardizedFileURL else { return false }
+        return GlobPattern(first.filePattern).matches(sample(of: second.filePattern))
+            || GlobPattern(second.filePattern).matches(sample(of: first.filePattern))
     }
 
     private static func sample(of pattern: String) -> String {

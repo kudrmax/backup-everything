@@ -72,8 +72,8 @@ final class BackgroundDriver {
     private func refreshWatchers() {
         var wanted: Set<String> = []
         for source in model.config.sources where source.enabled {
-            if case let .manualExport(watchPath, _, _, _) = source.kind {
-                wanted.insert(AppPaths.expand(watchPath).path)
+            for file in source.watchedFiles {
+                wanted.insert(AppPaths.expand(file.watchPath).path)
             }
         }
         for path in watchers.keys where !wanted.contains(path) {

@@ -16,6 +16,7 @@ enum Texts {
         case .folder: "Папка"
         case .command: "Команда"
         case .manualExport: "Ручной экспорт"
+        case .steps: "По шагам"
         }
     }
 

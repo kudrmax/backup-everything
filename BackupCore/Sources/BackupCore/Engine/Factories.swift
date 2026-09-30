@@ -27,6 +27,8 @@ public struct DefaultSourceProviderFactory: SourceProviderFactory {
             CommandSource(command: command, timeoutSeconds: timeoutSeconds, stagingRoot: stagingRoot, runner: runner)
         case let .manualExport(_, _, _, removeOriginal):
             ManualExportSource(sourceId: source.id, removeOriginal: removeOriginal, inbox: inbox)
+        case .steps:
+            ManualExportSource(sourceId: source.id, removeOriginal: true, inbox: inbox)
         }
     }
 }

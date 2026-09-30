@@ -73,4 +73,14 @@ struct ConfigEditorTests {
         let config = Config(sources: [blank, manual("Пароли", "Passwords*.csv")])
         #expect(editor.maskConflicts(for: blank, in: config).isEmpty)
     }
+
+    @Test func manualStepMaskConflictsWithManualExportInTheSameFolder() {
+        let step = SourceStep(name: "Манифест", kind: .manual(instructions: "", watchPath: "~/Downloads", filePattern: "*.json", includeInCopy: false))
+        let chain = Fixtures.source(name: "Claude", kind: .steps(steps: [step]))
+        let export = manual("Экспорт", "data-*.json")
+        let elsewhere = manual("Другая папка", "*.json", folder: "~/Desktop")
+        let config = Config(sources: [chain, export, elsewhere])
+        #expect(editor.maskConflicts(for: chain, in: config).map(\.name) == ["Экспорт"])
+        #expect(editor.maskConflicts(for: export, in: config).map(\.name) == ["Claude"])
+    }
 }

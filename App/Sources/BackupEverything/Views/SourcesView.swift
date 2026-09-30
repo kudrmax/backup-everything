@@ -209,6 +209,7 @@ struct SourceEditor: View {
         case .folder: "folder"
         case .command: "terminal"
         case .manualExport: "square.and.arrow.down"
+        case .steps: "list.number"
         }
     }
 
@@ -271,6 +272,14 @@ struct SourceEditor: View {
                         .toggleStyle(.switch)
                         .controlSize(.small)
                         .labelsHidden()
+                }
+            }
+        case .steps:
+            SettingsSection(title: "Что бэкапить · тип «По шагам»: шаги выполняются по очереди") {
+                ForEach(Array(draft.steps.enumerated()), id: \.element.id) { index, step in
+                    SettingsRow(title: "\(index + 1). \(step.name)") {
+                        Text(step.isManual ? "Ручной шаг" : "Команда").foregroundStyle(.secondary)
+                    }
                 }
             }
         }
