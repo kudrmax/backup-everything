@@ -208,7 +208,7 @@ struct SourceRow: View {
     }
 
     private func positioned(_ note: String) -> String {
-        ChainPosition.note(note, of: source, chain: model.chain(of: source.id)) ?? note
+        ChainPosition.note(note, of: source, chain: model.chain(of: source.id), status: model.status(of: source)) ?? note
     }
 
     private func stageText(_ stage: SourceStage) -> String {
@@ -242,7 +242,7 @@ struct SourceRow: View {
 
     private var hoverActions: some View {
         HStack(spacing: 6) {
-            if !source.isManualExport {
+            if !source.isManualExport && ChainPosition.canRunNow(source, chain: model.chain(of: source.id)) {
                 Button {
                     Task { await model.runNow(source) }
                 } label: {

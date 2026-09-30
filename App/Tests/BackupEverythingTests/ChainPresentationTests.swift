@@ -36,10 +36,35 @@ struct ChainPresentationTests {
 
     @Test func noteStartsWithThePosition() {
         let stuck = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "x")
-        #expect(ChainPosition.note("пора сделать экспорт", of: claude, chain: nil) == "шаг 1 из 2 · пора сделать экспорт")
-        #expect(ChainPosition.note("Команда завершилась с кодом 1", of: claude, chain: stuck) == "шаг 2 из 2 · Команда завершилась с кодом 1")
-        #expect(ChainPosition.note(nil, of: claude, chain: nil) == nil)
-        #expect(ChainPosition.note("выключен", of: folder, chain: nil) == "выключен")
+        #expect(ChainPosition.note("пора сделать экспорт", of: claude, chain: nil, status: .exportDue) == "шаг 1 из 2 · пора сделать экспорт")
+        #expect(ChainPosition.note("нет архивов", of: claude, chain: stuck, status: .failed("x")) == "шаг 2 из 2 · нет архивов")
+        #expect(ChainPosition.note("1 файл · 2 Б · идёт загрузка", of: claude, chain: nil, status: .filesFound(count: 1, bytes: 2, downloading: true)) == "шаг 1 из 2 · 1 файл · 2 Б · идёт загрузка")
+        #expect(ChainPosition.note(nil, of: claude, chain: nil, status: .ok) == nil)
+        #expect(ChainPosition.note("выключен", of: folder, chain: nil, status: .disabled) == "выключен")
+    }
+
+    @Test func positionIsNotAddedToNotesUnrelatedToTheChain() {
+        #expect(ChainPosition.note("не выбрано, куда бэкапить", of: claude, chain: nil, status: .noDestinations) == "не выбрано, куда бэкапить")
+        #expect(ChainPosition.note("диск отвалился", of: claude, chain: nil, status: .failed("диск отвалился")) == "диск отвалился")
+        #expect(ChainPosition.note("давно не было бэкапа", of: claude, chain: nil, status: .overdue) == "давно не было бэкапа")
+    }
+
+    @Test func runButtonIsOfferedOnlyWhenItWouldDoSomething() {
+        let source = claude
+        let waitingForManifest: ChainState? = nil
+        let readyToAssemble = ChainState(stepIndex: 2, startedAt: now, stepEnteredAt: now)
+        let interrupted = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now)
+        let failed = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "x")
+        var commandFirst = source
+        commandFirst.kind = .steps(steps: source.steps.reversed())
+
+        #expect(ChainPosition.canRunNow(folder, chain: nil))
+        #expect(!ChainPosition.canRunNow(source, chain: waitingForManifest))
+        #expect(ChainPosition.canRunNow(source, chain: interrupted))
+        #expect(ChainPosition.canRunNow(source, chain: failed))
+        #expect(ChainPosition.canRunNow(source, chain: readyToAssemble))
+        #expect(ChainPosition.canRunNow(commandFirst, chain: nil))
+        #expect(!ChainPosition.canRunNow(commandFirst, chain: interrupted))
     }
 
     @Test func menuLineCarriesThePosition() {
@@ -51,7 +76,7 @@ struct ChainPresentationTests {
         let report = StatusReport(items: [.runFailed(sourceId: source.id, message: message)])
 
         let lines = MenuLines.of(config: config, state: state, report: report, unavailable: [])
-        #expect(lines.map(\.text) == ["шаг 2 из 2 · Команда завершилась с кодом 1"])
+        #expect(lines.map(\.text) == ["шаг 2 из 2 · нет архивов"])
         #expect(lines.first?.severity == .error)
     }
 

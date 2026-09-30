@@ -12,9 +12,25 @@ enum ChainPosition {
         return label(index: min(chain?.stepIndex ?? 0, count - 1), count: count)
     }
 
-    static func note(_ note: String?, of source: Source, chain: ChainState?) -> String? {
+    static func note(_ note: String?, of source: Source, chain: ChainState?, status: SourceStatus) -> String? {
         guard let note else { return nil }
-        guard let label = label(of: source, chain: chain) else { return note }
+        guard chain != nil || status.concernsChainStart, let label = label(of: source, chain: chain) else { return note }
         return "\(label) · \(note)"
+    }
+
+    static func canRunNow(_ source: Source, chain: ChainState?) -> Bool {
+        let steps = source.steps
+        guard source.isStepChain else { return true }
+        guard let chain else { return steps.first?.isManual == false }
+        return chain.failure != nil || chain.stepIndex >= steps.count || !steps[chain.stepIndex].isManual
+    }
+}
+
+private extension SourceStatus {
+    var concernsChainStart: Bool {
+        switch self {
+        case .exportDue, .filesFound, .awaitingFile: true
+        default: false
+        }
     }
 }

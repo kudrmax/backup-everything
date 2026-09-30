@@ -27,7 +27,7 @@ struct TextsTests {
         let lines = MenuLines.of(config: config, state: AppState(), report: report, unavailable: [disk.id])
 
         #expect(lines == [
-            MenuLine(subject: .source(github), severity: .error, text: "Команда завершилась с кодом 1", canPickUp: false),
+            MenuLine(subject: .source(github), severity: .error, text: "fatal: early EOF", canPickUp: false),
             MenuLine(subject: .source(photos), severity: .attention, text: "2 файла · 23 ГБ", canPickUp: true),
             MenuLine(subject: .destination(disk), severity: .attention, text: "пора подключить", canPickUp: false),
         ])

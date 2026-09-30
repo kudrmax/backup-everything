@@ -34,7 +34,7 @@ enum MenuLines {
             guard source.enabled, status.severity != .ok, let note = status.note else { return nil }
             var canPickUp = false
             if case let .filesFound(_, _, downloading) = status { canPickUp = !downloading }
-            let text = ChainPosition.note(note, of: source, chain: state.sourceState(source.id).chain) ?? note
+            let text = ChainPosition.note(note, of: source, chain: state.sourceState(source.id).chain, status: status) ?? note
             return MenuLine(subject: .source(source), severity: status.severity, text: text, canPickUp: canPickUp)
         }
         let destinations = config.destinations.compactMap { destination -> MenuLine? in

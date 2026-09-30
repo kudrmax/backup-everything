@@ -83,10 +83,22 @@ enum Texts {
         "\(count) \(plural(count, "копия", "копии", "копий"))"
     }
 
+    private static let commandFailures = ["Команда завершилась с кодом", "Команда не уложилась в"]
+
     static func errorHeadline(_ message: String) -> String {
+        if let reason = commandReason(message) { return reason }
         let cuts = [": ", ". ", "\n"].compactMap { message.range(of: $0)?.lowerBound }
         guard let cut = cuts.min() else { return message }
         return String(message[..<cut])
+    }
+
+    /// У упавшей команды суть — в последней строке её вывода, а не в коде возврата.
+    private static func commandReason(_ message: String) -> String? {
+        guard commandFailures.contains(where: message.hasPrefix), let cut = message.range(of: ". ") else { return nil }
+        return message[cut.upperBound...]
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty }
     }
 
     static func headline(_ report: StatusReport, isWorking: Bool = false) -> String {
