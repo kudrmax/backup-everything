@@ -143,4 +143,24 @@ struct ManualExportInboxTests {
         try temp.file("Downloads/Passwords.csv", "secret", modified: now.addingTimeInterval(-600))
         #expect(scan("") == .empty)
     }
+
+    @Test func adoptedFolderBecomesThePendingPackageAndReplacesTheOldOne() throws {
+        defer { temp.remove() }
+        let first = Fixtures.date("2026-09-28 10:00:00")
+        let second = Fixtures.date("2026-09-29 10:00:00")
+
+        try temp.file("chain/output/old.zip", "old")
+        let oldPackage = try inbox.adopt(sourceId: sourceId, directory: temp.path("chain/output"), at: first)
+        #expect(oldPackage.collectedAt == first)
+        #expect(!temp.exists("chain/output"))
+
+        try temp.file("chain/output/new.zip", "new")
+        let package = try inbox.adopt(sourceId: sourceId, directory: temp.path("chain/output"), at: second)
+
+        #expect(inbox.pendingPackage(for: sourceId) == package)
+        #expect(package.collectedAt == second)
+        #expect(temp.names(in: "pending/\(sourceId.uuidString)") == ["2026-09-29_100000"])
+        #expect(temp.names(in: "pending/\(sourceId.uuidString)/2026-09-29_100000") == ["new.zip"])
+        #expect(temp.names(in: "trash") == ["old.zip"])
+    }
 }

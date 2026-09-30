@@ -102,6 +102,15 @@ public struct ManualExportInbox: Sendable {
         return PendingPackage(directory: directory, collectedAt: naming.date(from: directory.lastPathComponent) ?? date)
     }
 
+    public func adopt(sourceId: UUID, directory: URL, at date: Date) throws -> PendingPackage {
+        let fileManager = FileManager.default
+        try removePackage(for: sourceId, toTrash: true)
+        try fileManager.createDirectory(at: sourceDirectory(sourceId), withIntermediateDirectories: true)
+        let target = sourceDirectory(sourceId).appendingPathComponent(naming.name(for: date), isDirectory: true)
+        try fileManager.moveItem(at: directory, to: target)
+        return PendingPackage(directory: target, collectedAt: naming.date(from: target.lastPathComponent) ?? date)
+    }
+
     public func pendingPackage(for sourceId: UUID) -> PendingPackage? {
         let directory = sourceDirectory(sourceId)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
