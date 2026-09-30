@@ -46,10 +46,10 @@ struct OverviewHeader: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: StatusStyle.symbol(model.report.overall))
+            Image(systemName: model.headlineSymbol)
                 .font(.title)
-                .foregroundStyle(StatusStyle.color(model.report.overall))
-            Text(Texts.headline(model.report))
+                .foregroundStyle(model.headlineColor)
+            Text(model.headline)
                 .font(.title2.weight(.semibold))
             Spacer()
             if model.isWorking {

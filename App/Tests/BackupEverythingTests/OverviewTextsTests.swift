@@ -69,4 +69,36 @@ struct OverviewTextsTests {
         #expect(DestinationCondition.of(id, report: StatusReport(items: [.destinationUnavailable(destinationId: id)]), unavailable: [id]) == .unreachable)
         #expect(DestinationCondition.of(UUID(), report: StatusReport(items: [.connectDestination(destinationId: id)]), unavailable: []) == .available)
     }
+
+    @Test func runningSourcesDoNotShowTheirOldProblems() {
+        let running = UUID()
+        let idle = UUID()
+        let disk = UUID()
+        let report = StatusReport(items: [
+            .runFailed(sourceId: running, message: "сеть"),
+            .severelyOverdue(sourceId: running),
+            .runFailed(sourceId: idle, message: "диск"),
+            .connectDestination(destinationId: disk),
+        ])
+        #expect(LiveReport.of(report, running: [running]).items == [
+            .runFailed(sourceId: idle, message: "диск"),
+            .connectDestination(destinationId: disk),
+        ])
+        #expect(LiveReport.of(report, running: []).items == report.items)
+    }
+
+    @Test func headlineSaysThatABackupIsRunningWhenNothingElseNeedsAttention() {
+        #expect(Texts.headline(StatusReport(items: []), isWorking: true) == "Идёт бэкап")
+        #expect(Texts.headline(StatusReport(items: [.runFailed(sourceId: UUID(), message: "a")]), isWorking: true) == "1 ошибка")
+        #expect(Texts.headline(StatusReport(items: []), isWorking: false) == "Всё в порядке")
+    }
+
+    @Test func menuShowsOnlyTheFirstSentenceOfAnError() {
+        let source = Source(name: "GitHub", slug: "github", kind: .command(command: "x", timeoutSeconds: 60), schedule: .weekly, createdAt: now)
+        let text = Texts.attention(
+            .runFailed(sourceId: source.id, message: "Команда завершилась с кодом 1. From https://github.com/a/b\n * [new branch]"),
+            config: Config(sources: [source])
+        )
+        #expect(text == AttentionText(title: "GitHub", detail: "Ошибка: Команда завершилась с кодом 1"))
+    }
 }

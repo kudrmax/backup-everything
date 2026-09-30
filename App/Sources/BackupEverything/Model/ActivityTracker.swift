@@ -24,6 +24,10 @@ struct ActivityTracker {
         statuses[sourceId]
     }
 
+    var active: Set<UUID> {
+        Set(stages.keys)
+    }
+
     var current: UUID? {
         stages.first { $0.value != .queued }?.key
     }

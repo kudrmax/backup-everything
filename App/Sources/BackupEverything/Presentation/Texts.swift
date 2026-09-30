@@ -87,7 +87,13 @@ enum Texts {
         "\(count) \(plural(count, "копия", "копии", "копий"))"
     }
 
-    static func headline(_ report: StatusReport) -> String {
+    static func errorHeadline(_ message: String) -> String {
+        let cuts = [": ", ". ", "\n"].compactMap { message.range(of: $0)?.lowerBound }
+        guard let cut = cuts.min() else { return message }
+        return String(message[..<cut])
+    }
+
+    static func headline(_ report: StatusReport, isWorking: Bool = false) -> String {
         var failed: Set<UUID> = []
         for item in report.items {
             switch item {
@@ -96,7 +102,8 @@ enum Texts {
             }
         }
         if !failed.isEmpty { return errors(failed.count) }
-        return report.items.isEmpty ? "Всё в порядке" : "Нужно твоё действие"
+        guard report.items.isEmpty else { return "Нужно твоё действие" }
+        return isWorking ? "Идёт бэкап" : "Всё в порядке"
     }
 
     static func plural(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
@@ -126,7 +133,7 @@ enum Texts {
         func destination(_ id: UUID) -> String { config.destination(id)?.name ?? "Назначение" }
         switch item {
         case let .runFailed(sourceId, message):
-            return AttentionText(title: source(sourceId), detail: "Ошибка: \(message)")
+            return AttentionText(title: source(sourceId), detail: "Ошибка: \(errorHeadline(message))")
         case let .severelyOverdue(sourceId):
             return AttentionText(title: source(sourceId), detail: "Бэкап сильно просрочен")
         case let .manualExportDue(sourceId):

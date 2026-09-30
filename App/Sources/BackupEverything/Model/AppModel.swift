@@ -2,6 +2,7 @@ import AppKit
 import BackupCore
 import Foundation
 import Observation
+import SwiftUI
 
 struct RetentionPreview: Identifiable {
     let destination: Destination
@@ -16,7 +17,7 @@ struct RetentionPreview: Identifiable {
 final class AppModel {
     private(set) var config = Config()
     private(set) var state = AppState()
-    private(set) var report = StatusReport(items: [])
+    private var latestReport = StatusReport(items: [])
     private(set) var runs: [RunRecord] = []
     private(set) var templates: [SourceTemplate] = []
     private(set) var activeOperations = 0
@@ -65,6 +66,11 @@ final class AppModel {
     }
 
     var isWorking: Bool { activeOperations > 0 }
+    var report: StatusReport { LiveReport.of(latestReport, running: activity.active) }
+    var headline: String { Texts.headline(report, isWorking: isWorking) }
+    var headlineSymbol: String { isBusyWithoutProblems ? "arrow.triangle.2.circlepath.circle.fill" : StatusStyle.symbol(report.overall) }
+    var headlineColor: Color { isBusyWithoutProblems ? .blue : StatusStyle.color(report.overall) }
+    private var isBusyWithoutProblems: Bool { isWorking && report.items.isEmpty }
     var isFirstLaunch: Bool { config.destinations.isEmpty }
     var isRcloneInstalled: Bool { rclone.find() != nil }
 
@@ -111,7 +117,7 @@ final class AppModel {
             state = try store.loadState()
             runs = store.loadRuns(limit: 300)
             templates = store.loadTemplates()
-            report = try await coordinator.statusReport()
+            latestReport = try await coordinator.statusReport()
             problem = nil
             refreshAvailability()
         } catch {
@@ -225,6 +231,11 @@ final class AppModel {
 
     var currentSourceName: String? {
         activity.current.flatMap(config.source)?.name
+    }
+
+    var currentRunLine: String? {
+        guard let source = activity.current.flatMap(config.source) else { return nil }
+        return [source.name, activity.status(of: source.id)].compactMap { $0 }.joined(separator: " · ")
     }
 
     func lastDelivery(of source: Source, to destination: Destination) -> (date: Date, outcome: DeliveryOutcome)? {

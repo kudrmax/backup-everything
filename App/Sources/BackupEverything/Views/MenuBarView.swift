@@ -50,18 +50,20 @@ struct MenuBarView: View {
     @ViewBuilder
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: StatusStyle.symbol(model.report.overall))
-                .foregroundStyle(StatusStyle.color(model.report.overall))
-            Text(Texts.headline(model.report)).font(.headline)
+            Image(systemName: model.headlineSymbol)
+                .foregroundStyle(model.headlineColor)
+            Text(model.headline).font(.headline)
             Spacer()
             if model.isWorking {
                 ProgressView().controlSize(.small)
             }
         }
         if model.isWorking {
-            Text(model.currentSourceName.map { "Идёт бэкап: \($0)" } ?? "Идёт проверка…")
+            Text(model.currentRunLine ?? "Идёт проверка…")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.blue)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 }
@@ -77,7 +79,7 @@ struct AttentionRow: View {
                 .foregroundStyle(StatusStyle.color(item.severity))
             VStack(alignment: .leading, spacing: 2) {
                 Text(text.title).fontWeight(.medium)
-                Text(text.detail).font(.callout).foregroundStyle(.secondary)
+                Text(text.detail).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 if let source = pickupSource {
                     Button("Готово, забрать") {
                         Task { await model.confirmPickup(source) }
