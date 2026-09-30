@@ -68,6 +68,13 @@ enum Texts {
         return "\(days / 365) г"
     }
 
+    static func duration(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval))
+        if seconds < 60 { return "\(seconds) с" }
+        if seconds < 3600 { return "\(seconds / 60) мин" }
+        return "\(seconds / 3600) ч \(seconds % 3600 / 60) мин"
+    }
+
     static func errors(_ count: Int) -> String {
         "\(count) \(plural(count, "ошибка", "ошибки", "ошибок"))"
     }

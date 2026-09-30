@@ -10,8 +10,11 @@ final class FakeSourceProvider: SourceProvider, @unchecked Sendable {
         self.result = result
     }
 
-    func collect(at date: Date) async throws -> Payload {
+    var statuses: [String] = []
+
+    func collect(at date: Date, status: @escaping StatusHandler) async throws -> Payload {
         collectCount += 1
+        statuses.forEach(status)
         return try result.get()
     }
 

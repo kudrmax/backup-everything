@@ -62,4 +62,14 @@ struct SourceProviderTests {
             try await source.collect(at: date)
         }
     }
+
+    @Test func commandSourcePassesCommandOutputAsStatus() async throws {
+        defer { temp.remove() }
+        let runner = FakeProcessRunner(output: ["1 из 2 · first", "2 из 2 · second"])
+        let source = CommandSource(command: "gh repo list", timeoutSeconds: 30, stagingRoot: temp.path("staging"), runner: runner)
+        let statuses = LockedBox<[String]>([])
+        let payload = try await source.collect(at: date) { status in statuses.set(statuses.get() + [status]) }
+        source.finish(payload, deliveredEverywhere: true)
+        #expect(statuses.get() == ["1 из 2 · first", "2 из 2 · second"])
+    }
 }

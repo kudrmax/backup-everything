@@ -13,7 +13,10 @@ final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
     private var recorded: [Call] = []
     private let handler: @Sendable (Call) throws -> ProcessResult
 
-    init(handler: @escaping @Sendable (Call) throws -> ProcessResult = { _ in ProcessResult(exitCode: 0) }) {
+    private let output: [String]
+
+    init(output: [String] = [], handler: @escaping @Sendable (Call) throws -> ProcessResult = { _ in ProcessResult(exitCode: 0) }) {
+        self.output = output
         self.handler = handler
     }
 
@@ -21,9 +24,16 @@ final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
         lock.withLock { recorded }
     }
 
-    func run(executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval?) async throws -> ProcessResult {
+    func run(
+        executable: URL,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval?,
+        onOutput: (@Sendable (String) -> Void)?
+    ) async throws -> ProcessResult {
         let call = Call(executable: executable, arguments: arguments, environment: environment, timeout: timeout)
         lock.withLock { recorded.append(call) }
+        output.forEach { onOutput?($0) }
         return try handler(call)
     }
 }

@@ -20,8 +20,20 @@ public protocol ProcessRunner: Sendable {
         executable: URL,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval?
+        timeout: TimeInterval?,
+        onOutput: (@Sendable (String) -> Void)?
     ) async throws -> ProcessResult
+}
+
+public extension ProcessRunner {
+    func run(
+        executable: URL,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval?
+    ) async throws -> ProcessResult {
+        try await run(executable: executable, arguments: arguments, environment: environment, timeout: timeout, onOutput: nil)
+    }
 }
 
 public struct SystemProcessRunner: ProcessRunner {
@@ -33,7 +45,8 @@ public struct SystemProcessRunner: ProcessRunner {
         executable: URL,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval?
+        timeout: TimeInterval?,
+        onOutput: (@Sendable (String) -> Void)?
     ) async throws -> ProcessResult {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global().async {
@@ -42,7 +55,8 @@ public struct SystemProcessRunner: ProcessRunner {
                         executable: executable,
                         arguments: arguments,
                         environment: environment,
-                        timeout: timeout
+                        timeout: timeout,
+                        onOutput: onOutput
                     )
                 })
             }
@@ -53,7 +67,8 @@ public struct SystemProcessRunner: ProcessRunner {
         executable: URL,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval?
+        timeout: TimeInterval?,
+        onOutput: (@Sendable (String) -> Void)?
     ) throws -> ProcessResult {
         let fileManager = FileManager.default
         let capture = fileManager.temporaryDirectory.appendingPathComponent("process-\(UUID().uuidString)", isDirectory: true)
@@ -111,8 +126,11 @@ public struct SystemProcessRunner: ProcessRunner {
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout + killGracePeriod, execute: forceKill)
             deadlines = [terminate, forceKill]
         }
+        let watcher = onOutput.map { OutputWatcher(file: stdoutURL, report: $0) }
+        watcher?.start()
         var status: Int32 = 0
         while waitpid(spawned, &status, 0) == -1, errno == EINTR {}
+        watcher?.stop()
         deadlines.forEach { $0.cancel() }
         let didTimeOut = timedOut.withLock { $0 }
         if didTimeOut {
@@ -127,5 +145,54 @@ public struct SystemProcessRunner: ProcessRunner {
             stderr: (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? "",
             timedOut: didTimeOut
         )
+    }
+}
+
+private final class OutputWatcher: Sendable {
+    private static let interval: TimeInterval = 0.5
+    private static let tailLength: UInt64 = 4096
+
+    private let file: URL
+    private let report: @Sendable (String) -> Void
+    private let lastLine = OSAllocatedUnfairLock(initialState: "")
+    private let timer: DispatchSourceTimer
+
+    init(file: URL, report: @escaping @Sendable (String) -> Void) {
+        self.file = file
+        self.report = report
+        timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "backup-everything.output-watcher"))
+    }
+
+    func start() {
+        timer.schedule(deadline: .now() + Self.interval, repeating: Self.interval)
+        timer.setEventHandler { [weak self] in self?.check() }
+        timer.resume()
+    }
+
+    func stop() {
+        timer.cancel()
+        check()
+    }
+
+    private func check() {
+        guard let line = latestLine() else { return }
+        let isNew = lastLine.withLock { last in
+            guard last != line else { return false }
+            last = line
+            return true
+        }
+        if isNew { report(line) }
+    }
+
+    private func latestLine() -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > Self.tailLength ? size - Self.tailLength : 0)
+        guard let data = try? handle.readToEnd() else { return nil }
+        return String(decoding: data, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty }
     }
 }

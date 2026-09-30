@@ -211,6 +211,18 @@ final class AppModel {
         activity.stage(of: source.id)
     }
 
+    func runStatus(of source: Source) -> String? {
+        activity.status(of: source.id)
+    }
+
+    func runStartedAt(of source: Source) -> Date? {
+        activity.startedAt(of: source.id)
+    }
+
+    func usualDuration(of source: Source) -> TimeInterval? {
+        RunTiming.usualDuration(of: source.id, in: runs)
+    }
+
     var currentSourceName: String? {
         activity.current.flatMap(config.source)?.name
     }

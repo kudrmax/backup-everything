@@ -126,12 +126,10 @@ struct SourceRow: View {
             }
             Spacer(minLength: 8)
             hoverActions
-            Text(Texts.age(model.lastBackup(of: source)))
+            timeColumn
                 .font(.callout)
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .trailing)
-                .hoverTip(timeDetails)
+                .frame(width: 64, alignment: .trailing)
             HStack(spacing: Self.badgeSpacing) {
                 ForEach(destinations) { destination in
                     DestinationBadge(source: source, destination: destination)
@@ -178,7 +176,7 @@ struct SourceRow: View {
     @ViewBuilder
     private func note(_ status: SourceStatus, _ stage: SourceStage?) -> some View {
         if let stage {
-            Text(Texts.stage(stage, destinationName: deliveringName(stage)))
+            Text(stageText(stage))
                 .font(.callout)
                 .foregroundStyle(.blue)
                 .lineLimit(1)
@@ -189,6 +187,28 @@ struct SourceRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .hoverTip(status.text)
+        }
+    }
+
+    private func stageText(_ stage: SourceStage) -> String {
+        let text = Texts.stage(stage, destinationName: deliveringName(stage))
+        guard let status = model.runStatus(of: source) else { return text }
+        return "\(text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) · \(status)"
+    }
+
+    @ViewBuilder
+    private var timeColumn: some View {
+        if let startedAt = model.runStartedAt(of: source) {
+            TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                let elapsed = context.date.timeIntervalSince(startedAt)
+                Text(Texts.duration(elapsed))
+                    .foregroundStyle(.blue)
+                    .hoverTip(RunTiming.tip(elapsed: elapsed, usual: model.usualDuration(of: source)))
+            }
+        } else {
+            Text(Texts.age(model.lastBackup(of: source)))
+                .foregroundStyle(.secondary)
+                .hoverTip(timeDetails)
         }
     }
 

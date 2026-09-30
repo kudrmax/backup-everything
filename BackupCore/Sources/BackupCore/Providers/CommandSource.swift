@@ -16,7 +16,7 @@ public struct CommandSource: SourceProvider {
         self.runner = runner
     }
 
-    public func collect(at date: Date) async throws -> Payload {
+    public func collect(at date: Date, status: @escaping StatusHandler) async throws -> Payload {
         let fileManager = FileManager.default
         let session = stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let output = session.appendingPathComponent("output", isDirectory: true)
@@ -28,7 +28,8 @@ public struct CommandSource: SourceProvider {
                 executable: Self.shell,
                 arguments: ["-lc", command],
                 environment: ["BACKUP_OUTPUT_DIR": output.path, "BACKUP_SCRATCH_DIR": scratch.path],
-                timeout: TimeInterval(timeoutSeconds)
+                timeout: TimeInterval(timeoutSeconds),
+                onOutput: status
             )
             let tail = Self.tail(of: result)
             if result.timedOut {

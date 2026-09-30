@@ -55,7 +55,9 @@ public struct BackupEngine: Sendable {
         let stats: PayloadStats
         progress(.collecting(sourceId: source.id))
         do {
-            payload = try await provider.collect(at: record.startedAt)
+            payload = try await provider.collect(at: record.startedAt) { [progress] text in
+                progress(.status(sourceId: source.id, text: text))
+            }
         } catch {
             record.collectError = error.localizedDescription
             record.finishedAt = time.now

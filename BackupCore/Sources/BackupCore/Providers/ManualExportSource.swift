@@ -11,7 +11,7 @@ public struct ManualExportSource: SourceProvider {
         self.inbox = inbox
     }
 
-    public func collect(at date: Date) async throws -> Payload {
+    public func collect(at date: Date, status: @escaping StatusHandler) async throws -> Payload {
         guard let package = inbox.pendingPackage(for: sourceId) else {
             throw SourceError.nothingToCollect
         }

@@ -9,7 +9,7 @@ public struct FolderSource: SourceProvider {
         self.excludes = excludes
     }
 
-    public func collect(at date: Date) async throws -> Payload {
+    public func collect(at date: Date, status: @escaping StatusHandler) async throws -> Payload {
         let root = Paths.url(path)
         guard FileManager.default.fileExists(atPath: root.path) else {
             throw SourceError.pathMissing(root.path)

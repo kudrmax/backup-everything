@@ -68,4 +68,17 @@ struct ProcessRunnerTests {
         }
         #expect(!alive)
     }
+
+    @Test func reportsTheLatestOutputLineWhileTheProcessRuns() async throws {
+        let lines = LockedBox<[String]>([])
+        let result = try await runner.run(
+            executable: shell,
+            arguments: ["-c", "echo '1 из 2'; sleep 1; echo; echo '2 из 2'; sleep 1; echo err >&2"],
+            environment: [:],
+            timeout: nil,
+            onOutput: { line in lines.set(lines.get() + [line]) }
+        )
+        #expect(result.exitCode == 0)
+        #expect(lines.get() == ["1 из 2", "2 из 2"])
+    }
 }

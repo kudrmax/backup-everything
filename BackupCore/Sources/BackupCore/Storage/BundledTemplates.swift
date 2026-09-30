@@ -26,7 +26,11 @@ enum BundledTemplates {
             IGNORE="
             "
 
-            gh repo list --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner' | { grep -vxF -f <(printf '%s\n' $=IGNORE) || true; } | while read -r repo; do
+            repos=($(gh repo list --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner' | { grep -vxF -f <(printf '%s\n' $=IGNORE) || true; }))
+            n=0
+            for repo in $repos; do
+              n=$((n + 1))
+              echo "$n из ${#repos} · $repo"
               gh repo clone "$repo" "$BACKUP_SCRATCH_DIR/$repo.git" -- --quiet --mirror
               mkdir -p "$BACKUP_OUTPUT_DIR/$(dirname "$repo")"
               git -C "$BACKUP_SCRATCH_DIR/$repo.git" bundle create "$BACKUP_OUTPUT_DIR/$repo.bundle" --all || [ -z "$(git -C "$BACKUP_SCRATCH_DIR/$repo.git" for-each-ref)" ]

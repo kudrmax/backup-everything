@@ -92,6 +92,17 @@ struct BackupEngineTests {
         #expect(provider.finished == [false])
     }
 
+    @Test func passesStatusFromTheSourceWhileCollecting() async {
+        defer { temp.remove() }
+        provider.statuses = ["1 из 2", "2 из 2"]
+        _ = await run()
+        #expect(Array(events.get().prefix(3)) == [
+            .collecting(sourceId: source.id),
+            .status(sourceId: source.id, text: "1 из 2"),
+            .status(sourceId: source.id, text: "2 из 2"),
+        ])
+    }
+
     @Test func collectedResultIsReleasedEvenWhenItCannotBeRead() async {
         defer { temp.remove() }
         provider.result = .success(Payload(root: temp.path("vanished"), collectedAt: now))
