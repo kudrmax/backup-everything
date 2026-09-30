@@ -154,6 +154,12 @@ struct SourceEditor: View {
                     .fixedSize()
                     .pointing()
                 }
+                if !isNew, let saved = model.config.source(draft.id) {
+                    SettingsRow(title: "Следующий бэкап") {
+                        Text(NextBackup.detail(saved, nextDue: model.nextDue(of: saved), isWaiting: model.isWaitingForFile(saved)))
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 SettingsRow(title: "Куда") {
                     if model.config.destinations.isEmpty {
                         Text("сначала добавьте назначение").foregroundStyle(.secondary)

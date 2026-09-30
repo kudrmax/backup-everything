@@ -64,6 +64,16 @@ enum Texts {
         return "\(days / 365) г"
     }
 
+    static func until(_ date: Date, now: Date = Date()) -> String {
+        let seconds = Int(date.timeIntervalSince(now))
+        let days = seconds / 86_400
+        if seconds < 60 { return "сейчас" }
+        if seconds < 3600 { return "через \(seconds / 60) мин" }
+        if days < 1 { return "через \(seconds / 3600) ч" }
+        if days < 60 { return "через \(days) дн" }
+        return "через \(days / 30) мес"
+    }
+
     static func duration(_ interval: TimeInterval) -> String {
         let seconds = max(0, Int(interval))
         if seconds < 60 { return "\(seconds) с" }

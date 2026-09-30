@@ -131,6 +131,10 @@ struct SourceRow: View {
                 .font(.callout)
                 .monospacedDigit()
                 .frame(width: 64, alignment: .trailing)
+            nextColumn
+                .font(.callout)
+                .monospacedDigit()
+                .frame(width: 96, alignment: .leading)
             HStack(spacing: Self.badgeSpacing) {
                 ForEach(destinations) { destination in
                     DestinationBadge(source: source, destination: destination)
@@ -236,6 +240,19 @@ struct SourceRow: View {
             Text(Texts.age(model.lastBackup(of: source)))
                 .foregroundStyle(.secondary)
                 .hoverTip(timeDetails)
+        }
+    }
+
+    @ViewBuilder
+    private var nextColumn: some View {
+        if model.runStartedAt(of: source) == nil,
+           let note = NextBackup.note(source, nextDue: model.nextDue(of: source), isWaiting: model.isWaitingForFile(source)) {
+            Text("→ \(note)")
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .hoverTip("Следующий бэкап: \(NextBackup.detail(source, nextDue: model.nextDue(of: source), isWaiting: model.isWaitingForFile(source)))")
+        } else {
+            Color.clear
         }
     }
 
