@@ -21,7 +21,12 @@ enum BundledTemplates {
         kind: .command(
             command: #"""
             set -euo pipefail
-            gh repo list --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner' | while read -r repo; do
+
+            # Не бэкапить эти репозитории: по одному в строке, в виде владелец/имя
+            IGNORE="
+            "
+
+            gh repo list --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner' | { grep -vxF -f <(printf '%s\n' $=IGNORE) || true; } | while read -r repo; do
               gh repo clone "$repo" "$BACKUP_SCRATCH_DIR/$repo.git" -- --quiet --mirror
               mkdir -p "$BACKUP_OUTPUT_DIR/$(dirname "$repo")"
               git -C "$BACKUP_SCRATCH_DIR/$repo.git" bundle create "$BACKUP_OUTPUT_DIR/$repo.bundle" --all || [ -z "$(git -C "$BACKUP_SCRATCH_DIR/$repo.git" for-each-ref)" ]
@@ -38,7 +43,7 @@ enum BundledTemplates {
         1. `brew install gh`
         2. `gh auth login`
 
-        Чтобы бэкапить только часть репозиториев, замените `gh repo list …` на `printf '%s\\n' owner/repo1 owner/repo2`.
+        Чтобы пропустить репозитории, впишите их в `IGNORE` в начале команды — по одному в строке, в виде `владелец/имя`.
         """
     )
 
