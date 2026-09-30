@@ -28,13 +28,14 @@ struct MenuLine: Equatable, Identifiable {
 }
 
 enum MenuLines {
-    static func of(config: Config, report: StatusReport, unavailable: Set<UUID>) -> [MenuLine] {
+    static func of(config: Config, state: AppState, report: StatusReport, unavailable: Set<UUID>) -> [MenuLine] {
         let sources = config.sources.compactMap { source -> MenuLine? in
             let status = SourceStatus.of(source, report: report, lastRun: nil)
             guard source.enabled, status.severity != .ok, let note = status.note else { return nil }
             var canPickUp = false
             if case let .filesFound(_, _, downloading) = status { canPickUp = !downloading }
-            return MenuLine(subject: .source(source), severity: status.severity, text: note, canPickUp: canPickUp)
+            let text = ChainPosition.note(note, of: source, chain: state.sourceState(source.id).chain) ?? note
+            return MenuLine(subject: .source(source), severity: status.severity, text: text, canPickUp: canPickUp)
         }
         let destinations = config.destinations.compactMap { destination -> MenuLine? in
             let condition = DestinationCondition.of(destination.id, report: report, unavailable: unavailable)

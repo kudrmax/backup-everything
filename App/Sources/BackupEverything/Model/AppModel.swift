@@ -107,6 +107,10 @@ final class AppModel {
         await perform { try await self.coordinator.confirmPickup(sourceId: source.id) }
     }
 
+    func restartChain(_ source: Source) async {
+        await perform { try await self.coordinator.restartChain(sourceId: source.id) }
+    }
+
     func nextWake() async -> Date? {
         try? await coordinator.nextWake()
     }
@@ -225,6 +229,10 @@ final class AppModel {
         activity.status(of: source.id)
     }
 
+    func runStep(of source: Source) -> (index: Int, count: Int)? {
+        activity.step(of: source.id)
+    }
+
     func runStartedAt(of source: Source) -> Date? {
         activity.startedAt(of: source.id)
     }
@@ -242,7 +250,7 @@ final class AppModel {
     }
 
     var menuLines: [MenuLine] {
-        MenuLines.of(config: config, report: report, unavailable: unavailableDestinations)
+        MenuLines.of(config: config, state: state, report: report, unavailable: unavailableDestinations)
     }
 
     var latestBackup: Date? {

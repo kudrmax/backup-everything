@@ -140,6 +140,7 @@ struct RunningLine: View {
 
     private func progress(at date: Date) -> String {
         let elapsed = model.runStartedAt(of: source).map { Texts.duration(date.timeIntervalSince($0)) }
-        return [model.runStatus(of: source), elapsed].compactMap { $0 }.joined(separator: " · ")
+        let step = model.runStep(of: source).map { ChainPosition.label(index: $0.index, count: $0.count) }
+        return [step, model.runStatus(of: source), elapsed].compactMap { $0 }.joined(separator: " · ")
     }
 }

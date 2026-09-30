@@ -148,7 +148,7 @@ struct SourceRow: View {
             ErrorSheet(title: source.name, message: shownError ?? "")
         }
         .sheet(isPresented: $showsInstructions) {
-            InstructionsSheet(title: source.name, text: source.instructions)
+            InstructionsSheet(title: source.name, text: SourceGuide.text(for: source))
         }
     }
 
@@ -188,7 +188,7 @@ struct SourceRow: View {
             Button {
                 shownError = error
             } label: {
-                Text(note)
+                Text(positioned(note))
                     .font(.callout)
                     .foregroundStyle(.red)
                     .lineLimit(1)
@@ -198,7 +198,7 @@ struct SourceRow: View {
             .buttonStyle(.plain)
             .hoverTip("Нажми, чтобы открыть и скопировать ошибку")
         } else if let note = status.note {
-            Text(note)
+            Text(positioned(note))
                 .font(.callout)
                 .foregroundStyle(status.severity == .error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .lineLimit(1)
@@ -207,10 +207,16 @@ struct SourceRow: View {
         }
     }
 
+    private func positioned(_ note: String) -> String {
+        ChainPosition.note(note, of: source, chain: model.chain(of: source.id)) ?? note
+    }
+
     private func stageText(_ stage: SourceStage) -> String {
         let text = Texts.stage(stage, destinationName: deliveringName(stage))
-        guard let status = model.runStatus(of: source) else { return text }
-        return "\(text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) · \(status)"
+        let running = model.runStatus(of: source).map { "\(text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) · \($0)" } ?? text
+        guard stage == .collecting, let step = model.runStep(of: source) else { return running }
+        let label = ChainPosition.label(index: step.index, count: step.count)
+        return "\(label) · \(model.runStatus(of: source) ?? "выполняет команду…")"
     }
 
     @ViewBuilder
@@ -243,14 +249,22 @@ struct SourceRow: View {
                     Image(systemName: "play.fill")
                 }
                 .disabled(model.isWorking || destinations.isEmpty)
-                .help("Запустить")
+                .help(model.chain(of: source.id)?.failure != nil ? "Повторить шаг" : "Запустить")
             }
             Menu {
-                if !source.instructions.isEmpty {
+                if !SourceGuide.text(for: source).isEmpty {
                     Button("Инструкция") { showsInstructions = true }
                 }
                 if let error = model.status(of: source).errorMessage {
                     Button("Показать ошибку") { shownError = error }
+                }
+                if model.chain(of: source.id)?.failure != nil {
+                    Button("Повторить шаг") { Task { await model.runNow(source) } }
+                        .disabled(model.isWorking)
+                }
+                if model.chain(of: source.id) != nil {
+                    Button("Начать заново") { Task { await model.restartChain(source) } }
+                        .disabled(model.isWorking)
                 }
                 Button("Изменить", action: edit)
             } label: {
@@ -273,7 +287,7 @@ struct SourceRow: View {
         var lines = ["Последний бэкап: \(model.lastBackup(of: source).map(Texts.dateTime) ?? "ещё не было")"]
         if source.enabled {
             if let due = model.nextDue(of: source) {
-                let prefix = source.isManualExport ? "Экспорт пора делать" : "Следующий"
+                let prefix = source.isManualExport || source.steps.first?.isManual == true ? "Экспорт пора делать" : "Следующий"
                 lines.append("\(prefix): \(due <= Date() ? "уже пора" : Texts.dateTime(due))")
             } else {
                 lines.append("Следующий: только вручную")

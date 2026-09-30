@@ -24,7 +24,7 @@ struct TextsTests {
             .connectDestination(destinationId: disk.id),
         ])
 
-        let lines = MenuLines.of(config: config, report: report, unavailable: [disk.id])
+        let lines = MenuLines.of(config: config, state: AppState(), report: report, unavailable: [disk.id])
 
         #expect(lines == [
             MenuLine(subject: .source(github), severity: .error, text: "Команда завершилась с кодом 1", canPickUp: false),
@@ -35,13 +35,13 @@ struct TextsTests {
 
     @Test func menuHasNoLinesWhenNothingNeedsAttention() {
         let config = Config(sources: [source("Obsidian")], destinations: [cloud, disk])
-        #expect(MenuLines.of(config: config, report: StatusReport(items: []), unavailable: [disk.id]).isEmpty)
+        #expect(MenuLines.of(config: config, state: AppState(), report: StatusReport(items: []), unavailable: [disk.id]).isEmpty)
     }
 
     @Test func filesStillDownloadingCannotBePickedUp() {
         let photos = source("Google Photos")
         let report = StatusReport(items: [.filesAwaitingPickup(sourceId: photos.id, fileCount: 1, totalBytes: 5_000_000, downloadInProgress: true)])
-        let lines = MenuLines.of(config: Config(sources: [photos]), report: report, unavailable: [])
+        let lines = MenuLines.of(config: Config(sources: [photos]), state: AppState(), report: report, unavailable: [])
         #expect(lines.map(\.text) == ["1 файл · 5 МБ · идёт загрузка"])
         #expect(lines.map(\.canPickUp) == [false])
     }
