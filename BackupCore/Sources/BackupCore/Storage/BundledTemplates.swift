@@ -182,10 +182,12 @@ enum BundledTemplates {
                     done
 
                     deadline=$(( $(date +%s) + wait_seconds ))
+                    reported=-1
                     while true; do
                       left=()
                       for name in $names; do downloaded "$name" || left+=("$name"); done
-                      echo "скачано $(( total - ${#left} )) из $total"
+                      ready=$(( total - ${#left} ))
+                      if [ "$ready" -ne "$reported" ]; then echo "скачано $ready из $total"; reported=$ready; fi
                       [ ${#left} -eq 0 ] && break
                       if [ "$(date +%s)" -ge "$deadline" ]; then
                         echo "Не скачались архивы: ${(j:, :)left}. Запросите экспорт заново." >&2

@@ -143,7 +143,9 @@ struct ClaudeTemplateTests {
         try manifest(two)
         let opener = try fakeBrowser(["https://claude.ai/export/x/download/1": "memories-000.zip"])
 
-        #expect(await failure(opener: opener).hasSuffix("Не скачались архивы: projects-000.zip. Запросите экспорт заново."))
+        let output = await failure(opener: opener)
+        #expect(output.hasSuffix("Не скачались архивы: projects-000.zip. Запросите экспорт заново."))
+        #expect(output.components(separatedBy: "скачано 1 из 2").count == 2, "ход работы печатается только при изменении")
         #expect(temp.names(in: "Downloads") == ["memories-000.zip"])
         #expect(temp.names(in: "output").isEmpty)
     }
