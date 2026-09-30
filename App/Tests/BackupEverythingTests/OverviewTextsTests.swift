@@ -93,15 +93,6 @@ struct OverviewTextsTests {
         #expect(Texts.headline(StatusReport(items: []), isWorking: false) == "Всё в порядке")
     }
 
-    @Test func menuShowsOnlyTheFirstSentenceOfAnError() {
-        let source = Source(name: "GitHub", slug: "github", kind: .command(command: "x", timeoutSeconds: 60), schedule: .weekly, createdAt: now)
-        let text = Texts.attention(
-            .runFailed(sourceId: source.id, message: "Команда завершилась с кодом 1. From https://github.com/a/b\n * [new branch]"),
-            config: Config(sources: [source])
-        )
-        #expect(text == AttentionText(title: "GitHub", detail: "Ошибка: Команда завершилась с кодом 1"))
-    }
-
     @Test func menuBarIconIsTintedOnlyWhenSomethingNeedsAttention() {
         #expect(MenuBarTint.of(.ok) == .standard)
         #expect(MenuBarTint.of(.attention) == .attention)

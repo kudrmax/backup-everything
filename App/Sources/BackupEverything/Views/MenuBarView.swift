@@ -39,59 +39,107 @@ struct MenuBarView: View {
 
     private var status: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: model.headlineSymbol)
-                    .foregroundStyle(model.headlineColor)
-                Text(model.headline).font(.headline)
-                Spacer()
-                if model.isWorking {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            if model.isWorking {
-                Text(model.currentRunLine ?? "Идёт проверка…")
-                    .font(.callout)
-                    .foregroundStyle(.blue)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
             if let problem = model.problem {
                 Text(problem).font(.callout).foregroundStyle(.red)
             }
-            ForEach(Array(model.report.items.enumerated()), id: \.offset) { _, item in
-                AttentionRow(item: item)
+            if let source = model.runningSource {
+                RunningLine(source: source)
+            } else if model.isWorking {
+                MenuLineLayout {
+                    ProgressView().controlSize(.small)
+                } content: {
+                    Text("Идёт проверка…").foregroundStyle(.blue)
+                }
+            }
+            ForEach(model.menuLines) { line in
+                MenuLineRow(line: line)
+            }
+            if model.menuLines.isEmpty, !model.isWorking {
+                MenuLineLayout {
+                    Image(systemName: StatusStyle.symbol(.ok)).foregroundStyle(StatusStyle.color(.ok))
+                } content: {
+                    Text("Всё в порядке").fontWeight(.medium)
+                    if let latest = model.latestBackup {
+                        Text("последний бэкап \(Texts.relative(latest))")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
         }
     }
 }
 
-struct AttentionRow: View {
-    @Environment(AppModel.self) private var model
-    let item: AttentionItem
+struct MenuLineLayout<Mark: View, Content: View>: View {
+    @ViewBuilder let mark: Mark
+    @ViewBuilder let content: Content
 
     var body: some View {
-        let text = Texts.attention(item, config: model.config)
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: StatusStyle.symbol(item.severity))
-                .foregroundStyle(StatusStyle.color(item.severity))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(text.title).fontWeight(.medium)
-                Text(text.detail).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                if let source = pickupSource {
-                    Button("Готово, забрать") {
-                        Task { await model.confirmPickup(source) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(model.isWorking)
-                    .padding(.top, 2)
+        HStack(spacing: 8) {
+            mark.frame(width: 16)
+            content
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+struct MenuLineRow: View {
+    @Environment(AppModel.self) private var model
+    let line: MenuLine
+
+    var body: some View {
+        MenuLineLayout {
+            Image(systemName: StatusStyle.symbol(line.severity)).foregroundStyle(StatusStyle.color(line.severity))
+        } content: {
+            icon
+            Text(line.name).fontWeight(.medium).lineLimit(1).layoutPriority(1)
+            Text(line.text)
+                .font(.callout)
+                .foregroundStyle(line.severity == .error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                .lineLimit(1)
+            if line.canPickUp, case let .source(source) = line.subject {
+                Button("Забрать") {
+                    Task { await model.confirmPickup(source) }
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(model.isWorking)
             }
         }
     }
 
-    private var pickupSource: Source? {
-        guard case let .filesAwaitingPickup(sourceId, _, _, downloadInProgress) = item, !downloadInProgress else { return nil }
-        return model.config.source(sourceId)
+    @ViewBuilder
+    private var icon: some View {
+        switch line.subject {
+        case let .source(source): SourceIcon(source, size: 14)
+        case let .destination(destination): SourceIcon(icon: nil, symbol: StatusStyle.symbol(for: destination.kind), size: 14)
+        }
+    }
+}
+
+struct RunningLine: View {
+    @Environment(AppModel.self) private var model
+    let source: Source
+
+    var body: some View {
+        MenuLineLayout {
+            ProgressView().controlSize(.small)
+        } content: {
+            SourceIcon(source, size: 14)
+            Text(source.name).fontWeight(.medium).lineLimit(1).layoutPriority(1)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(progress(at: context.date))
+                    .font(.callout)
+                    .foregroundStyle(.blue)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+    }
+
+    private func progress(at date: Date) -> String {
+        let elapsed = model.runStartedAt(of: source).map { Texts.duration(date.timeIntervalSince($0)) }
+        return [model.runStatus(of: source), elapsed].compactMap { $0 }.joined(separator: " · ")
     }
 }

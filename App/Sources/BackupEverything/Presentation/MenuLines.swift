@@ -1,0 +1,48 @@
+import BackupCore
+import Foundation
+
+struct MenuLine: Equatable, Identifiable {
+    enum Subject: Equatable {
+        case source(Source)
+        case destination(Destination)
+    }
+
+    let subject: Subject
+    let severity: OverallStatus
+    let text: String
+    let canPickUp: Bool
+
+    var id: UUID {
+        switch subject {
+        case let .source(source): source.id
+        case let .destination(destination): destination.id
+        }
+    }
+
+    var name: String {
+        switch subject {
+        case let .source(source): source.name
+        case let .destination(destination): destination.name
+        }
+    }
+}
+
+enum MenuLines {
+    static func of(config: Config, report: StatusReport, unavailable: Set<UUID>) -> [MenuLine] {
+        let sources = config.sources.compactMap { source -> MenuLine? in
+            let status = SourceStatus.of(source, report: report, lastRun: nil)
+            guard source.enabled, status.severity != .ok, let note = status.note else { return nil }
+            var canPickUp = false
+            if case let .filesFound(_, _, downloading) = status { canPickUp = !downloading }
+            return MenuLine(subject: .source(source), severity: status.severity, text: note, canPickUp: canPickUp)
+        }
+        let destinations = config.destinations.compactMap { destination -> MenuLine? in
+            let condition = DestinationCondition.of(destination.id, report: report, unavailable: unavailable)
+            return condition.problem.map {
+                MenuLine(subject: .destination(destination), severity: .attention, text: $0, canPickUp: false)
+            }
+        }
+        let lines = sources + destinations
+        return lines.filter { $0.severity == .error } + lines.filter { $0.severity != .error }
+    }
+}

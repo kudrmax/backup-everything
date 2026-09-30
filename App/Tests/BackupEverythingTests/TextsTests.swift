@@ -12,26 +12,38 @@ struct TextsTests {
         Source(name: name, slug: name.lowercased(), kind: .folder(path: "/a", excludes: []), schedule: .daily, createdAt: now)
     }
 
-    @Test func attentionItemsAreExplainedInPlainRussian() {
+    @Test func menuListsOneLinePerProblemWithErrorsFirst() {
         let photos = source("Google Photos")
-        let config = Config(sources: [photos], destinations: [cloud, disk])
+        let github = source("GitHub")
+        let healthy = source("Obsidian")
+        let config = Config(sources: [photos, github, healthy], destinations: [cloud, disk])
+        let report = StatusReport(items: [
+            .filesAwaitingPickup(sourceId: photos.id, fileCount: 2, totalBytes: 23_000_000_000, downloadInProgress: false),
+            .runFailed(sourceId: github.id, message: "Команда завершилась с кодом 1. fatal: early EOF"),
+            .severelyOverdue(sourceId: github.id),
+            .connectDestination(destinationId: disk.id),
+        ])
 
-        #expect(Texts.attention(.manualExportDue(sourceId: photos.id), config: config)
-            == AttentionText(title: "Google Photos", detail: "Пора сделать экспорт"))
-        #expect(Texts.attention(.filesAwaitingPickup(sourceId: photos.id, fileCount: 3, totalBytes: 12_000_000_000, downloadInProgress: false), config: config)
-            == AttentionText(title: "Google Photos", detail: "Найдено файлов: 3, 12 ГБ"))
-        #expect(Texts.attention(.filesAwaitingPickup(sourceId: photos.id, fileCount: 1, totalBytes: 5_000_000, downloadInProgress: true), config: config)
-            == AttentionText(title: "Google Photos", detail: "Найдено файлов: 1, 5 МБ. Идёт загрузка"))
-        #expect(Texts.attention(.connectDestination(destinationId: disk.id), config: config)
-            == AttentionText(title: "HDD", detail: "Пора подключить диск"))
-        #expect(Texts.attention(.destinationUnavailable(destinationId: cloud.id), config: config)
-            == AttentionText(title: "Облако", detail: "Назначение недоступно, бэкап ждёт"))
-        #expect(Texts.attention(.runFailed(sourceId: photos.id, message: "диск отвалился"), config: config)
-            == AttentionText(title: "Google Photos", detail: "Ошибка: диск отвалился"))
-        #expect(Texts.attention(.noDestinations(sourceId: photos.id), config: config)
-            == AttentionText(title: "Google Photos", detail: "Не выбрано, куда бэкапить"))
-        #expect(Texts.attention(.severelyOverdue(sourceId: photos.id), config: config)
-            == AttentionText(title: "Google Photos", detail: "Бэкап сильно просрочен"))
+        let lines = MenuLines.of(config: config, report: report, unavailable: [disk.id])
+
+        #expect(lines == [
+            MenuLine(subject: .source(github), severity: .error, text: "Команда завершилась с кодом 1", canPickUp: false),
+            MenuLine(subject: .source(photos), severity: .attention, text: "2 файла · 23 ГБ", canPickUp: true),
+            MenuLine(subject: .destination(disk), severity: .attention, text: "пора подключить", canPickUp: false),
+        ])
+    }
+
+    @Test func menuHasNoLinesWhenNothingNeedsAttention() {
+        let config = Config(sources: [source("Obsidian")], destinations: [cloud, disk])
+        #expect(MenuLines.of(config: config, report: StatusReport(items: []), unavailable: [disk.id]).isEmpty)
+    }
+
+    @Test func filesStillDownloadingCannotBePickedUp() {
+        let photos = source("Google Photos")
+        let report = StatusReport(items: [.filesAwaitingPickup(sourceId: photos.id, fileCount: 1, totalBytes: 5_000_000, downloadInProgress: true)])
+        let lines = MenuLines.of(config: Config(sources: [photos]), report: report, unavailable: [])
+        #expect(lines.map(\.text) == ["1 файл · 5 МБ · идёт загрузка"])
+        #expect(lines.map(\.canPickUp) == [false])
     }
 
     @Test func runSummaryNamesTheWorstOutcomeFirst() {

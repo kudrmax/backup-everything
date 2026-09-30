@@ -233,9 +233,16 @@ final class AppModel {
         activity.current.flatMap(config.source)?.name
     }
 
-    var currentRunLine: String? {
-        guard let source = activity.current.flatMap(config.source) else { return nil }
-        return [source.name, activity.status(of: source.id)].compactMap { $0 }.joined(separator: " · ")
+    var runningSource: Source? {
+        activity.current.flatMap(config.source)
+    }
+
+    var menuLines: [MenuLine] {
+        MenuLines.of(config: config, report: report, unavailable: unavailableDestinations)
+    }
+
+    var latestBackup: Date? {
+        config.sources.compactMap(lastBackup(of:)).max()
     }
 
     func lastDelivery(of source: Source, to destination: Destination) -> (date: Date, outcome: DeliveryOutcome)? {

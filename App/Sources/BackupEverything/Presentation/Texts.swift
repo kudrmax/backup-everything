@@ -1,11 +1,6 @@
 import BackupCore
 import Foundation
 
-struct AttentionText: Equatable {
-    let title: String
-    let detail: String
-}
-
 enum Texts {
     static func schedule(_ schedule: Schedule) -> String {
         switch schedule {
@@ -126,28 +121,6 @@ enum Texts {
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.unitsStyle = .full
         return formatter.localizedString(for: date, relativeTo: now)
-    }
-
-    static func attention(_ item: AttentionItem, config: Config) -> AttentionText {
-        func source(_ id: UUID) -> String { config.source(id)?.name ?? "Источник" }
-        func destination(_ id: UUID) -> String { config.destination(id)?.name ?? "Назначение" }
-        switch item {
-        case let .runFailed(sourceId, message):
-            return AttentionText(title: source(sourceId), detail: "Ошибка: \(errorHeadline(message))")
-        case let .severelyOverdue(sourceId):
-            return AttentionText(title: source(sourceId), detail: "Бэкап сильно просрочен")
-        case let .manualExportDue(sourceId):
-            return AttentionText(title: source(sourceId), detail: "Пора сделать экспорт")
-        case let .filesAwaitingPickup(sourceId, fileCount, totalBytes, downloadInProgress):
-            let found = "Найдено файлов: \(fileCount), \(bytes(totalBytes))"
-            return AttentionText(title: source(sourceId), detail: downloadInProgress ? "\(found). Идёт загрузка" : found)
-        case let .noDestinations(sourceId):
-            return AttentionText(title: source(sourceId), detail: "Не выбрано, куда бэкапить")
-        case let .destinationUnavailable(destinationId):
-            return AttentionText(title: destination(destinationId), detail: "Назначение недоступно, бэкап ждёт")
-        case let .connectDestination(destinationId):
-            return AttentionText(title: destination(destinationId), detail: "Пора подключить диск")
-        }
     }
 
     static func stage(_ stage: SourceStage, destinationName: String?) -> String {
