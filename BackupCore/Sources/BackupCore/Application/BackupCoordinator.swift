@@ -104,15 +104,32 @@ public actor BackupCoordinator {
         let dueIds = Set(due.map(\.id))
         let retryableSourceIds = Set(planner.retryableDebts(state: state, now: now).map(\.sourceId))
         var catchUps: [Source] = []
+        var copies: [CopyPlan] = []
         for source in config.sources where source.enabled && !dueIds.contains(source.id) {
             guard retryableSourceIds.contains(source.id) else { continue }
-            if source.needsHuman, inbox.pendingPackage(for: source.id) == nil {
-                state.debts.removeAll { $0.sourceId == source.id }
-                continue
+            let debtors = state.debts.filter { $0.sourceId == source.id }.compactMap { config.destination($0.destinationId) }
+            var reachable: [Destination] = []
+            for destination in debtors where await stores.store(for: destination).isAvailable() {
+                reachable.append(destination)
             }
-            catchUps.append(source)
+            guard !reachable.isEmpty else { continue }
+            if source.needsHuman, inbox.pendingPackage(for: source.id) != nil {
+                catchUps.append(source)
+            } else if let newest = await newestCopy(of: source, config: config, excluding: Set(debtors.map(\.id))) {
+                copies.append(CopyPlan(source: source, snapshot: newest.snapshot, origin: newest.origin, targets: reachable))
+            } else if source.needsHuman {
+                for index in state.debts.indices where state.debts[index].sourceId == source.id {
+                    state.debts[index].lastAttempt = now
+                }
+            } else {
+                catchUps.append(source)
+            }
         }
-        announce(catchUps + due)
+        announce(copies.map(\.source) + catchUps + due)
+        for plan in copies {
+            let record = await engine.copy(plan.snapshot, of: plan.source, from: plan.origin, to: plan.targets)
+            try register(record, trigger: .catchUp, state: &state, runs: &runs)
+        }
         for source in catchUps {
             let debtors = state.debts.filter { $0.sourceId == source.id }.compactMap { config.destination($0.destinationId) }
             try await execute(source, debtors, .catchUp, state: &state, runs: &runs)
@@ -211,6 +228,29 @@ public actor BackupCoordinator {
             state.updateDestination(destination.id) { $0.lastVerified = now }
         }
         return notices
+    }
+
+    private struct CopyPlan {
+        let source: Source
+        let snapshot: Snapshot
+        let origin: Destination
+        let targets: [Destination]
+    }
+
+    /// Самая свежая копия источника на доступном назначении, которому она не задолжала. При равенстве — с локального.
+    private func newestCopy(of source: Source, config: Config, excluding debtors: Set<UUID>) async -> (snapshot: Snapshot, origin: Destination)? {
+        var best: (snapshot: Snapshot, origin: Destination)?
+        for destination in config.destinations(of: source) where !debtors.contains(destination.id) {
+            let destinationStore = stores.store(for: destination)
+            guard await destinationStore.isAvailable(),
+                  let newest = (try? await destinationStore.listSnapshots(sourceSlug: source.slug))?.max(by: { $0.date < $1.date }) else { continue }
+            if let current = best {
+                let isLocal = if case .localFolder = destination.kind { true } else { false }
+                guard newest.date > current.snapshot.date || (newest.date == current.snapshot.date && isLocal) else { continue }
+            }
+            best = (newest, destination)
+        }
+        return best
     }
 
     private func forgetRemovedSources(_ config: Config) {

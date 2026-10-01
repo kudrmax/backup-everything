@@ -26,5 +26,7 @@ public protocol DestinationStore: Sendable {
     func removeIncomplete(sourceSlug: String) async throws
     func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String) async throws
     func delete(_ snapshot: Snapshot, sourceSlug: String) async throws
+    /// Папка на этом компьютере с содержимым копии (вместе с `_snapshot.json`). Облако скачивает её в `scratch`.
+    func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL
     func usedBytes() async throws -> Int64
 }

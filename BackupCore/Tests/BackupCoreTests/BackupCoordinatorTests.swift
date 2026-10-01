@@ -380,12 +380,75 @@ struct BackupCoordinatorTests {
         source.destinationIds.append(second.id)
         try store.saveConfig(Config(sources: [source], destinations: [cloud, second]))
 
+        try temp.file("vault/a.md", "changed after the backup")
+
         time.advance(600)
         let result = try await coordinator.tick()
         #expect(result.notices.isEmpty)
         #expect(result.runs.map(\.trigger) == [.catchUp])
-        #expect(temp.names(in: "second/obsidian") == ["2026-09-28_101000"])
+        #expect(temp.names(in: "second/obsidian") == ["2026-09-28_100000"])
+        #expect(try String(contentsOf: temp.path("second/obsidian/2026-09-28_100000/a.md"), encoding: .utf8) == "alpha")
         #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000"])
+        #expect(try store.loadState().sourceState(source.id).lastRun == start)
+    }
+
+    @Test func diskThatMissedBackupsGetsTheNewestCopyFromAnotherDiskInsteadOfCollectingAgain() async throws {
+        defer { temp.remove() }
+        try store.saveConfig(Config(sources: [vault([cloud, disk])], destinations: [cloud, disk]))
+        _ = try await coordinator.tick()
+        time.advance(86_400)
+        try temp.file("vault/a.md", "second day")
+        _ = try await coordinator.tick()
+        try temp.file("vault/a.md", "changed later")
+
+        try temp.directory("hdd")
+        time.advance(600)
+        let result = try await coordinator.tick()
+        #expect(result.runs.map(\.trigger) == [.catchUp])
+        #expect(result.runs.first?.details == "Скопировано с «Cloud»")
+        #expect(temp.names(in: "hdd/obsidian") == ["2026-09-29_100000"])
+        #expect(try String(contentsOf: temp.path("hdd/obsidian/2026-09-29_100000/a.md"), encoding: .utf8) == "second day")
+        #expect(try store.loadState().debts.isEmpty)
+    }
+
+    @Test func deviceSourceGivenANewDiskLaterGetsItsCopyWithoutTheDevice() async throws {
+        defer { temp.remove() }
+        var source = pocketBook([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        let book = try temp.file("PB/Books/book.epub", "epub")
+        #expect(try await coordinator.tick().runs.count == 1)
+        try FileManager.default.removeItem(at: book.deletingLastPathComponent().deletingLastPathComponent())
+
+        try temp.directory("hdd")
+        source.destinationIds.append(disk.id)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
+        time.advance(600)
+        let result = try await coordinator.tick()
+        #expect(result.runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "hdd/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub"])
+        #expect(try store.loadState().debts.isEmpty)
+    }
+
+    @Test func deviceSourceWithNoCopyAnywhereKeepsOwingTheDiskUntilItsNextBackup() async throws {
+        defer { temp.remove() }
+        var source = pocketBook([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        let book = try temp.file("PB/Books/book.epub", "epub")
+        #expect(try await coordinator.tick().runs.count == 1)
+        try FileManager.default.removeItem(at: book.deletingLastPathComponent().deletingLastPathComponent())
+        try FileManager.default.removeItem(at: temp.path("cloud/pocketbook"))
+
+        try temp.directory("hdd")
+        source.destinationIds.append(disk.id)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
+        time.advance(600)
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(Set(try store.loadState().debts.map(\.destinationId)) == [cloud.id, disk.id])
+
+        try temp.file("PB/Books/book.epub", "epub")
+        #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.pickup])
+        #expect(try store.loadState().debts.isEmpty)
+        #expect(temp.names(in: "hdd/pocketbook").count == 1)
     }
 
     private func claude(_ destinations: [Destination], command: String = #"cp "$BACKUP_INPUT_DIR"/manifest-a.json "$BACKUP_OUTPUT_DIR/archive.zip""#) -> Source {

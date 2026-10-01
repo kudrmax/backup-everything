@@ -76,6 +76,13 @@ public struct RcloneDestination: DestinationStore {
         try check(try await rclone(["purge", target(sourceSlug, snapshot.name)]))
     }
 
+    public func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
+        let local = scratch.appendingPathComponent(snapshot.name, isDirectory: true)
+        try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+        try check(try await rclone(["copy", target(sourceSlug, snapshot.name), local.path]))
+        return local
+    }
+
     public func usedBytes() async throws -> Int64 {
         struct Size: Decodable {
             let bytes: Int64

@@ -22,6 +22,15 @@ struct RcloneDestinationTests {
         ]])
     }
 
+    @Test func materializeDownloadsTheSnapshotIntoScratch() async throws {
+        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 0) }
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let folder = try await destination(runner).materialize(Snapshot(name: name, date: date), sourceSlug: "obsidian", scratch: scratch)
+        #expect(folder == scratch.appendingPathComponent(name, isDirectory: true))
+        #expect(runner.calls.map(\.arguments) == [["copy", "gdrive:backups/obsidian/\(name)", folder.path]])
+    }
+
     @Test func missingSourceDirectoryMeansNoSnapshots() async throws {
         let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 3, stderr: "directory not found") }
         #expect(try await destination(runner).listSnapshots(sourceSlug: "obsidian").isEmpty)

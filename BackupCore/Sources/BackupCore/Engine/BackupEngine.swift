@@ -102,6 +102,53 @@ public struct BackupEngine: Sendable {
         return record
     }
 
+    /// Догон уже сделанной копией: тот же снимок под тем же именем переносится с `origin` на `destinations`, источник заново не собирается.
+    public func copy(_ snapshot: Snapshot, of source: Source, from origin: Destination, to destinations: [Destination]) async -> RunRecord {
+        var record = RunRecord(
+            sourceId: source.id,
+            sourceName: source.name,
+            trigger: .catchUp,
+            startedAt: time.now,
+            finishedAt: time.now
+        )
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("copy-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        do {
+            let folder = try await stores.store(for: origin).materialize(snapshot, sourceSlug: source.slug, scratch: scratch)
+            let payload = Payload(root: folder, excludes: [SnapshotManifest.fileName], collectedAt: snapshot.date)
+            let stats = walker.stats(of: try walker.entries(of: payload))
+            let manifest = SnapshotManifest(
+                sourceId: source.id,
+                sourceName: source.name,
+                collectedAt: snapshot.date,
+                fileCount: stats.fileCount,
+                totalBytes: stats.totalBytes
+            )
+            record.snapshotName = snapshot.name
+            record.collectedAt = snapshot.date
+            record.fileCount = stats.fileCount
+            record.totalBytes = stats.totalBytes
+            record.details = "Скопировано с «\(origin.name)»"
+            for destination in destinations {
+                let store = stores.store(for: destination)
+                let outcome: DeliveryOutcome
+                if await store.isAvailable() {
+                    progress(.delivering(sourceId: source.id, destinationId: destination.id))
+                    outcome = await deliver(payload, manifest: manifest, snapshotName: snapshot.name, source: source, to: store)
+                } else {
+                    outcome = .unavailable
+                }
+                record.deliveries.append(Delivery(destinationId: destination.id, destinationName: destination.name, outcome: outcome))
+            }
+        } catch {
+            let message = "Не удалось взять копию с «\(origin.name)»: \(error.localizedDescription)"
+            record.deliveries = destinations.map { Delivery(destinationId: $0.id, destinationName: $0.name, outcome: .failed(message: message)) }
+        }
+        record.finishedAt = time.now
+        progress(.finished(sourceId: source.id))
+        return record
+    }
+
     private func deliver(
         _ payload: Payload,
         manifest: SnapshotManifest,

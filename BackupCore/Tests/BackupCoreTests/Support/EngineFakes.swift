@@ -46,6 +46,10 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
 
     func usedBytes() async throws -> Int64 { 0 }
 
+    func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
+        throw DestinationError.unavailable
+    }
+
     func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
         if let deleteError { throw deleteError }
         log.append("delete:\(snapshot.name)")

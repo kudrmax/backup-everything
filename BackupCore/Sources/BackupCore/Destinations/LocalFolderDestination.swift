@@ -59,6 +59,11 @@ public struct LocalFolderDestination: DestinationStore {
         try FileManager.default.removeItem(at: directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true))
     }
 
+    public func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
+        guard await isAvailable() else { throw DestinationError.unavailable }
+        return directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true)
+    }
+
     public func usedBytes() async throws -> Int64 {
         guard await isAvailable() else { throw DestinationError.unavailable }
         let entries = try walker.entries(of: Payload(root: root, collectedAt: Date()))
