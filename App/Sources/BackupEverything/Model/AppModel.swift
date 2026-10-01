@@ -30,6 +30,7 @@ final class AppModel {
     private(set) var waitingPackages: [UUID: Int64] = [:]
     private(set) var freeSpace: Int64?
     @ObservationIgnored private var lastSpaceCheck = Date.distantPast
+    @ObservationIgnored private var lastConnected: Set<UUID> = []
 
     private enum ActivityEvent {
         case progress(RunProgress)
@@ -394,6 +395,7 @@ final class AppModel {
             problem = error.localizedDescription
         }
         activeOperations -= 1
+        lastSpaceCheck = .distantPast
         await refresh()
         activityFeed.yield(.settled)
         onChange()
@@ -407,9 +409,10 @@ final class AppModel {
         return WorkingSpace.need(sources: config.sources, lastSizes: lastSizes, waiting: waitingPackages)
     }
 
-    /// Обходит папки назначений, поэтому не чаще раза в минуту и только между бэкапами.
-    private func refreshSpace() {
-        guard activeOperations == 0, Date().timeIntervalSince(lastSpaceCheck) > 60 else { return }
+    /// Обходит папки назначений, поэтому только между бэкапами и, если ничего не поменялось, не чаще раза в минуту.
+    /// Сразу — когда подключили диск и когда закончился бэкап.
+    private func refreshSpace(force: Bool = false) {
+        guard activeOperations == 0, force || Date().timeIntervalSince(lastSpaceCheck) > 60 else { return }
         lastSpaceCheck = Date()
         let destinations = config.destinations
         let stores = stores
@@ -464,7 +467,11 @@ final class AppModel {
             for destination in destinations where !(await isAvailable(destination)) {
                 unavailable.insert(destination.id)
             }
+            let connected = Set(destinations.map(\.id)).subtracting(unavailable)
+            let justConnected = !connected.subtracting(lastConnected).isEmpty
+            lastConnected = connected
             unavailableDestinations = unavailable
+            if justConnected { refreshSpace(force: true) }
         }
     }
 
