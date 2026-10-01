@@ -24,6 +24,12 @@ final class AppModel {
     private(set) var problem: String?
     private(set) var activity = ActivityTracker()
     private(set) var unavailableDestinations: Set<UUID> = []
+    /// Сколько занимают копии в каждом назначении; считается в фоне, пока бэкапы не идут.
+    /// У отключённого диска — размер с последнего подключения.
+    private(set) var destinationUsage: [UUID: Int64] = AppModel.rememberedUsage()
+    private(set) var waitingPackages: [UUID: Int64] = [:]
+    private(set) var freeSpace: Int64?
+    @ObservationIgnored private var lastSpaceCheck = Date.distantPast
 
     private enum ActivityEvent {
         case progress(RunProgress)
@@ -140,6 +146,7 @@ final class AppModel {
             latestReport = try await coordinator.statusReport()
             problem = nil
             refreshAvailability()
+            refreshSpace()
         } catch {
             problem = error.localizedDescription
         }
@@ -390,6 +397,64 @@ final class AppModel {
         await refresh()
         activityFeed.yield(.settled)
         onChange()
+    }
+
+    var workingSpace: WorkingSpace.Need {
+        var lastSizes: [UUID: Int64] = [:]
+        for run in runs where run.collectError == nil && lastSizes[run.sourceId] == nil {
+            if let bytes = run.totalBytes { lastSizes[run.sourceId] = bytes }
+        }
+        return WorkingSpace.need(sources: config.sources, lastSizes: lastSizes, waiting: waitingPackages)
+    }
+
+    /// Обходит папки назначений, поэтому не чаще раза в минуту и только между бэкапами.
+    private func refreshSpace() {
+        guard activeOperations == 0, Date().timeIntervalSince(lastSpaceCheck) > 60 else { return }
+        lastSpaceCheck = Date()
+        let destinations = config.destinations
+        let stores = stores
+        let pending = CoreAssembly.pendingDirectory(in: workDirectory)
+        let work = workDirectory
+        Task {
+            var usage = destinationUsage.filter { id, _ in destinations.contains { $0.id == id } }
+            for destination in destinations {
+                let store = stores.store(for: destination)
+                guard await store.isAvailable(), let bytes = try? await store.usedBytes() else { continue }
+                usage[destination.id] = bytes
+            }
+            let measured = await Task.detached { () -> ([UUID: Int64], Int64?) in
+                var waiting: [UUID: Int64] = [:]
+                let names = (try? FileManager.default.contentsOfDirectory(atPath: pending.path)) ?? []
+                for name in names {
+                    guard let id = UUID(uuidString: name) else { continue }
+                    waiting[id] = Self.size(of: pending.appendingPathComponent(name))
+                }
+                let free = (try? work.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
+                return (waiting, free)
+            }.value
+            destinationUsage = usage
+            UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: usage.map { ($0.key.uuidString, $0.value) }), forKey: Self.usageKey)
+            waitingPackages = measured.0
+            freeSpace = measured.1
+        }
+    }
+
+    private static let usageKey = "destinationUsage"
+
+    private static func rememberedUsage() -> [UUID: Int64] {
+        let stored = UserDefaults.standard.dictionary(forKey: usageKey) as? [String: Int64] ?? [:]
+        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
+    }
+
+    private nonisolated static func size(of directory: URL) -> Int64 {
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .isRegularFileKey]
+        guard let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: keys) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in files {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            total += Int64(values.totalFileAllocatedSize ?? 0)
+        }
+        return total
     }
 
     private func refreshAvailability() {

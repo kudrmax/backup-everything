@@ -29,10 +29,13 @@ struct OverviewView: View {
                     .animation(.snappy, value: sortedSources.map(\.id))
                 }
                 if !model.config.destinations.isEmpty {
-                    DestinationStrip(openSettings: { destination in
-                        UserDefaults.standard.set(destination.id.uuidString, forKey: "selectedDestination")
-                        openDestinations()
-                    })
+                    VStack(alignment: .leading, spacing: 6) {
+                        DestinationStrip(openSettings: { destination in
+                            UserDefaults.standard.set(destination.id.uuidString, forKey: "selectedDestination")
+                            openDestinations()
+                        })
+                        WorkingSpaceLine()
+                    }
                 }
             }
             .padding(24)
@@ -477,7 +480,7 @@ struct DestinationStrip: View {
                 } label: {
                     HStack(spacing: 6) {
                         DestinationIcon(destination: destination, showsMarks: false)
-                        Text(condition.problem.map { "\(destination.name) · \($0)" } ?? destination.name)
+                        Text(title(of: destination, condition: condition))
                             .foregroundStyle(style(condition))
                     }
                     .font(.callout)
@@ -486,6 +489,11 @@ struct DestinationStrip: View {
             }
         }
         .buttonStyle(.borderlessPointing)
+    }
+
+    private func title(of destination: Destination, condition: DestinationCondition) -> String {
+        let used = model.destinationUsage[destination.id].map(Texts.bytes)
+        return ([destination.name, used, condition.problem].compactMap { $0 }).joined(separator: " · ")
     }
 
     private func folder(of destination: Destination) -> URL? {
@@ -559,5 +567,21 @@ struct InstructionsSheet: View {
     private var rendered: AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+}
+
+struct WorkingSpaceLine: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let need = model.workingSpace
+        if need.bytes > 0 {
+            let isShort = model.freeSpace.map { $0 < need.bytes } ?? false
+            Label(WorkingSpace.line(need: need, free: model.freeSpace), systemImage: isShort ? "exclamationmark.triangle.fill" : "internaldrive")
+                .font(.callout)
+                .foregroundStyle(isShort ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                .padding(.horizontal, 4)
+                .hoverTip(WorkingSpace.details(need: need))
+        }
     }
 }

@@ -65,9 +65,11 @@ final class TooltipController {
     private func show(_ text: String, below anchor: NSRect) {
         let panel = panel ?? makePanel()
         self.panel = panel
-        let hosting = NSHostingView(rootView: TooltipBubble(text: text))
+        let bubble = TooltipBubble(text: text)
+        let size = NSHostingController(rootView: bubble).sizeThatFits(in: NSSize(width: TooltipBubble.maxWidth, height: 10_000))
+        let hosting = NSHostingView(rootView: bubble)
+        hosting.frame = NSRect(origin: .zero, size: size)
         panel.contentView = hosting
-        let size = hosting.fittingSize
         let screen = NSScreen.screens.first { $0.frame.intersects(anchor) }?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
         var origin = NSPoint(x: anchor.midX - size.width / 2, y: anchor.minY - Self.gap - size.height)
         if origin.y < screen.minY { origin.y = anchor.maxY + Self.gap }
@@ -90,20 +92,21 @@ final class TooltipController {
     }
 }
 
-private struct TooltipBubble: View {
+struct TooltipBubble: View {
+    /// Ширина, дальше которой текст переносится на новую строку (вместе с полями).
+    static let maxWidth: CGFloat = 358
+
     let text: String
 
     var body: some View {
         Text(text)
             .font(.callout)
             .multilineTextAlignment(.leading)
-            .frame(maxWidth: 340, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 9)
             .padding(.vertical, 6)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.separator.opacity(0.6)))
-            .fixedSize()
     }
 }
 
