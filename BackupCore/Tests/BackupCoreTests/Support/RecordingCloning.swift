@@ -28,9 +28,9 @@ final class RecordingCloning: FileCloning, @unchecked Sendable {
         mode != .unsupported && APFSCloning().isSupported(at: folder)
     }
 
-    func clone(_ original: URL, to target: URL) throws {
+    func clone(_ original: URL, to targetPath: String) throws {
         if mode == .failing { throw POSIXError(.ENOTSUP) }
-        try APFSCloning().clone(original, to: target)
-        lock.withLock { recorded.append((original, target)) }
+        try APFSCloning().clone(original, to: targetPath)
+        lock.withLock { recorded.append((original, URL(fileURLWithPath: targetPath))) }
     }
 }

@@ -50,6 +50,8 @@ public struct LocalFolderDestination: DestinationStore {
             try JSONCoding.encoder(pretty: false).encode(manifest).write(to: manifestURL, options: .atomic)
         } catch let error as CocoaError where error.code == .fileWriteOutOfSpace {
             throw DestinationError.outOfSpace
+        } catch let error as POSIXError where error.code == .ENOSPC {
+            throw DestinationError.outOfSpace
         }
     }
 

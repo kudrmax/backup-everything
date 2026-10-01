@@ -77,6 +77,27 @@ struct CloneSnapshotsTests {
         #expect(try manifest(second).sharesData == true)
     }
 
+    @Test func namesAreKeptByteForByte() async throws {
+        defer { temp.remove() }
+        let composed = "Куда пойти".precomposedStringWithCanonicalMapping
+        let decomposed = "Мой план".decomposedStringWithCanonicalMapping
+        let vault = try temp.directory("vault").path
+        try ExactNameFiles().createDirectories(composed, in: vault)
+        for name in ["\(composed)/\(composed).md", "\(decomposed).md"] {
+            let descriptor = open(vault + "/" + name, O_CREAT | O_WRONLY, 0o644)
+            #expect(descriptor >= 0)
+            close(descriptor)
+        }
+
+        try await backUp(destination(RecordingCloning()), at: first)
+
+        let stored = snapshot(first).path
+        let names = try FileManager.default.contentsOfDirectory(atPath: stored).filter { $0 != SnapshotManifest.fileName }
+        #expect(Set(names.map { Array($0.utf8) }) == [Array(composed.utf8), Array("\(decomposed).md".utf8)])
+        let inner = try FileManager.default.contentsOfDirectory(atPath: stored + "/" + composed)
+        #expect(inner.map { Array($0.utf8) } == [Array("\(composed).md".utf8)])
+    }
+
     @Test func manifestHashesDescribeTheStoredFiles() async throws {
         defer { temp.remove() }
         try temp.file("vault/a.md", "alpha")
