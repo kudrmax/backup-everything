@@ -18,13 +18,41 @@ public struct SnapshotManifest: Codable, Sendable, Equatable {
     public var collectedAt: Date
     public var fileCount: Int
     public var totalBytes: Int64
+    /// Files of the copy with their hashes. Absent in the cloud and in local copies written before clones appeared.
+    public var files: [SnapshotFile]?
+    /// Unchanged files of the copy are clones of files from earlier copies of this source.
+    public var sharesData: Bool?
 
-    public init(sourceId: UUID, sourceName: String, collectedAt: Date, fileCount: Int, totalBytes: Int64) {
+    public init(
+        sourceId: UUID,
+        sourceName: String,
+        collectedAt: Date,
+        fileCount: Int,
+        totalBytes: Int64,
+        files: [SnapshotFile]? = nil,
+        sharesData: Bool? = nil
+    ) {
         self.sourceId = sourceId
         self.sourceName = sourceName
         self.collectedAt = collectedAt
         self.fileCount = fileCount
         self.totalBytes = totalBytes
+        self.files = files
+        self.sharesData = sharesData
+    }
+}
+
+public struct SnapshotFile: Codable, Sendable, Equatable {
+    public var path: String
+    public var size: Int64
+    public var sha256: String
+    public var modified: Date
+
+    public init(path: String, size: Int64, sha256: String, modified: Date) {
+        self.path = path
+        self.size = size
+        self.sha256 = sha256
+        self.modified = modified
     }
 }
 

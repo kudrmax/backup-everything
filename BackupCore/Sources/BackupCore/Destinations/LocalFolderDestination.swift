@@ -3,11 +3,13 @@ import Foundation
 public struct LocalFolderDestination: DestinationStore {
     private let root: URL
     private let naming: SnapshotNaming
+    private let cloning: any FileCloning
     private let walker = PayloadWalker()
 
-    public init(root: URL, naming: SnapshotNaming) {
+    public init(root: URL, naming: SnapshotNaming, cloning: any FileCloning = APFSCloning()) {
         self.root = root
         self.naming = naming
+        self.cloning = cloning
     }
 
     public func isAvailable() async -> Bool {
@@ -37,18 +39,15 @@ public struct LocalFolderDestination: DestinationStore {
             if !fileManager.fileExists(atPath: sourceDirectory.path) {
                 try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: false)
             }
+            let sharesData = cloning.isSupported(at: root)
+            let index = sharesData ? StoredContentIndex(snapshots: storedManifests(sourceSlug)) : .empty
             try fileManager.createDirectory(at: snapshotDirectory, withIntermediateDirectories: false)
-            for entry in try walker.entries(of: payload) {
-                let target = snapshotDirectory.appendingPathComponent(entry.relativePath)
-                if entry.kind == .directory {
-                    try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
-                } else {
-                    try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try fileManager.copyItem(at: entry.url, to: target)
-                }
-            }
+            var manifest = manifest
+            manifest.files = try SnapshotWriter(cloning: cloning)
+                .write(try walker.entries(of: payload), into: snapshotDirectory, reusing: index)
+            manifest.sharesData = sharesData
             let manifestURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.fileName)
-            try JSONCoding.encoder().encode(manifest).write(to: manifestURL, options: .atomic)
+            try JSONCoding.encoder(pretty: false).encode(manifest).write(to: manifestURL, options: .atomic)
         } catch let error as CocoaError where error.code == .fileWriteOutOfSpace {
             throw DestinationError.outOfSpace
         }
@@ -66,12 +65,23 @@ public struct LocalFolderDestination: DestinationStore {
 
     public func usedBytes() async throws -> Int64 {
         guard await isAvailable() else { throw DestinationError.unavailable }
-        let entries = try walker.entries(of: Payload(root: root, collectedAt: Date()))
-        return walker.stats(of: entries).totalBytes
+        return try DestinationUsage().bytes(under: root)
     }
 
     private func directory(_ sourceSlug: String) -> URL {
         root.appendingPathComponent(sourceSlug, isDirectory: true)
+    }
+
+    /// Written copies of the source, newest first.
+    private func storedManifests(_ sourceSlug: String) -> [(directory: URL, manifest: SnapshotManifest)] {
+        snapshotDirectories(sourceSlug)
+            .sorted { $0.snapshot.date > $1.snapshot.date }
+            .compactMap { directory in
+                let url = directory.url.appendingPathComponent(SnapshotManifest.fileName)
+                guard let data = try? Data(contentsOf: url),
+                      let manifest = try? JSONCoding.decoder().decode(SnapshotManifest.self, from: data) else { return nil }
+                return (directory.url, manifest)
+            }
     }
 
     private func hasManifest(_ snapshotDirectory: URL) -> Bool {
