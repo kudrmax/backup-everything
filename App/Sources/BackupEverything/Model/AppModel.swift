@@ -32,6 +32,8 @@ final class AppModel {
 
     @ObservationIgnored var onNotices: ([Notice]) -> Void = { _ in }
     @ObservationIgnored var onChange: () -> Void = {}
+    /// Настройки сохранены: новые назначения и источники должны получить копию сразу, а не к следующему сроку.
+    @ObservationIgnored var onConfigEdited: () -> Void = {}
 
     @ObservationIgnored private let store: Store
     @ObservationIgnored private let icons: IconStore
@@ -408,5 +410,6 @@ final class AppModel {
         }
         await refresh()
         onChange()
+        onConfigEdited()
     }
 }

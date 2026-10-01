@@ -21,6 +21,7 @@ final class BackgroundDriver {
 
     func start() {
         model.onChange = { [weak self] in self?.reschedule() }
+        model.onConfigEdited = { [weak self] in self?.scheduleTick(after: Self.eventDebounce) }
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.didMountNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
