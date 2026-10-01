@@ -174,7 +174,7 @@ struct EditorHeader<Icon: View, Accessory: View>: View {
                 Text(name)
                     .font(.title2.weight(.semibold))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .help("Название задаётся при добавлении и не меняется: по нему названа папка с копиями")
+                    .hoverTip("Название задаётся при добавлении и не меняется: по нему названа папка с копиями")
             }
             accessory
         }

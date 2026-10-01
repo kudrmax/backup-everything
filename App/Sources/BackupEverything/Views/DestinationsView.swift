@@ -232,7 +232,7 @@ struct DestinationEditor: View {
             Image(systemName: "arrow.clockwise")
         }
         .buttonStyle(.borderlessPointing)
-        .help("Обновить список облаков")
+        .hoverTip("Обновить список облаков")
     }
 }
 
@@ -367,7 +367,7 @@ struct SnapshotLine: View {
                     Image(systemName: "folder")
                 }
                 .buttonStyle(.borderlessPointing)
-                .help("Показать в Finder")
+                .hoverTip("Показать в Finder")
                 .opacity(isHovered ? 1 : 0)
             } else {
                 Text(snapshot.name).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)

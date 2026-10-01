@@ -94,4 +94,10 @@ struct ChainPresentationTests {
         #expect(SourceGuide.text(for: plain) == "Укажите путь.")
         #expect(SourceGuide.text(for: folder).isEmpty)
     }
+
+    @Test func runningStepSaysWhatItDoes() {
+        #expect(ChainPosition.running(.folder("/Volumes/POCKETBOOK"), status: nil) == "копирует файлы…")
+        #expect(ChainPosition.running(.command("true", timeoutSeconds: 60), status: nil) == "выполняет команду…")
+        #expect(ChainPosition.running(.command("true", timeoutSeconds: 60), status: "скачано 2 из 5") == "скачано 2 из 5")
+    }
 }

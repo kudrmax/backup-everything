@@ -48,7 +48,7 @@ struct RunRow: View {
                         CopyButton(text: failure)
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderlessPointing)
-                            .help("Скопировать ошибку")
+                            .hoverTip("Скопировать ошибку")
                     }
                 }
                 if let details = run.details {

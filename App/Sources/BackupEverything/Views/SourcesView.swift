@@ -112,14 +112,14 @@ struct SourceEditor: View {
                     SourceIcon(icon: draft.icon, symbol: symbol, size: 22)
                 }
                 .buttonStyle(.plainPointing)
-                .help("Выбрать значок")
+                .hoverTip("Выбрать значок")
             } accessory: {
                 Toggle("Включён", isOn: $draft.enabled)
                     .toggleStyle(.switch)
                     .pointing()
                     .controlSize(.small)
                     .labelsHidden()
-                    .help(draft.enabled ? "Включён" : "Выключен")
+                    .hoverTip(draft.enabled ? "Включён" : "Выключен")
                 if !isNew || draft.icon != nil {
                     Menu {
                         if draft.icon != nil {

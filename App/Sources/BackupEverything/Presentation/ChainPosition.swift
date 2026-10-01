@@ -18,6 +18,16 @@ enum ChainPosition {
         return "\(label) · \(note)"
     }
 
+    static func running(_ step: SourceStep, status: String?) -> String {
+        if let status { return status }
+        switch step.kind {
+        case .folder: return "копирует файлы…"
+        case .command: return "выполняет команду…"
+        case .file: return "забирает файл…"
+        case .device: return "ждёт устройство…"
+        }
+    }
+
     static func canRunNow(_ source: Source, chain: ChainState?) -> Bool {
         let steps = source.steps
         guard let chain else { return true }

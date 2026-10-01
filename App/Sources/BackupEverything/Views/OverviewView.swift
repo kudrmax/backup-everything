@@ -7,16 +7,18 @@ struct OverviewView: View {
     let openSources: () -> Void
     let openDestinations: () -> Void
 
+    @AppStorage("overviewOrder") private var order = OverviewOrder.manual
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                OverviewHeader()
+                OverviewHeader(order: $order)
                 if model.config.destinations.isEmpty {
                     GettingStarted(openDestinations: openDestinations, openSources: openSources)
                 }
                 if !model.config.sources.isEmpty {
                     VStack(spacing: 0) {
-                        ForEach(Array(model.config.sources.enumerated()), id: \.element.id) { index, source in
+                        ForEach(Array(sortedSources.enumerated()), id: \.element.id) { index, source in
                             if index > 0 { Divider() }
                             SourceRow(source: source, destinationSlots: destinationSlots, edit: { editSource(source) })
                         }
@@ -24,6 +26,7 @@ struct OverviewView: View {
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .animation(.snappy, value: sortedSources.map(\.id))
                 }
                 if !model.config.destinations.isEmpty {
                     DestinationStrip()
@@ -36,6 +39,10 @@ struct OverviewView: View {
         .navigationTitle("Обзор")
     }
 
+    private var sortedSources: [Source] {
+        order.sorted(model.config.sources) { model.nextDue(of: $0) }
+    }
+
     private var destinationSlots: Int {
         model.config.sources.map { model.config.destinations(of: $0).count }.max() ?? 0
     }
@@ -43,6 +50,7 @@ struct OverviewView: View {
 
 struct OverviewHeader: View {
     @Environment(AppModel.self) private var model
+    @Binding var order: OverviewOrder
 
     var body: some View {
         HStack(spacing: 12) {
@@ -56,6 +64,16 @@ struct OverviewHeader: View {
                 ProgressView().controlSize(.small)
                 Text(model.currentSourceName ?? "проверка…").foregroundStyle(.blue)
             }
+            Picker(selection: $order) {
+                ForEach(OverviewOrder.allCases) { Text($0.title).tag($0) }
+            } label: {
+                Label("Порядок", systemImage: "arrow.up.arrow.down")
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .fixedSize()
+            .pointing()
+            .hoverTip("Порядок источников")
             Button("Запустить всё", systemImage: "play.fill") {
                 Task { await model.runAll() }
             }
@@ -117,6 +135,11 @@ struct SourceRow: View {
                     note(status, stage)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if isHovered {
+                hoverActions
+                    .transition(.opacity)
+            }
             if canPickUp(status) {
                 Button("Забрать") {
                     Task { await model.confirmPickup(source) }
@@ -125,8 +148,6 @@ struct SourceRow: View {
                 .controlSize(.small)
                 .disabled(model.isWorking)
             }
-            Spacer(minLength: 8)
-            hoverActions
             timeColumn
                 .font(.callout)
                 .monospacedDigit()
@@ -149,7 +170,7 @@ struct SourceRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: edit)
         .pointing()
-        .onHover { isHovered = $0 }
+        .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { isHovered = inside } }
         .sheet(isPresented: Binding(get: { shownError != nil }, set: { if !$0 { shownError = nil } })) {
             ErrorSheet(title: source.name, message: shownError ?? "")
         }
@@ -192,6 +213,8 @@ struct SourceRow: View {
                 .font(.callout)
                 .foregroundStyle(.blue)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .hoverTip(stageText(stage))
         } else if let note = status.note, let error = status.errorMessage {
             Button {
                 shownError = error
@@ -222,9 +245,9 @@ struct SourceRow: View {
     private func stageText(_ stage: SourceStage) -> String {
         let text = Texts.stage(stage, destinationName: deliveringName(stage))
         let running = model.runStatus(of: source).map { "\(text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) · \($0)" } ?? text
-        guard stage == .collecting, let step = model.runStep(of: source) else { return running }
+        guard stage == .collecting, let step = model.runStep(of: source), step.index < source.steps.count else { return running }
         let label = ChainPosition.label(index: step.index, count: step.count)
-        return "\(label) · \(model.runStatus(of: source) ?? "выполняет команду…")"
+        return "\(label) · \(ChainPosition.running(source.steps[step.index], status: model.runStatus(of: source)))"
     }
 
     @ViewBuilder
@@ -290,7 +313,6 @@ struct SourceRow: View {
             action("Изменить", symbol: "pencil", perform: edit)
         }
         .buttonStyle(.borderlessPointing)
-        .opacity(isHovered ? 1 : 0)
     }
 
     private func runTitle(_ chain: ChainState?) -> String {
@@ -325,11 +347,10 @@ struct SourceRow: View {
             } label: {
                 Image(systemName: "archivebox")
             }
-            .menuStyle(.borderlessButton)
-            .pointing()
+            .menuStyle(.button)
+            .buttonStyle(.borderlessPointing)
             .menuIndicator(.hidden)
             .fixedSize()
-            .pointerStyle(.link)
             .hoverTip("Открыть копию в Finder")
         }
     }
@@ -337,8 +358,6 @@ struct SourceRow: View {
     private func action(_ title: String, symbol: String, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
             Image(systemName: symbol)
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
         }
         .hoverTip(title)
     }

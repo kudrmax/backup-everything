@@ -47,6 +47,8 @@ struct MainWindow: View {
         NavigationSplitView {
             List(Section.allCases, selection: section) { section in
                 Label(section.title, systemImage: section.symbol)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                     .pointing()
                     .tag(section)
             }

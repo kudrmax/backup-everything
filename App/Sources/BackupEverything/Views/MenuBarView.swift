@@ -7,30 +7,33 @@ struct MenuBarView: View {
     @AppStorage("section") private var storedSection = MainWindow.Section.overview.rawValue
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
             Button("Открыть окно", systemImage: "macwindow", action: showWindow)
-            Divider()
+            separator
             status
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture {
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .tappableRow {
                     storedSection = MainWindow.Section.overview.rawValue
                     showWindow()
                 }
-                .pointing()
-            Divider()
+            separator
             Button("Запустить всё сейчас", systemImage: "play.fill") {
                 Task { await model.runAll() }
             }
             .disabled(model.isWorking)
-            Divider()
+            separator
             Button("Выйти", systemImage: "power") {
                 NSApp.terminate(nil)
             }
         }
-        .buttonStyle(.plainPointing)
-        .padding(16)
+        .buttonStyle(.menuRow)
+        .padding(6)
         .frame(width: 340, alignment: .leading)
+    }
+
+    private var separator: some View {
+        Divider().padding(.horizontal, 8).padding(.vertical, 2)
     }
 
     private func showWindow() {
