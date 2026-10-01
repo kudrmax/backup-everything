@@ -31,8 +31,8 @@ final class Notifier {
             ("Можно отключать", "Бэкап «\(sourceName)» готов, устройство можно отключить.")
         case let .manualExportDue(_, sourceName):
             ("Пора сделать экспорт", "\(sourceName): откройте Backup Everything, там инструкция.")
-        case let .connectDestination(_, destinationName):
-            ("Пора подключить диск", "«\(destinationName)» давно не получал бэкапы.")
+        case let .connectDestination(_, destinationName, onlyCopyOf):
+            ConnectReminder.notice(destinationName: destinationName, onlyCopyOf: onlyCopyOf)
         case let .runFailed(_, sourceName, message):
             ("Бэкап не удался", "\(sourceName): \(message)")
         case let .destinationCaughtUp(_, destinationName):

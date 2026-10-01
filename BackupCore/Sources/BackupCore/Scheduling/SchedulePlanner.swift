@@ -57,6 +57,9 @@ public struct SchedulePlanner: Sendable {
     public func connectDeadline(for destination: Destination, state: AppState) -> Date? {
         guard case let .days(days) = destination.expectedEvery,
               let earliestDebt = state.debts(forDestination: destination.id).map(\.since).min() else { return nil }
+        if let firstUnique = state.debts(forDestination: destination.id).filter({ !$0.elsewhere }).map(\.since).min() {
+            return firstUnique
+        }
         let reference = state.destinationState(destination.id).lastCaughtUp ?? earliestDebt
         return calendar.date(byAdding: .day, value: days, to: reference)
     }

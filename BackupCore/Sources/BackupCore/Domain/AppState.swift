@@ -77,12 +77,28 @@ public struct Debt: Codable, Sendable, Equatable {
     public var destinationId: UUID
     public var since: Date
     public var lastAttempt: Date?
+    /// Каждый пропущенный бэкап есть на другом назначении. Если хоть один нигде больше нет — диск нужен сразу, а не к своему сроку.
+    public var elsewhere: Bool
 
-    public init(sourceId: UUID, destinationId: UUID, since: Date, lastAttempt: Date? = nil) {
+    public init(sourceId: UUID, destinationId: UUID, since: Date, lastAttempt: Date? = nil, elsewhere: Bool = true) {
         self.sourceId = sourceId
         self.destinationId = destinationId
         self.since = since
         self.lastAttempt = lastAttempt
+        self.elsewhere = elsewhere
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sourceId, destinationId, since, lastAttempt, elsewhere
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourceId = try container.decode(UUID.self, forKey: .sourceId)
+        destinationId = try container.decode(UUID.self, forKey: .destinationId)
+        since = try container.decode(Date.self, forKey: .since)
+        lastAttempt = try container.decodeIfPresent(Date.self, forKey: .lastAttempt)
+        elsewhere = try container.decodeIfPresent(Bool.self, forKey: .elsewhere) ?? true
     }
 }
 

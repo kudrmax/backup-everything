@@ -450,7 +450,11 @@ struct DestinationBadge: View {
             let message = last.map { Texts.outcome($0.outcome) } ?? "ошибка"
             return "\(destination.name)\n\(message)\nповтор позже"
         case .waiting:
-            return "\(destination.name)\nждёт подключения"
+            let line = ConnectReminder.waitingLine(
+                elsewhere: model.isCoveredElsewhere(source, for: destination),
+                otherDestinations: model.otherCopies(of: source, besides: destination).map(\.name)
+            )
+            return "\(destination.name)\nждёт подключения\n\(line)"
         case .none:
             return "\(destination.name)\nкопий ещё нет"
         }
@@ -495,6 +499,12 @@ enum DestinationDetails {
             lines.append("Получило всё: \(Texts.relative(caughtUp))")
         }
         lines.append(waiting.isEmpty ? "Ничего не ждёт доставки" : "Ждут доставки: \(waiting.map(\.name).joined(separator: ", "))")
+        let unique = waiting.filter { !model.isCoveredElsewhere($0, for: destination) }
+        if !unique.isEmpty {
+            lines.append("Больше нигде нет: \(unique.map(\.name).joined(separator: ", ")) — подключи диск")
+        } else if let deadline = model.connectDeadline(of: destination), deadline > Date() {
+            lines.append("Копии есть на других дисках — напомню \(Texts.until(deadline))")
+        }
         return lines.joined(separator: "\n")
     }
 }

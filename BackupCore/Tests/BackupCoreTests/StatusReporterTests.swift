@@ -125,6 +125,14 @@ struct StatusReporterTests {
         #expect(report([source], state, unavailable: [disk.id]).items == [.connectDestination(destinationId: disk.id)])
     }
 
+    @Test func periodicDiskIsAskedForAtOnceWhenAMissedBackupExistsNowhereElse() {
+        let source = Fixtures.source(destinations: [disk])
+        var state = fresh(source)
+        state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: now, elsewhere: false)]
+        state.updateDestination(disk.id) { $0.lastCaughtUp = now }
+        #expect(report([source], state, unavailable: [disk.id]).items == [.connectDestination(destinationId: disk.id)])
+    }
+
     @Test func stepChainReportsWhereItIsStuck() {
         let now = Fixtures.date("2026-09-28 10:00:00")
         let cloud = Fixtures.localDestination("Cloud", at: URL(fileURLWithPath: "/tmp/cloud"))

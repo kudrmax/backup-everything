@@ -128,18 +128,25 @@ struct BackupCoordinatorTests {
         defer { temp.remove() }
         try store.saveConfig(Config(sources: [vault([disk])], destinations: [disk]))
 
-        #expect(try await coordinator.tick() == TickResult())
-        #expect(store.loadRuns().isEmpty)
-
-        time.advance(30 * 86_400)
-        let reminder = Notice.connectDestination(destinationId: disk.id, destinationName: "HDD")
+        let reminder = Notice.connectDestination(destinationId: disk.id, destinationName: "HDD", onlyCopyOf: ["Obsidian"])
         #expect(try await coordinator.tick().notices == [reminder])
+        #expect(store.loadRuns().isEmpty)
         #expect(try await coordinator.statusReport().items == [.connectDestination(destinationId: disk.id)])
 
         time.advance(3600)
         #expect(try await coordinator.tick().notices.isEmpty)
         time.advance(23 * 3600)
         #expect(try await coordinator.tick().notices == [reminder])
+    }
+
+    @Test func diskThatMissedOnlyBackedUpCopiesIsRemindedAfterItsPeriod() async throws {
+        defer { temp.remove() }
+        try store.saveConfig(Config(sources: [vault([cloud, disk])], destinations: [cloud, disk]))
+        #expect(try await coordinator.tick().notices.isEmpty)
+        time.advance(29 * 86_400)
+        #expect(try await coordinator.tick().notices.isEmpty)
+        time.advance(2 * 86_400)
+        #expect(try await coordinator.tick().notices == [.connectDestination(destinationId: disk.id, destinationName: "HDD", onlyCopyOf: [])])
     }
 
     @Test func failedRunIsReportedAndRetriedAfterAnHour() async throws {

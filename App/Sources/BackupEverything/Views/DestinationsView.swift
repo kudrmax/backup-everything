@@ -143,12 +143,18 @@ struct DestinationEditor: View {
                     .pointing()
                 }
                 if draft.isPeriodic {
-                    SettingsRow(
-                        title: "Напоминать, если не подключал",
-                        tip: "Пока срок не вышел, приложение молчит.\nПри подключении диск получит свежую копию каждого источника."
-                    ) {
-                        Stepper("\(draft.days) дн", value: $draft.days, in: 1...365)
-                        .pointing()
+                    VStack(alignment: .leading, spacing: 0) {
+                        SettingsRow(title: "Можно не подключать") {
+                            Stepper("до \(draft.days) дн", value: $draft.days, in: 1...365)
+                            .pointing()
+                        }
+                        Text(ConnectReminder.settingsExplanation)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, 10)
                     }
                 }
             }

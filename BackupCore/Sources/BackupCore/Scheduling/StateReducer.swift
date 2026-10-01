@@ -59,14 +59,17 @@ public struct StateReducer: Sendable {
     }
 
     private func upsertDebt(_ record: RunRecord, _ delivery: Delivery, attemptedAt: Date?, in state: inout AppState) {
+        let elsewhere = record.deliveries.contains { $0.destinationId != delivery.destinationId && $0.outcome.isDelivered }
         if let index = state.debts.firstIndex(where: { $0.sourceId == record.sourceId && $0.destinationId == delivery.destinationId }) {
             if let attemptedAt { state.debts[index].lastAttempt = attemptedAt }
+            if record.trigger != .catchUp { state.debts[index].elsewhere = state.debts[index].elsewhere && elsewhere }
         } else {
             state.debts.append(Debt(
                 sourceId: record.sourceId,
                 destinationId: delivery.destinationId,
                 since: record.startedAt,
-                lastAttempt: attemptedAt
+                lastAttempt: attemptedAt,
+                elsewhere: elsewhere
             ))
         }
     }

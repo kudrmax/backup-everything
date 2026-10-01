@@ -294,6 +294,23 @@ final class AppModel {
         state.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
     }
 
+    /// Пропущенный бэкап есть на другом диске источника.
+    func isCoveredElsewhere(_ source: Source, for destination: Destination) -> Bool {
+        state.debts.first { $0.sourceId == source.id && $0.destinationId == destination.id }?.elsewhere ?? true
+    }
+
+    /// Другие диски источника, на которых есть его копия.
+    func otherCopies(of source: Source, besides destination: Destination) -> [Destination] {
+        config.destinations(of: source).filter { other in
+            other.id != destination.id && state.lastDeliveredSnapshot(sourceId: source.id, destinationId: other.id) != nil
+        }
+    }
+
+    /// Когда диск «время от времени» попросят подключить; `nil` — ему ничего не задолжали.
+    func connectDeadline(of destination: Destination) -> Date? {
+        planner.connectDeadline(for: destination, state: state)
+    }
+
     func waitingSources(for destination: Destination) -> [Source] {
         state.debts(forDestination: destination.id).compactMap { config.source($0.sourceId) }
     }

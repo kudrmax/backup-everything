@@ -4,7 +4,8 @@ public enum Notice: Sendable, Equatable {
     case manualExportDue(sourceId: UUID, sourceName: String)
     case deviceDue(sourceId: UUID, sourceName: String)
     case deviceCanBeUnplugged(sourceId: UUID, sourceName: String)
-    case connectDestination(destinationId: UUID, destinationName: String)
+    /// `onlyCopyOf` — источники, чей пропущенный бэкап больше нигде нет.
+    case connectDestination(destinationId: UUID, destinationName: String, onlyCopyOf: [String])
     case runFailed(sourceId: UUID, sourceName: String, message: String)
     case destinationCaughtUp(destinationId: UUID, destinationName: String)
     case copiesMissing(sourceId: UUID, sourceName: String, destinationName: String)

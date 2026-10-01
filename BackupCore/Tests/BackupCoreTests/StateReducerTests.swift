@@ -22,6 +22,18 @@ struct StateReducerTests {
         )
     }
 
+    @Test func missedDiskRemembersWhetherTheBackupReachedAnotherDisk() {
+        var covered = AppState()
+        reducer.apply(record([(disk, .unavailable), (cloud, .delivered(pruned: 0, warning: nil))]), to: &covered)
+        #expect(covered.debts.map(\.elsewhere) == [true])
+
+        var alone = AppState()
+        reducer.apply(record([(disk, .unavailable)]), to: &alone)
+        #expect(alone.debts.map(\.elsewhere) == [false])
+        reducer.apply(record([(disk, .unavailable), (cloud, .delivered(pruned: 0, warning: nil))]), to: &alone)
+        #expect(alone.debts.map(\.elsewhere) == [false])
+    }
+
     @Test func successAdvancesScheduleAndMarksDestinationsCaughtUp() {
         var state = AppState()
         reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil)), (cloud, .delivered(pruned: 1, warning: nil))]), to: &state)
@@ -34,8 +46,8 @@ struct StateReducerTests {
         var state = AppState()
         reducer.apply(record([(disk, .unavailable), (cloud, .failed(message: "quota"))]), to: &state)
         #expect(state.debts == [
-            Debt(sourceId: sourceId, destinationId: disk, since: started),
-            Debt(sourceId: sourceId, destinationId: cloud, since: started, lastAttempt: finished),
+            Debt(sourceId: sourceId, destinationId: disk, since: started, elsewhere: false),
+            Debt(sourceId: sourceId, destinationId: cloud, since: started, lastAttempt: finished, elsewhere: false),
         ])
         #expect(state.sourceState(sourceId).lastRun == started)
         #expect(state.sourceState(sourceId).lastError == "quota")
@@ -47,7 +59,7 @@ struct StateReducerTests {
         let earlier = Fixtures.date("2026-09-20 10:00:00")
         state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: earlier)]
         reducer.apply(record([(disk, .unavailable)]), to: &state)
-        #expect(state.debts == [Debt(sourceId: sourceId, destinationId: disk, since: earlier)])
+        #expect(state.debts == [Debt(sourceId: sourceId, destinationId: disk, since: earlier, elsewhere: false)])
     }
 
     @Test func catchUpClearsDebtAndErrorWithoutMovingSchedule() {

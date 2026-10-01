@@ -237,7 +237,10 @@ public actor BackupCoordinator {
                 }
                 let isIntact = expected.map { name in present.contains { $0.name == name } } ?? !present.isEmpty
                 guard !isIntact else { continue }
-                state.debts.append(Debt(sourceId: source.id, destinationId: destination.id, since: now))
+                let elsewhere = config.destinations(of: source).contains { other in
+                    other.id != destination.id && state.lastDeliveredSnapshot(sourceId: source.id, destinationId: other.id) != nil
+                }
+                state.debts.append(Debt(sourceId: source.id, destinationId: destination.id, since: now, elsewhere: elsewhere))
                 state.lastDelivered[AppState.deliveryKey(sourceId: source.id, destinationId: destination.id)] = nil
                 if expected != nil {
                     notices.append(.copiesMissing(sourceId: source.id, sourceName: source.name, destinationName: destination.name))
@@ -448,7 +451,9 @@ public actor BackupCoordinator {
                 }
             case let .connectDestination(destinationId):
                 if let destination = config.destination(destinationId) {
-                    notices.append(.connectDestination(destinationId: destinationId, destinationName: destination.name))
+                    let unique = Set(state.debts(forDestination: destinationId).filter { !$0.elsewhere }.map(\.sourceId))
+                    let names = config.sources.filter { unique.contains($0.id) }.map(\.name)
+                    notices.append(.connectDestination(destinationId: destinationId, destinationName: destination.name, onlyCopyOf: names))
                 }
             default:
                 break
