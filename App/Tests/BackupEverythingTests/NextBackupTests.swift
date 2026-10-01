@@ -16,6 +16,10 @@ struct NextBackupTests {
         #expect(Texts.until(now.addingTimeInterval(17 * 3600), now: now) == "через 17 ч")
         #expect(Texts.until(now.addingTimeInterval(3 * 86_400), now: now) == "через 3 дн")
         #expect(Texts.until(now.addingTimeInterval(90 * 86_400), now: now) == "через 3 мес")
+        #expect(Texts.until(now.addingTimeInterval(80 * 60), now: now) == "через 2 ч")
+        #expect(Texts.until(now.addingTimeInterval(61), now: now) == "через 2 мин")
+        #expect(Texts.until(now.addingTimeInterval(59 * 60 + 30), now: now) == "через 1 ч")
+        #expect(Texts.until(now.addingTimeInterval(6 * 86_400 + 3600), now: now) == "через 7 дн")
     }
 
     @Test func nextBackupSaysWhenOrWhy() {

@@ -55,14 +55,17 @@ enum Texts {
         return "\(days / 365) г"
     }
 
+    /// Округляет вверх: до 18:04 в 16:44 — «через 2 ч», а не «через 1 ч».
     static func until(_ date: Date, now: Date = Date()) -> String {
-        let seconds = Int(date.timeIntervalSince(now))
-        let days = seconds / 86_400
+        let seconds = date.timeIntervalSince(now)
         if seconds < 60 { return "сейчас" }
-        if seconds < 3600 { return "через \(seconds / 60) мин" }
-        if days < 1 { return "через \(seconds / 3600) ч" }
+        let minutes = Int((seconds / 60).rounded(.up))
+        if minutes < 60 { return "через \(minutes) мин" }
+        let hours = Int((seconds / 3600).rounded(.up))
+        if hours < 24 { return "через \(hours) ч" }
+        let days = Int((seconds / 86_400).rounded(.up))
         if days < 60 { return "через \(days) дн" }
-        return "через \(days / 30) мес"
+        return "через \(Int((Double(days) / 30).rounded(.up))) мес"
     }
 
     static func duration(_ interval: TimeInterval) -> String {
