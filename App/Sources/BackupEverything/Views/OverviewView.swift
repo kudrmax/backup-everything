@@ -74,11 +74,16 @@ struct OverviewHeader: View {
             .fixedSize()
             .pointing()
             .hoverTip("Порядок источников")
-            Button("Запустить всё", systemImage: "play.fill") {
+            Button("Обновить", systemImage: "arrow.clockwise") {
+                Task { await model.tick() }
+            }
+            .labelStyle(.titleAndIcon)
+            .hoverTip(Texts.refreshTip)
+            Button("Сделать все бэкапы заново", systemImage: "play.fill") {
                 Task { await model.runAll() }
             }
             .labelStyle(.titleAndIcon)
-            .disabled(model.isWorking)
+            .hoverTip(Texts.runAllTip)
         }
     }
 }
@@ -295,7 +300,7 @@ struct SourceRow: View {
                 action(runTitle(chain), symbol: "play.fill") {
                     Task { await model.runNow(source) }
                 }
-                .disabled(model.isWorking || destinations.isEmpty)
+                .disabled(destinations.isEmpty)
             }
             if chain != nil {
                 action("Начать заново", symbol: "arrow.counterclockwise") {

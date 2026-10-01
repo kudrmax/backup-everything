@@ -137,6 +137,9 @@ enum Texts {
         return formatter.localizedString(for: date, relativeTo: now)
     }
 
+    static let refreshTip = "Проверить сейчас то, что приложение и так проверяет само: докопировать на диски недостающие копии и запустить то, чему пора по расписанию. Лишних бэкапов не делает."
+    static let runAllTip = "Собрать все источники заново и записать свежие копии на все подключённые диски, не дожидаясь расписания. Источники, которым нужен файл от тебя или устройство, начнут их ждать."
+
     static func stage(_ stage: SourceStage, destinationName: String?) -> String {
         switch stage {
         case .queued: "в очереди"

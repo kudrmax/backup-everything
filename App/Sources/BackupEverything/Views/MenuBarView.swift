@@ -18,10 +18,14 @@ struct MenuBarView: View {
                     showWindow()
                 }
             separator
-            Button("Запустить всё сейчас", systemImage: "play.fill") {
+            Button("Обновить", systemImage: "arrow.clockwise") {
+                Task { await model.tick() }
+            }
+            .hoverTip(Texts.refreshTip)
+            Button("Сделать все бэкапы заново", systemImage: "play.fill") {
                 Task { await model.runAll() }
             }
-            .disabled(model.isWorking)
+            .hoverTip(Texts.runAllTip)
             separator
             Button("Выйти", systemImage: "power") {
                 NSApp.terminate(nil)
