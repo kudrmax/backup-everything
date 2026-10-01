@@ -11,13 +11,13 @@ STAGE="$(mktemp -d)/BackupEverything.app"
 mkdir -p "$STAGE/Contents/MacOS"
 cp "$BINARY" "$STAGE/Contents/MacOS/BackupEverything"
 cp "$ROOT/App/Info.plist" "$STAGE/Contents/Info.plist"
-# Постоянный сертификат нужен, чтобы macOS помнила выданные разрешения (например, на «Загрузки») между сборками.
-# Без него подпись ad-hoc: она у каждой сборки своя, и разрешения спрашиваются заново.
+# A persistent certificate lets macOS remember granted permissions (e.g. for Downloads) between builds.
+# Without it the signature is ad-hoc: each build gets its own, and permissions are asked again.
 IDENTITY="Backup Everything Local"
 if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
     codesign --force --sign "$IDENTITY" "$STAGE"
 else
-    echo "Сертификат «$IDENTITY» не найден — подпись ad-hoc, разрешения macOS будут спрашиваться после каждой сборки." >&2
+    echo "Certificate “$IDENTITY” not found — signing ad-hoc, macOS will ask for permissions after every build." >&2
     codesign --force --sign - "$STAGE"
 fi
 

@@ -5,7 +5,7 @@ import Testing
 
 struct SourceLinksTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
-    private let laptop = Destination(name: "Папка на ноуте", kind: .localFolder(path: "~/Files/Backups"))
+    private let laptop = Destination(name: "Laptop folder", kind: .localFolder(path: "~/Files/Backups"))
     private let cloud = Destination(name: "Google Drive", kind: .rclone(remote: "gdrive", path: "backups"))
 
     private func source(_ steps: [SourceStep], to destinations: [Destination]) -> Source {
@@ -26,8 +26,8 @@ struct SourceLinksTests {
         let config = Config(sources: [anki], destinations: [laptop, cloud])
         var state = AppState()
         #expect(SourceLinks.copies(of: anki, config: config, state: state) == [
-            CopyPlace(destination: laptop, folder: nil, unavailableReason: "Копий ещё нет"),
-            CopyPlace(destination: cloud, folder: nil, unavailableReason: "Копия в облаке — в Finder не открыть"),
+            CopyPlace(destination: laptop, folder: nil, unavailableReason: "No copies yet"),
+            CopyPlace(destination: cloud, folder: nil, unavailableReason: "The copy is in the cloud and can’t be opened in Finder"),
         ])
 
         state.lastDelivered[AppState.deliveryKey(sourceId: anki.id, destinationId: laptop.id)] = "2026-10-01_012056"

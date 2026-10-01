@@ -91,7 +91,7 @@ public struct RcloneDestination: DestinationStore {
         if result.exitCode == Self.directoryNotFoundExitCode { return 0 }
         try check(result)
         guard let size = try? JSONDecoder().decode(Size.self, from: Data(result.stdout.utf8)) else {
-            throw DestinationError.commandFailed("Не удалось разобрать ответ rclone size.")
+            throw DestinationError.commandFailed("Could not parse the output of rclone size.")
         }
         return size.bytes
     }

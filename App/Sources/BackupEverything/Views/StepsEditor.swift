@@ -6,7 +6,7 @@ struct StepsEditor: View {
     let currentIndex: Int?
 
     var body: some View {
-        SettingsSection(title: steps.count > 1 ? "Что делать · шаги выполняются по очереди" : "Что делать") {
+        SettingsSection(title: steps.count > 1 ? "What to do · steps run in order" : "What to do") {
             ForEach($steps) { $step in
                 let index = steps.firstIndex { $0.id == step.id } ?? 0
                 StepCard(
@@ -21,7 +21,7 @@ struct StepsEditor: View {
                 )
             }
             HStack {
-                Menu("Добавить шаг") {
+                Menu("Add step") {
                     ForEach(StepKindChoice.allCases) { choice in
                         Button(choice.title, systemImage: choice.symbol) { steps.append(StepDraft(new: choice)) }
                     }
@@ -69,11 +69,11 @@ private struct StepCard: View {
             Image(systemName: step.kindChoice.symbol)
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
-            TextField("", text: $step.name, prompt: Text("Название шага"))
+            TextField("", text: $step.name, prompt: Text("Step name"))
                 .textFieldStyle(.plain)
                 .font(.body.weight(.medium))
             if isCurrent {
-                Text("сейчас здесь").font(.caption).foregroundStyle(.tint)
+                Text("now here").font(.caption).foregroundStyle(.tint)
             }
             Picker("", selection: $step.kindChoice) {
                 ForEach(StepKindChoice.allCases) { Text($0.title).tag($0) }
@@ -84,14 +84,14 @@ private struct StepCard: View {
             if number != nil {
                 Button { move(-1) } label: { Image(systemName: "chevron.up") }
                     .disabled(!canMoveUp)
-                    .hoverTip("Выше")
+                    .hoverTip("Move up")
                 Button { move(1) } label: { Image(systemName: "chevron.down") }
                     .disabled(!canMoveDown)
-                    .hoverTip("Ниже")
+                    .hoverTip("Move down")
             }
             if let remove {
                 Button(role: .destructive, action: remove) { Image(systemName: "trash") }
-                    .hoverTip("Удалить шаг")
+                    .hoverTip("Delete step")
             }
         }
         .buttonStyle(.borderlessPointing)
@@ -108,17 +108,17 @@ private struct StepCard: View {
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
-            .hoverTip("Инструкция: что нужно сделать руками")
+            .hoverTip("Instructions: what to do by hand")
     }
 
     @ViewBuilder
     private var folderFields: some View {
-        SettingsRow(title: "Папка или файл") {
+        SettingsRow(title: "Folder or file") {
             PathField(path: $step.folderPath, allowsFiles: true)
         }
-        DisclosureRow(title: "Не копировать", summary: step.excludes.isEmpty ? "ничего" : step.excludes.joined(separator: ", ")) {
+        DisclosureRow(title: "Don’t copy", summary: step.excludes.isEmpty ? "nothing" : step.excludes.joined(separator: ", ")) {
             CodeEditor(text: $step.excludesText, minHeight: 60)
-            Text("По одной маске в строке, например *.tmp")
+            Text("One mask per line, e.g. *.tmp")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -130,10 +130,10 @@ private struct StepCard: View {
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
         SettingsRow(
-            title: "Останавливать через",
-            tip: "Результат — в $BACKUP_OUTPUT_DIR.\nФайлы от тебя, не входящие в копию, — в $BACKUP_INPUT_DIR.\nДля временных файлов есть $BACKUP_SCRATCH_DIR."
+            title: "Stop after",
+            tip: "Output goes to $BACKUP_OUTPUT_DIR.\nFiles from you that aren’t part of the copy are in $BACKUP_INPUT_DIR.\nUse $BACKUP_SCRATCH_DIR for temporary files."
         ) {
-            Stepper("\(step.timeoutMinutes) мин", value: $step.timeoutMinutes, in: 1...720)
+            Stepper("\(step.timeoutMinutes) min", value: $step.timeoutMinutes, in: 1...720)
                 .pointing()
         }
     }
@@ -141,32 +141,32 @@ private struct StepCard: View {
     @ViewBuilder
     private var fileFields: some View {
         instructionsEditor
-        SettingsRow(title: "Куда попадает файл") {
+        SettingsRow(title: "Where the file lands") {
             PathField(path: $step.watchPath)
         }
-        SettingsRow(title: "Маска файла") {
-            TextField("", text: $step.filePattern, prompt: Text("например, manifest-*.json"))
+        SettingsRow(title: "File mask") {
+            TextField("", text: $step.filePattern, prompt: Text("e.g. manifest-*.json"))
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.trailing)
                 .font(.body.monospaced())
         }
-        SettingsRow(title: "Файлов в одном экспорте") {
+        SettingsRow(title: "Files per export") {
             Picker("", selection: $step.fileMode) {
-                Text("Один — забирать сразу").tag(FileMode.single)
-                Text("Несколько — ждать «Забрать»").tag(FileMode.multiple)
+                Text("One — pick up right away").tag(FileMode.single)
+                Text("Several — wait for “Pick up”").tag(FileMode.multiple)
             }
             .labelsHidden()
             .fixedSize()
             .pointing()
         }
-        SettingsRow(title: "Сохранять этот файл в бэкапе", tip: "Выключите, если файл нужен только следующим шагам.") {
+        SettingsRow(title: "Keep this file in the backup", tip: "Turn off if only the next steps need the file.") {
             Toggle("", isOn: $step.includeInCopy)
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .labelsHidden()
                 .pointing()
         }
-        SettingsRow(title: "Убирать оригинал в Корзину", tip: "Выключите, чтобы файл остался в папке, а в бэкап ушла копия.") {
+        SettingsRow(title: "Move the original to the Trash", tip: "Turn off to leave the file in the folder and back up a copy.") {
             Toggle("", isOn: $step.removeOriginal)
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -179,10 +179,10 @@ private struct StepCard: View {
     private var deviceFields: some View {
         instructionsEditor
         SettingsRow(
-            title: "Путь на устройстве",
-            tip: "Шаг ждёт, пока этот путь появится — то есть пока устройство подключено.\nЕсли оставить пустым, берётся папка следующего шага."
+            title: "Path on the device",
+            tip: "The step waits until this path appears, i.e. until the device is connected.\nIf left empty, the next step’s folder is used."
         ) {
-            TextField("", text: $step.devicePath, prompt: Text(followedByFolder ? "папка следующего шага" : "/Volumes/…"))
+            TextField("", text: $step.devicePath, prompt: Text(followedByFolder ? "next step’s folder" : "/Volumes/…"))
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.trailing)
         }

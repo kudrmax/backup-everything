@@ -1,6 +1,6 @@
 import Foundation
 
-/// Кто начал запуск: от этого зависит, жёлто ли напоминать о шаге человека или спокойно ждать.
+/// Who started the run: this decides whether to remind about a manual step in yellow or wait calmly.
 public enum RunStart: String, Codable, Sendable {
     case schedule
     case button
@@ -77,7 +77,7 @@ public struct Debt: Codable, Sendable, Equatable {
     public var destinationId: UUID
     public var since: Date
     public var lastAttempt: Date?
-    /// Каждый пропущенный бэкап есть на другом назначении. Если хоть один нигде больше нет — диск нужен сразу, а не к своему сроку.
+    /// Every missed backup exists on another destination. If even one exists nowhere else, the disk is needed right away, not when it is due.
     public var elsewhere: Bool
 
     public init(sourceId: UUID, destinationId: UUID, since: Date, lastAttempt: Date? = nil, elsewhere: Bool = true) {

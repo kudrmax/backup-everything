@@ -12,16 +12,16 @@ struct SourcePresentationTests {
 
         #expect(try JSONCoding.decoder().decode(Source.self, from: legacy) == source)
 
-        source.description = "Все заметки"
+        source.description = "All notes"
         source.icon = "a.png"
         #expect(try JSONCoding.decoder().decode(Source.self, from: JSONCoding.encoder().encode(source)) == source)
     }
 
     @Test func templateSavedBeforeDescriptionsStillLoads() throws {
-        let legacy = Data(#"{"id":"x","name":"X","kind":{"folder":{"path":"~/x","excludes":[]}},"schedule":"daily","retention":{"daily":1,"weekly":0,"monthly":0,"yearly":0},"instructions":"шаги"}"#.utf8)
+        let legacy = Data(#"{"id":"x","name":"X","kind":{"folder":{"path":"~/x","excludes":[]}},"schedule":"daily","retention":{"daily":1,"weekly":0,"monthly":0,"yearly":0},"instructions":"steps"}"#.utf8)
         let template = try JSONCoding.decoder().decode(SourceTemplate.self, from: legacy)
         #expect(template.description.isEmpty)
-        #expect(template.instructions == "шаги")
+        #expect(template.instructions == "steps")
     }
 
     @Test func everyBundledTemplateSaysWhatItBacksUp() {
@@ -34,13 +34,13 @@ struct SourcePresentationTests {
         let source = ConfigEditor().makeSource(
             name: "GitHub",
             steps: [.folder("~/x", excludes: [])],
-            description: "Все репозитории",
-            instructions: "шаги",
+            description: "All repositories",
+            instructions: "steps",
             now: Fixtures.date("2026-09-28 10:00:00"),
             in: Config()
         )
-        #expect(source.description == "Все репозитории")
-        #expect(source.instructions == "шаги")
+        #expect(source.description == "All repositories")
+        #expect(source.instructions == "steps")
     }
 
     @Test func selfSourceIsDescribedAndNeedsNoInstructions() throws {

@@ -4,7 +4,7 @@ import Testing
 
 struct BackupEngineTests {
     private struct Boom: Error, LocalizedError {
-        var errorDescription: String? { "диск отвалился" }
+        var errorDescription: String? { "disk disconnected" }
     }
 
     private let temp: TempDirectory
@@ -75,7 +75,7 @@ struct BackupEngineTests {
         defer { temp.remove() }
         provider.result = .failure(SourceError.commandFailed(exitCode: 1, output: "auth required"))
         let record = await run()
-        #expect(record.collectError == "Команда завершилась с кодом 1. auth required")
+        #expect(record.collectError == "Command exited with code 1. auth required")
         #expect(record.deliveries.isEmpty)
         #expect(cloudStore.log.isEmpty)
     }
@@ -94,12 +94,12 @@ struct BackupEngineTests {
 
     @Test func passesStatusFromTheSourceWhileCollecting() async {
         defer { temp.remove() }
-        provider.statuses = ["1 из 2", "2 из 2"]
+        provider.statuses = ["1 of 2", "2 of 2"]
         _ = await run()
         #expect(Array(events.get().prefix(3)) == [
             .collecting(sourceId: source.id),
-            .status(sourceId: source.id, text: "1 из 2"),
-            .status(sourceId: source.id, text: "2 из 2"),
+            .status(sourceId: source.id, text: "1 of 2"),
+            .status(sourceId: source.id, text: "2 of 2"),
         ])
     }
 
@@ -117,8 +117,8 @@ struct BackupEngineTests {
         diskStore.writeError = Boom()
         diskStore.snapshots = ["2026-09-25 10:00:00", "2026-09-26 10:00:00", "2026-09-27 10:00:00"].map(Fixtures.snapshot)
         let record = await run()
-        #expect(record.deliveries.map(\.outcome) == [.failed(message: "диск отвалился"), .delivered(pruned: 0, warning: nil)])
-        #expect(record.firstFailure == "диск отвалился")
+        #expect(record.deliveries.map(\.outcome) == [.failed(message: "disk disconnected"), .delivered(pruned: 0, warning: nil)])
+        #expect(record.firstFailure == "disk disconnected")
         #expect(diskStore.snapshots.count == 3)
         #expect(provider.finished == [false])
     }
@@ -137,7 +137,7 @@ struct BackupEngineTests {
         cloudStore.snapshots = ["2026-09-25 10:00:00", "2026-09-26 10:00:00"].map(Fixtures.snapshot)
         cloudStore.deleteError = Boom()
         let record = await run()
-        #expect(record.deliveries[1].outcome == .delivered(pruned: 0, warning: "Не удалось очистить старые копии: диск отвалился"))
+        #expect(record.deliveries[1].outcome == .delivered(pruned: 0, warning: "Could not clean up old copies: disk disconnected"))
         #expect(record.firstFailure == nil)
     }
 

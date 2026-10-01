@@ -57,15 +57,15 @@ struct DomainTests {
     @Test func stepsHaveReadableJSONShape() throws {
         let json = #"{"folder":{"path":"~/Obsidian","excludes":[".trash"]}}"#
         #expect(try JSONCoding.decoder().decode(StepKind.self, from: Data(json.utf8)) == .folder(path: "~/Obsidian", excludes: [".trash"]))
-        let step = SourceStep.device("/Volumes/PB", instructions: "подключи", id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)
+        let step = SourceStep.device("/Volumes/PB", instructions: "connect it", id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)
         let encoded = String(decoding: try JSONCoding.encoder(pretty: false).encode(step), as: UTF8.self)
-        #expect(encoded == #"{"id":"00000000-0000-0000-0000-000000000001","kind":{"device":{"instructions":"подключи","path":"/Volumes/PB"}},"name":"Подключить устройство"}"#)
+        #expect(encoded == #"{"id":"00000000-0000-0000-0000-000000000001","kind":{"device":{"instructions":"connect it","path":"/Volumes/PB"}},"name":"Connect device"}"#)
     }
 
     @Test func everyStepKindRoundTripsThroughJSON() throws {
-        let source = Fixtures.source(name: "Всё сразу", steps: [
-            .device("/Volumes/PB", instructions: "подключи"),
-            .file("manifest-*.json", in: "~/Downloads", mode: .multiple, includeInCopy: false, removeOriginal: false, instructions: "скачай"),
+        let source = Fixtures.source(name: "Everything at once", steps: [
+            .device("/Volumes/PB", instructions: "connect it"),
+            .file("manifest-*.json", in: "~/Downloads", mode: .multiple, includeInCopy: false, removeOriginal: false, instructions: "download it"),
             .command("echo hi", timeoutSeconds: 60),
             .folder("/Volumes/PB/Books", excludes: [".cache"]),
         ])
@@ -74,37 +74,37 @@ struct DomainTests {
 
     @Test func sourcesSavedAsOldKindsBecomeSteps() throws {
         let owner = UUID(uuidString: "3A907808-6476-4794-85A6-52CECF2B501F")!
-        func legacy(_ kind: String, instructions: String = "как выгрузить") throws -> Source {
+        func legacy(_ kind: String, instructions: String = "how to export") throws -> Source {
             let json = #"{"id":"\#(owner.uuidString)","name":"X","slug":"x","kind":\#(kind),"schedule":"monthly","retention":{"daily":0,"weekly":0,"monthly":12,"yearly":0},"destinationIds":[],"instructions":"\#(instructions)","enabled":true,"createdAt":"2026-09-30T10:00:00Z"}"#
             return try JSONCoding.decoder().decode(Source.self, from: Data(json.utf8))
         }
 
         let folder = try legacy(#"{"folder":{"path":"~/Obsidian","excludes":[".trash"]}}"#)
         #expect(folder.steps.map(\.kind) == [.folder(path: "~/Obsidian", excludes: [".trash"])])
-        #expect(folder.instructions == "как выгрузить")
+        #expect(folder.instructions == "how to export")
 
         let command = try legacy(#"{"command":{"command":"gh repo list","timeoutSeconds":600}}"#)
         #expect(command.steps.map(\.kind) == [.command(command: "gh repo list", timeoutSeconds: 600)])
 
         let export = try legacy(#"{"manualExport":{"watchPath":"~/Downloads","filePattern":"takeout-*.zip","fileMode":"multiple","removeOriginal":false}}"#)
-        #expect(export.steps.map(\.kind) == [.file(instructions: "как выгрузить", watchPath: "~/Downloads", filePattern: "takeout-*.zip", fileMode: .multiple, includeInCopy: true, removeOriginal: false)])
+        #expect(export.steps.map(\.kind) == [.file(instructions: "how to export", watchPath: "~/Downloads", filePattern: "takeout-*.zip", fileMode: .multiple, includeInCopy: true, removeOriginal: false)])
         #expect(export.instructions.isEmpty)
 
-        let device = try legacy(#"{"device":{"path":"/Volumes/PocketBook","excludes":[".cache"]}}"#, instructions: "подключи кабелем")
+        let device = try legacy(#"{"device":{"path":"/Volumes/PocketBook","excludes":[".cache"]}}"#, instructions: "connect with a cable")
         #expect(device.steps.map(\.kind) == [
-            .device(instructions: "подключи кабелем", path: ""),
+            .device(instructions: "connect with a cable", path: ""),
             .folder(path: "/Volumes/PocketBook", excludes: [".cache"]),
         ])
         #expect(device.instructions.isEmpty)
-        #expect(try legacy(#"{"device":{"path":"/Volumes/PocketBook","excludes":[]}}"#).steps.map(\.id) == device.steps.map(\.id), "id шагов не меняются от чтения к чтению")
+        #expect(try legacy(#"{"device":{"path":"/Volumes/PocketBook","excludes":[]}}"#).steps.map(\.id) == device.steps.map(\.id), "step ids do not change from read to read")
 
-        let chain = try legacy(#"{"steps":{"steps":[{"id":"00000000-0000-0000-0000-000000000002","name":"Манифест","kind":{"manual":{"instructions":"скачай","watchPath":"~/Downloads","filePattern":"manifest-*.json","includeInCopy":false}}}]}}"#)
+        let chain = try legacy(#"{"steps":{"steps":[{"id":"00000000-0000-0000-0000-000000000002","name":"Manifest","kind":{"manual":{"instructions":"download it","watchPath":"~/Downloads","filePattern":"manifest-*.json","includeInCopy":false}}}]}}"#)
         #expect(chain.steps == [SourceStep(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
-            name: "Манифест",
-            kind: .file(instructions: "скачай", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)
+            name: "Manifest",
+            kind: .file(instructions: "download it", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)
         )])
-        #expect(chain.instructions == "как выгрузить")
+        #expect(chain.instructions == "how to export")
     }
 
     @Test func sourceKnowsWhatItNeedsFromAHuman() {
@@ -131,7 +131,7 @@ struct DomainTests {
         #expect(try JSONCoding.decoder().decode(SourceState.self, from: legacy).chain == nil)
 
         let at = Fixtures.date("2026-09-28 10:00:00")
-        let state = SourceState(chain: ChainState(stepIndex: 1, startedAt: at, stepEnteredAt: at, failure: "сломалось"))
+        let state = SourceState(chain: ChainState(stepIndex: 1, startedAt: at, stepEnteredAt: at, failure: "broke"))
         #expect(try JSONCoding.decoder().decode(SourceState.self, from: JSONCoding.encoder().encode(state)) == state)
     }
 }

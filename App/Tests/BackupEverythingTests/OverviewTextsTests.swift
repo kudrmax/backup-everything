@@ -8,65 +8,65 @@ struct OverviewTextsTests {
 
     @Test func ageIsShortAndCoarse() {
         #expect(Texts.age(nil, now: now) == "—")
-        #expect(Texts.age(now.addingTimeInterval(-20), now: now) == "сейчас")
-        #expect(Texts.age(now.addingTimeInterval(-5 * 60), now: now) == "5 мин")
-        #expect(Texts.age(now.addingTimeInterval(-3 * 3600), now: now) == "3 ч")
-        #expect(Texts.age(now.addingTimeInterval(-9 * 86_400), now: now) == "9 дн")
-        #expect(Texts.age(now.addingTimeInterval(-70 * 86_400), now: now) == "2 мес")
-        #expect(Texts.age(now.addingTimeInterval(-800 * 86_400), now: now) == "2 г")
+        #expect(Texts.age(now.addingTimeInterval(-20), now: now) == "now")
+        #expect(Texts.age(now.addingTimeInterval(-5 * 60), now: now) == "5 min")
+        #expect(Texts.age(now.addingTimeInterval(-3 * 3600), now: now) == "3 h")
+        #expect(Texts.age(now.addingTimeInterval(-9 * 86_400), now: now) == "9 d")
+        #expect(Texts.age(now.addingTimeInterval(-70 * 86_400), now: now) == "2 mo")
+        #expect(Texts.age(now.addingTimeInterval(-800 * 86_400), now: now) == "2 y")
     }
 
-    @Test(arguments: [(1, "1 ошибка"), (2, "2 ошибки"), (5, "5 ошибок"), (11, "11 ошибок"), (21, "21 ошибка"), (24, "24 ошибки")])
-    func errorCountIsDeclinedInRussian(count: Int, expected: String) {
+    @Test(arguments: [(1, "1 error"), (2, "2 errors"), (5, "5 errors"), (11, "11 errors"), (21, "21 errors"), (24, "24 errors")])
+    func errorCountAgreesWithTheNumber(count: Int, expected: String) {
         #expect(Texts.errors(count) == expected)
     }
 
-    @Test(arguments: [(1, "1 файл"), (3, "3 файла"), (5, "5 файлов"), (12, "12 файлов"), (22, "22 файла")])
-    func fileCountIsDeclinedInRussian(count: Int, expected: String) {
+    @Test(arguments: [(1, "1 file"), (3, "3 files"), (5, "5 files"), (12, "12 files"), (22, "22 files")])
+    func fileCountAgreesWithTheNumber(count: Int, expected: String) {
         #expect(Texts.files(count) == expected)
     }
 
     @Test func headlineSummarisesTheReport() {
         let first = UUID()
         let second = UUID()
-        #expect(Texts.headline(StatusReport(items: [])) == "Всё в порядке")
-        #expect(Texts.headline(StatusReport(items: [.waitingForFile(sourceId: first)])) == "Всё в порядке")
-        #expect(Texts.headline(StatusReport(items: [.manualExportDue(sourceId: first)])) == "Нужно твоё действие")
+        #expect(Texts.headline(StatusReport(items: [])) == "All good")
+        #expect(Texts.headline(StatusReport(items: [.waitingForFile(sourceId: first)])) == "All good")
+        #expect(Texts.headline(StatusReport(items: [.manualExportDue(sourceId: first)])) == "Needs your action")
         #expect(Texts.headline(StatusReport(items: [
             .runFailed(sourceId: first, message: "a"),
             .severelyOverdue(sourceId: first),
             .runFailed(sourceId: second, message: "b"),
             .manualExportDue(sourceId: second),
-        ])) == "2 ошибки")
+        ])) == "2 errors")
     }
 
     @Test func rowNoteIsEmptyWhenNothingNeedsSaying() {
         #expect(SourceStatus.ok.note == nil)
         #expect(SourceStatus.neverRun.note == nil)
-        #expect(SourceStatus.disabled.note == "выключен")
-        #expect(SourceStatus.failed("диск отвалился").note == "диск отвалился")
-        #expect(SourceStatus.failed("Команда завершилась с кодом 1. fatal: early EOF").errorMessage == "Команда завершилась с кодом 1. fatal: early EOF")
+        #expect(SourceStatus.disabled.note == "disabled")
+        #expect(SourceStatus.failed("disk dropped off").note == "disk dropped off")
+        #expect(SourceStatus.failed("Command exited with code 1. fatal: early EOF").errorMessage == "Command exited with code 1. fatal: early EOF")
         #expect(SourceStatus.overdue.errorMessage == nil)
-        #expect(SourceStatus.failed("Не найден путь источника: /Users/max/Obsidian").note == "Не найден путь источника")
-        #expect(SourceStatus.failed("Команда завершилась с кодом 1. gh: run gh auth login").note == "gh: run gh auth login")
-        #expect(SourceStatus.failed("Команда завершилась с кодом 1. скачано 0 из 1\nНе скачались архивы: a.zip. Запросите экспорт заново.\n").note == "Не скачались архивы: a.zip. Запросите экспорт заново.")
-        #expect(SourceStatus.failed("Команда не уложилась в 60 с и была остановлена. ").note == "Команда не уложилась в 60 с и была остановлена")
-        #expect(SourceStatus.failed("rclone завершился с ошибкой: quota exceeded").note == "rclone завершился с ошибкой")
-        #expect(SourceStatus.filesFound(count: 3, bytes: 12_000_000_000, downloading: false).note == "3 файла · 12 ГБ")
-        #expect(SourceStatus.filesFound(count: 1, bytes: 5_000_000, downloading: true).note == "1 файл · 5 МБ · идёт загрузка")
-        #expect(SourceStatus.exportDue.note == "пора сделать экспорт")
-        #expect(SourceStatus.waiting.note == "ждёт файл")
+        #expect(SourceStatus.failed("Source path not found: /Users/max/Obsidian").note == "Source path not found")
+        #expect(SourceStatus.failed("Command exited with code 1. gh: run gh auth login").note == "gh: run gh auth login")
+        #expect(SourceStatus.failed("Command exited with code 1. downloaded 0 of 1\nArchives not downloaded: a.zip. Request the export again.\n").note == "Archives not downloaded: a.zip. Request the export again.")
+        #expect(SourceStatus.failed("Command did not finish within 60 s and was stopped. ").note == "Command did not finish within 60 s and was stopped")
+        #expect(SourceStatus.failed("rclone failed: quota exceeded").note == "rclone failed")
+        #expect(SourceStatus.filesFound(count: 3, bytes: 12_000_000_000, downloading: false).note == "3 files · 12 GB")
+        #expect(SourceStatus.filesFound(count: 1, bytes: 5_000_000, downloading: true).note == "1 file · 5 MB · downloading")
+        #expect(SourceStatus.exportDue.note == "time to export")
+        #expect(SourceStatus.waiting.note == "waiting for a file")
         #expect(SourceStatus.waiting.severity == .ok)
-        #expect(SourceStatus.deviceDue.note == "пора подключить")
+        #expect(SourceStatus.deviceDue.note == "time to connect")
         #expect(SourceStatus.deviceDue.severity == .attention)
-        #expect(SourceStatus.waitingForDevice.note == "ждёт подключения")
+        #expect(SourceStatus.waitingForDevice.note == "waiting for the device")
         #expect(SourceStatus.waitingForDevice.severity == .ok)
-        #expect(SourceStatus.noDestinations.note == "не выбрано, куда бэкапить")
-        #expect(SourceStatus.overdue.note == "давно не было бэкапа")
+        #expect(SourceStatus.noDestinations.note == "no destination chosen")
+        #expect(SourceStatus.overdue.note == "no backup for a long time")
     }
 
-    @Test(arguments: [(0, "0 копий"), (1, "1 копия"), (3, "3 копии"), (14, "14 копий"), (21, "21 копия")])
-    func copyCountIsDeclinedInRussian(count: Int, expected: String) {
+    @Test(arguments: [(0, "0 copies"), (1, "1 copy"), (3, "3 copies"), (14, "14 copies"), (21, "21 copies")])
+    func copyCountAgreesWithTheNumber(count: Int, expected: String) {
         #expect(Texts.copies(count) == expected)
     }
 
@@ -84,22 +84,22 @@ struct OverviewTextsTests {
         let idle = UUID()
         let disk = UUID()
         let report = StatusReport(items: [
-            .runFailed(sourceId: running, message: "сеть"),
+            .runFailed(sourceId: running, message: "network"),
             .severelyOverdue(sourceId: running),
-            .runFailed(sourceId: idle, message: "диск"),
+            .runFailed(sourceId: idle, message: "disk"),
             .connectDestination(destinationId: disk),
         ])
         #expect(LiveReport.of(report, running: [running]).items == [
-            .runFailed(sourceId: idle, message: "диск"),
+            .runFailed(sourceId: idle, message: "disk"),
             .connectDestination(destinationId: disk),
         ])
         #expect(LiveReport.of(report, running: []).items == report.items)
     }
 
     @Test func headlineSaysThatABackupIsRunningWhenNothingElseNeedsAttention() {
-        #expect(Texts.headline(StatusReport(items: []), isWorking: true) == "Идёт бэкап")
-        #expect(Texts.headline(StatusReport(items: [.runFailed(sourceId: UUID(), message: "a")]), isWorking: true) == "1 ошибка")
-        #expect(Texts.headline(StatusReport(items: []), isWorking: false) == "Всё в порядке")
+        #expect(Texts.headline(StatusReport(items: []), isWorking: true) == "Backing up")
+        #expect(Texts.headline(StatusReport(items: [.runFailed(sourceId: UUID(), message: "a")]), isWorking: true) == "1 error")
+        #expect(Texts.headline(StatusReport(items: []), isWorking: false) == "All good")
     }
 
     @Test func menuBarIconIsTintedOnlyWhenSomethingNeedsAttention() {

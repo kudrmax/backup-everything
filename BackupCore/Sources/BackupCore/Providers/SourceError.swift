@@ -12,19 +12,19 @@ public enum SourceError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .pathMissing(path):
-            "Не найден путь источника: \(path)"
+            "Source path not found: \(path)"
         case let .commandFailed(exitCode, output):
-            "Команда завершилась с кодом \(exitCode). \(output)"
+            "Command exited with code \(exitCode). \(output)"
         case let .commandTimedOut(seconds, output):
-            "Команда не уложилась в \(seconds) с и была остановлена. \(output)"
+            "Command did not finish within \(seconds) s and was stopped. \(output)"
         case .emptyResult:
-            "Источник не дал ни одного файла. Пустая копия не создаётся."
+            "The source produced no files. An empty copy is not created."
         case .nothingToCollect:
-            "Нет подхваченных файлов для этого источника."
+            "No picked-up files for this source."
         case let .pickupFailed(reason):
-            "Не удалось забрать файлы: \(reason)"
+            "Could not pick up the files: \(reason)"
         case let .stepFailed(index, count, name, reason):
-            "Шаг \(index + 1) из \(count) «\(name)». \(reason)"
+            "Step \(index + 1) of \(count) “\(name)”. \(reason)"
         }
     }
 }

@@ -11,8 +11,8 @@ enum BundledTemplates {
         steps: [.folder("~/Documents/Obsidian", excludes: [".trash", ".obsidian/workspace*.json"])],
         schedule: .daily,
         retention: .standard,
-        description: "Все заметки и настройки хранилища, кроме корзины и состояния окон.",
-        instructions: "Укажите путь к папке своего хранилища Obsidian."
+        description: "All notes and vault settings, except the trash and window state.",
+        instructions: "Enter the path to your Obsidian vault folder."
     )
 
     private static let github = SourceTemplate(
@@ -22,11 +22,11 @@ enum BundledTemplates {
             #"""
             set -euo pipefail
 
-            # Не бэкапить эти репозитории: по одному в строке, в виде владелец/имя
+            # Do not back up these repositories: one per line, as owner/name
             IGNORE="
             "
 
-            # Обрыв сети не должен губить весь запуск: каждый репозиторий пробуется до трёх раз
+            # A network drop must not ruin the whole run: each repository is tried up to three times
             clone() {
               local attempt
               for attempt in 1 2 3; do
@@ -40,25 +40,25 @@ enum BundledTemplates {
             n=0
             for repo in $repos; do
               n=$((n + 1))
-              echo "$n из ${#repos} · $repo"
+              echo "$n of ${#repos} · $repo"
               clone "$repo" "$BACKUP_SCRATCH_DIR/$repo.git"
               mkdir -p "$BACKUP_OUTPUT_DIR/$(dirname "$repo")"
               git -C "$BACKUP_SCRATCH_DIR/$repo.git" bundle create --quiet "$BACKUP_OUTPUT_DIR/$repo.bundle" --all || [ -z "$(git -C "$BACKUP_SCRATCH_DIR/$repo.git" for-each-ref)" ]
             done
             """#,
             timeoutSeconds: 3600,
-            name: "Склонировать репозитории"
+            name: "Clone repositories"
         )],
         schedule: .weekly,
         retention: RetentionRules(daily: 0, weekly: 4, monthly: 6, yearly: 0),
-        description: "Все твои репозитории. Каждый сохраняется одним файлом .bundle со всей историей. Восстановление: git clone имя.bundle",
+        description: "All your repositories. Each one is saved as a single .bundle file with its full history. To restore: git clone name.bundle",
         instructions: """
-        Один раз выполните в терминале:
+        Run once in Terminal:
 
         1. `brew install gh`
         2. `gh auth login`
 
-        Чтобы пропустить репозитории, впишите их в `IGNORE` в начале команды — по одному в строке, в виде `владелец/имя`.
+        To skip repositories, list them in `IGNORE` at the top of the command — one per line, as `owner/name`.
         """
     )
 
@@ -74,17 +74,17 @@ enum BundledTemplates {
             bw export --format json --output "$BACKUP_OUTPUT_DIR/bitwarden.json"
             """#,
             timeoutSeconds: 300,
-            name: "Выгрузить хранилище"
+            name: "Export vault"
         )],
         schedule: .weekly,
         retention: RetentionRules(daily: 0, weekly: 8, monthly: 12, yearly: 0),
-        description: "Все записи хранилища паролей одним файлом JSON. Экспорт не зашифрован — направляйте его только в назначения, которым доверяете.",
+        description: "All password vault items as a single JSON file. The export is not encrypted — send it only to destinations you trust.",
         instructions: """
-        Один раз выполните в терминале:
+        Run once in Terminal:
 
         1. `brew install bitwarden-cli`
         2. `bw login`
-        3. `security add-generic-password -s backup-everything-bitwarden -a bitwarden -w` — введите мастер-пароль, он сохранится в Связке ключей.
+        3. `security add-generic-password -s backup-everything-bitwarden -a bitwarden -w` — enter your master password; it will be saved in the Keychain.
         """
     )
 
@@ -97,18 +97,18 @@ enum BundledTemplates {
                 in: downloads,
                 mode: .single,
                 instructions: """
-                1. Откройте приложение «Пароли».
-                2. Файл → Экспортировать все пароли в файл…
-                3. Сохраните файл в «Загрузки», не меняя имя.
+                1. Open the Passwords app.
+                2. File → Export All Passwords to File…
+                3. Save the file to Downloads without renaming it.
 
-                Приложение заберёт его из «Загрузок» само.
+                The app will pick it up from Downloads on its own.
                 """,
-                name: "Выгрузить пароли"
+                name: "Export passwords"
             ),
         ],
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 12, yearly: 0),
-        description: "Все пароли из приложения «Пароли» одним файлом CSV. Файл не зашифрован — направляйте его только в назначения, которым доверяете.",
+        description: "All passwords from the Passwords app as a single CSV file. The file is not encrypted — send it only to destinations you trust.",
         instructions: ""
     )
 
@@ -121,26 +121,26 @@ enum BundledTemplates {
                 in: downloads,
                 mode: .single,
                 instructions: """
-                С iPhone (рекомендуется):
+                From the iPhone (recommended):
 
-                1. Откройте «Контакты» и нажмите «Списки» вверху слева.
-                2. Удерживайте «Все контакты» → «Экспортировать» → Выбрать все поля → «Экспортировать».
-                3. Отправьте файл на этот Mac через AirDrop — он попадёт в «Загрузки».
+                1. Open Contacts and tap Lists at the top left.
+                2. Touch and hold All Contacts → Export → select all fields → Export.
+                3. AirDrop the file to this Mac — it will land in Downloads.
 
-                Или с Mac:
+                Or from the Mac:
 
-                1. Откройте «Контакты», выберите «Все контакты» и выделите всё (⌘A).
-                2. Файл → Экспортировать → Экспортировать vCard…
-                3. Сохраните файл в «Загрузки».
+                1. Open Contacts, choose All Contacts and select everything (⌘A).
+                2. File → Export → Export vCard…
+                3. Save the file to Downloads.
 
-                Приложение заберёт его из «Загрузок» само.
+                The app will pick it up from Downloads on its own.
                 """,
-                name: "Выгрузить контакты"
+                name: "Export contacts"
             ),
         ],
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 12, yearly: 0),
-        description: "Все контакты одним файлом vCard. Восстановление: откройте файл на iPhone или Mac.",
+        description: "All contacts as a single vCard file. To restore: open the file on an iPhone or Mac.",
         instructions: ""
     )
 
@@ -153,18 +153,18 @@ enum BundledTemplates {
                 in: downloads,
                 mode: .multiple,
                 instructions: """
-                1. Откройте https://takeout.google.com
-                2. Нажмите «Отменить выбор» и отметьте только Google Фото.
-                3. Формат .zip, размер частей 50 ГБ, «Создать экспорт».
-                4. Когда придёт письмо, скачайте все части в «Загрузки».
-                5. Когда все части скачаны, нажмите «Готово, забрать».
+                1. Open https://takeout.google.com
+                2. Click “Deselect all” and tick only Google Photos.
+                3. Choose .zip, 50 GB parts, then “Create export”.
+                4. When the email arrives, download all parts to Downloads.
+                5. When all parts are downloaded, click “Pick up”.
                 """,
-                name: "Выгрузить Takeout"
+                name: "Export Takeout"
             ),
         ],
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 3, yearly: 0),
-        description: "Все фото и видео из Google Фото — архивы Google Takeout.",
+        description: "All photos and videos from Google Photos — Google Takeout archives.",
         instructions: ""
     )
 
@@ -174,14 +174,14 @@ enum BundledTemplates {
         steps: [
             SourceStep(
                 id: UUID(uuidString: "C1A0DE00-0000-4000-8000-000000000001")!,
-                name: "Запросить экспорт",
+                name: "Request export",
                 kind: .file(
                     instructions: """
-                    1. Откройте https://claude.ai → Settings → Privacy → Export data.
-                    2. Дождитесь письма и перейдите по ссылке из него.
-                    3. Скачайте файл манифеста в «Загрузки», не меняя имя.
+                    1. Open https://claude.ai → Settings → Privacy → Export data.
+                    2. Wait for the email and follow the link in it.
+                    3. Download the manifest file to Downloads without renaming it.
 
-                    Архивы приложение скачает само через браузер по умолчанию: в нём должен быть выполнен вход в claude.ai, а переименование загрузок выключено.
+                    The app downloads the archives itself through the default browser: you must be signed in to claude.ai there, and download renaming must be turned off.
                     """,
                     watchPath: downloads,
                     filePattern: "manifest-*.json",
@@ -192,7 +192,7 @@ enum BundledTemplates {
             ),
             SourceStep(
                 id: UUID(uuidString: "C1A0DE00-0000-4000-8000-000000000002")!,
-                name: "Скачать архивы",
+                name: "Download archives",
                 kind: .command(
                     command: #"""
                     set -euo pipefail
@@ -201,7 +201,7 @@ enum BundledTemplates {
                     wait_seconds="${BACKUP_WAIT_SECONDS:-3300}"
 
                     manifest=("$BACKUP_INPUT_DIR"/manifest-*.json(N.om[1]))
-                    [ ${#manifest} -eq 1 ] || { echo "Манифест экспорта не найден." >&2; exit 1; }
+                    [ ${#manifest} -eq 1 ] || { echo "Export manifest not found." >&2; exit 1; }
                     created="$(plutil -extract created_at raw -o - "$manifest")"
                     since="$(date -j -u -f '%Y-%m-%dT%H:%M:%S' "${created[1,19]}" +%s)"
                     total="$(plutil -extract data_files raw -o - "$manifest")"
@@ -212,13 +212,13 @@ enum BundledTemplates {
                       urls+=("$(plutil -extract "data_files.$i.export_url" raw -o - "$manifest")")
                     done
 
-                    # Браузер ставит файлу дату изменения с сервера, поэтому возраст считается и по дате появления на диске
+                    # The browser sets the file's modification date from the server, so its age also counts from when it appeared on disk
                     age_mark() {
                       local born changed
                       born="$(stat -f %B "$1")"; changed="$(stat -f %m "$1")"
                       echo $(( born > changed ? born : changed ))
                     }
-                    # Firefox дописывает .part, Chrome и Arc — .crdownload, Safari — .download
+                    # Firefox appends .part, Chrome and Arc .crdownload, Safari .download
                     in_progress() {
                       local suffix
                       for suffix in part crdownload download; do
@@ -230,7 +230,7 @@ enum BundledTemplates {
                       [ -s "$downloads/$1" ] && ! in_progress "$1" && [ "$(age_mark "$downloads/$1")" -gt "$since" ]
                     }
 
-                    # Переносит скачанный архив в копию; успех и тогда, когда он уже там
+                    # Moves a downloaded archive into the copy; also succeeds when it is already there
                     collect() {
                       [ -s "$BACKUP_OUTPUT_DIR/$1" ] && return 0
                       downloaded "$1" || return 1
@@ -240,7 +240,7 @@ enum BundledTemplates {
                     for ((i = 1; i <= total; i++)); do
                       collect "$names[i]" && continue
                       if [ -e "$downloads/$names[i]" ] && ! in_progress "$names[i]" && [ "$(age_mark "$downloads/$names[i]")" -le "$since" ]; then
-                        echo "В папке загрузок лежит старый файл $names[i]. Уберите его и повторите шаг." >&2
+                        echo "The downloads folder has an old file $names[i]. Remove it and repeat the step." >&2
                         exit 1
                       fi
                     done
@@ -254,18 +254,18 @@ enum BundledTemplates {
                       left=()
                       for name in $names; do collect "$name" || left+=("$name"); done
                       ready=$(( total - ${#left} ))
-                      if [ "$ready" -ne "$reported" ]; then echo "скачано $ready из $total"; reported=$ready; fi
+                      if [ "$ready" -ne "$reported" ]; then echo "downloaded $ready of $total"; reported=$ready; fi
                       [ ${#left} -eq 0 ] && break
                       if [ "$(date +%s)" -ge "$deadline" ]; then
                         busy=()
                         for name in $left; do
                           if in_progress "$name"; then busy+=("$name"); fi
                         done
-                        advice="Запросите экспорт заново."
+                        advice="Request the export again."
                         if [ ${#busy} -gt 0 ]; then
-                          advice="Ещё не докачались: ${(j:, :)busy}. Когда загрузка закончится, повторите шаг; если она прервалась, удалите незавершённые файлы в папке загрузок и повторите шаг."
+                          advice="Still downloading: ${(j:, :)busy}. When the download finishes, repeat the step; if it was interrupted, delete the unfinished files in the downloads folder and repeat the step."
                         fi
-                        echo "Не скачались архивы: ${(j:, :)left}. $advice" >&2
+                        echo "Archives not downloaded: ${(j:, :)left}. $advice" >&2
                         exit 1
                       fi
                       sleep 2
@@ -277,8 +277,8 @@ enum BundledTemplates {
         ],
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 12, yearly: 0),
-        description: "Все чаты, проекты и память аккаунта Claude — архивы официального экспорта.",
-        instructions: "Экспорт делается в два шага: манифест скачиваете вы, архивы по ссылкам из него приложение скачивает само."
+        description: "All chats, projects and memory of the Claude account — archives from the official export.",
+        instructions: "The export takes two steps: you download the manifest, and the app downloads the archives from the links in it."
     )
 
     private static let claudeCode = SourceTemplate(
@@ -289,7 +289,7 @@ enum BundledTemplates {
             set -euo pipefail
             src="$HOME/.claude"
 
-            # Ссылки в никуда пропускаются, остальные ссылки заменяются настоящими файлами
+            # Broken links are skipped, other links are replaced with the real files
             (cd "$src" && find -L . -type l | sed 's|^\.||') > "$BACKUP_SCRATCH_DIR/broken-links"
 
             rsync -aL --exclude-from="$BACKUP_SCRATCH_DIR/broken-links" \
@@ -303,38 +303,38 @@ enum BundledTemplates {
             if [ -f "$HOME/.claude.json" ]; then cp "$HOME/.claude.json" "$BACKUP_OUTPUT_DIR/dot-claude.json"; fi
             """#,
             timeoutSeconds: 900,
-            name: "Скопировать ~/.claude"
+            name: "Copy ~/.claude"
         )],
         schedule: .weekly,
         retention: RetentionRules(daily: 0, weekly: 4, monthly: 6, yearly: 0),
-        description: "Настройки, инструкции CLAUDE.md, навыки, память и история сессий Claude Code: папка ~/.claude и файл ~/.claude.json. Кэши и загрузки не копируются. В настройках могут быть ключи MCP-серверов — направляйте только в назначения, которым доверяете.",
+        description: "Claude Code settings, CLAUDE.md instructions, skills, memory and session history: the ~/.claude folder and the ~/.claude.json file. Caches and downloads are not copied. The settings may contain MCP server keys — send them only to destinations you trust.",
         instructions: """
-        Настраивать ничего не нужно.
+        Nothing to set up.
 
-        Восстановление: папку `dot-claude` скопировать в `~/.claude`, файл `dot-claude.json` — в `~/.claude.json`, затем войти заново командой `claude /login`.
+        To restore: copy the `dot-claude` folder to `~/.claude` and the `dot-claude.json` file to `~/.claude.json`, then sign in again with `claude /login`.
         """
     )
 
     private static let iosFinance = SourceTemplate(
         id: "ios-finance",
-        name: "Финансы (iOS)",
+        name: "Finance (iOS)",
         steps: [
             .file(
                 "",
                 in: downloads,
                 mode: .single,
                 instructions: """
-                1. В приложении на iPhone откройте экспорт данных в CSV.
-                2. Отправьте файл на Mac через AirDrop — он попадёт в «Загрузки».
+                1. In the app on your iPhone, open the CSV data export.
+                2. AirDrop the file to the Mac — it will land in Downloads.
 
-                Обязательно укажите маску файла по имени, которое даёт ваше приложение, например `MoneyManager*.csv`. Пока маска пустая, ничего не подхватывается. Маску `*.csv` не используйте: под неё попадут любые CSV, включая экспорт паролей.
+                Be sure to set a file pattern matching the name your app gives the file, for example `MoneyManager*.csv`. While the pattern is empty, nothing is picked up. Do not use `*.csv`: it matches any CSV, including the passwords export.
                 """,
-                name: "Выгрузить CSV"
+                name: "Export CSV"
             ),
         ],
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 24, yearly: 0),
-        description: "Выгрузка операций из приложения финансов на iPhone в CSV.",
+        description: "Transactions exported from a finance app on the iPhone as CSV.",
         instructions: ""
     )
 }

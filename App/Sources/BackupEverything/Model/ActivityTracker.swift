@@ -30,7 +30,7 @@ struct ActivityTracker {
         steps[sourceId]
     }
 
-    /// Идёт запись без сбора — то есть копирование готовой копии с другого диска.
+    /// Writing without collecting, i.e. copying a finished copy from another disk.
     func isCopying(_ sourceId: UUID) -> Bool {
         if case .delivering = stages[sourceId] { return !collected.contains(sourceId) }
         return false

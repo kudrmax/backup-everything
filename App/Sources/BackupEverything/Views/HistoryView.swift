@@ -8,16 +8,16 @@ struct HistoryView: View {
     var body: some View {
         Group {
             if runs.isEmpty {
-                EmptyState(symbol: "clock.arrow.circlepath", title: "История пуста", message: "Здесь появятся все прогоны бэкапов.")
+                EmptyState(symbol: "clock.arrow.circlepath", title: "No history yet", message: "Every backup run will show up here.")
             } else {
                 List(runs) { run in
                     RunRow(run: run)
                 }
             }
         }
-        .navigationTitle("История")
+        .navigationTitle("History")
         .toolbar {
-            Toggle("Только проблемы", isOn: $onlyProblems)
+            Toggle("Problems only", isOn: $onlyProblems)
         }
     }
 
@@ -33,7 +33,7 @@ struct RunRow: View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 6) {
                 if let snapshotName = run.snapshotName {
-                    detail("Копия", "\(snapshotName), файлов: \(run.fileCount ?? 0), \(Texts.bytes(run.totalBytes ?? 0))")
+                    detail("Copy", "\(snapshotName), \(Texts.files(run.fileCount ?? 0)), \(Texts.bytes(run.totalBytes ?? 0))")
                 }
                 ForEach(run.deliveries, id: \.destinationId) { delivery in
                     detail(delivery.destinationName, Texts.outcome(delivery.outcome))
@@ -48,7 +48,7 @@ struct RunRow: View {
                         CopyButton(text: failure)
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderlessPointing)
-                            .hoverTip("Скопировать ошибку")
+                            .hoverTip("Copy error")
                     }
                 }
                 if let details = run.details {

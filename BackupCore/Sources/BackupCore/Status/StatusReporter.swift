@@ -105,7 +105,7 @@ public struct StatusReporter: Sendable {
         return StatusReport(items: items)
     }
 
-    /// Что показать, пока источник ждёт шаг человека: «пора …», если запуск начат сроком, и спокойное «ждёт …», если кнопкой.
+    /// What to show while a source waits for a manual step: “time to …” if the run was started by the schedule, and a calm “waiting for …” if by the button.
     private func humanStepItems(_ source: Source, state: SourceState, scan: InboxScan?, deviceMissing: Bool, now: Date) -> [AttentionItem] {
         let chain = state.chain
         guard chain != nil || planner.awaitsFile(source, state: state, now: now) else { return [] }

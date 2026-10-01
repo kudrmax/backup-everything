@@ -28,7 +28,7 @@ struct StepChainRunnerTests {
         StepChainRunner(
             chainsRoot: temp.path("chains"),
             inbox: inbox,
-            runner: FakeProcessRunner(output: ["скачано 1 из 2"], handler: handler),
+            runner: FakeProcessRunner(output: ["downloaded 1 of 2"], handler: handler),
             time: time,
             trash: { [temp] url in try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)")) },
             progress: { [events] event in events.set(events.get() + [event]) }
@@ -36,10 +36,10 @@ struct StepChainRunnerTests {
     }
 
     private func manual(_ pattern: String, includeInCopy: Bool = false) -> SourceStep {
-        SourceStep(name: "Файл \(pattern)", kind: .file(instructions: "", watchPath: temp.path("Downloads").path, filePattern: pattern, fileMode: .single, includeInCopy: includeInCopy, removeOriginal: true))
+        SourceStep(name: "File \(pattern)", kind: .file(instructions: "", watchPath: temp.path("Downloads").path, filePattern: pattern, fileMode: .single, includeInCopy: includeInCopy, removeOriginal: true))
     }
 
-    private func command(_ name: String = "Скачать архивы") -> SourceStep {
+    private func command(_ name: String = "Download archives") -> SourceStep {
         SourceStep(name: name, kind: .command(command: "run \(name)", timeoutSeconds: 60))
     }
 
@@ -90,13 +90,13 @@ struct StepChainRunnerTests {
         let runner = runner()
 
         guard case let .moved(chain) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed) else {
-            Issue.record("шаг не принят")
+            Issue.record("step not accepted")
             return
         }
         #expect(temp.names(in: chainFolder(source, "output")) == ["export-1.csv"])
 
         guard case let .completed(package) = await runner.advance(source, chain: chain, lastPickup: nil, permissions: tickOnly) else {
-            Issue.record("цепочка не завершилась")
+            Issue.record("chain did not finish")
             return
         }
         #expect(inbox.pendingPackage(for: source.id) == package)
@@ -126,7 +126,7 @@ struct StepChainRunnerTests {
         }
 
         guard case let .moved(afterFile) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed) else {
-            Issue.record("файл не принят")
+            Issue.record("file not accepted")
             return
         }
         time.advance(10)
@@ -136,12 +136,12 @@ struct StepChainRunnerTests {
         #expect(events.get() == [
             .collecting(sourceId: source.id),
             .step(sourceId: source.id, index: 1, count: 2),
-            .status(sourceId: source.id, text: "скачано 1 из 2"),
+            .status(sourceId: source.id, text: "downloaded 1 of 2"),
         ])
 
         guard case .moved(let done) = afterCommand,
               case let .completed(package) = await runner.advance(source, chain: done, lastPickup: nil, permissions: tickOnly) else {
-            Issue.record("цепочка не завершилась")
+            Issue.record("chain did not finish")
             return
         }
         #expect(package.collectedAt == start.addingTimeInterval(10))
@@ -156,16 +156,16 @@ struct StepChainRunnerTests {
         try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
         let shouldFail = LockedBox(true)
         let runner = runner { [self] call in
-            shouldFail.get() ? ProcessResult(exitCode: 1, stderr: "Не скачались архивы: a.zip") : try writeArchive(call)
+            shouldFail.get() ? ProcessResult(exitCode: 1, stderr: "Archives not downloaded: a.zip") : try writeArchive(call)
         }
 
         guard case let .moved(afterFile) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed),
               case let .failed(failed) = await runner.advance(source, chain: afterFile, lastPickup: nil, permissions: tickOnly) else {
-            Issue.record("ожидалась ошибка шага")
+            Issue.record("expected a step error")
             return
         }
         #expect(failed.stepIndex == 1)
-        #expect(failed.failure == "Команда завершилась с кодом 1. Не скачались архивы: a.zip")
+        #expect(failed.failure == "Command exited with code 1. Archives not downloaded: a.zip")
         #expect(temp.names(in: chainFolder(source, "input")) == ["manifest-a.json"])
 
         time.advance(7200)
@@ -179,7 +179,7 @@ struct StepChainRunnerTests {
     @Test func freshFirstStepFileDoesNotRestartAStuckChainByItself() async throws {
         defer { temp.remove() }
         let source = source([manual("manifest-*.json"), command()])
-        let failed = chain(source, 1, startedAt: start, stepEnteredAt: start, failure: "ссылки сгорели")
+        let failed = chain(source, 1, startedAt: start, stepEnteredAt: start, failure: "links expired")
         try temp.file("chains/\(source.id.uuidString)/input/manifest-a.json", "{}")
 
         time.advance(600)
@@ -191,7 +191,7 @@ struct StepChainRunnerTests {
 
     @Test func chainThatOpensWithACommandStartsOnlyWhenAllowed() async throws {
         defer { temp.remove() }
-        let source = source([command("Открыть страницу"), manual("export-*.csv", includeInCopy: true)])
+        let source = source([command("Open page"), manual("export-*.csv", includeInCopy: true)])
         let runner = runner()
 
         #expect(await runner.advance(source, chain: nil, lastPickup: nil, permissions: tickOnly) == .stay)
@@ -201,7 +201,7 @@ struct StepChainRunnerTests {
 
     @Test func laterManualStepTakesOnlyFilesThatAppearedAfterThePreviousStep() async throws {
         defer { temp.remove() }
-        let source = source([command("Открыть страницу"), manual("export-*.csv", includeInCopy: true)])
+        let source = source([command("Open page"), manual("export-*.csv", includeInCopy: true)])
         let waiting = chain(source, 1, startedAt: start, stepEnteredAt: start)
         let runner = runner()
 
@@ -222,7 +222,7 @@ struct StepChainRunnerTests {
         let runner = runner()
         guard case let .moved(done) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll),
               case let .failed(failed) = await runner.advance(source, chain: done, lastPickup: nil, permissions: tickOnly) else {
-            Issue.record("ожидалась ошибка пустого результата")
+            Issue.record("expected an empty result error")
             return
         }
         #expect(failed.stepIndex == 1)
@@ -256,12 +256,12 @@ struct StepChainRunnerTests {
         try temp.file("Downloads/manifest-a (1).json", "{}", modified: start.addingTimeInterval(300))
 
         guard case let .moved(done?) = await runner.advance(source, chain: ready, lastPickup: nil, permissions: tickOnly) else {
-            Issue.record("команда должна была выполниться")
+            Issue.record("the command should have run")
             return
         }
         #expect(done.stepIndex == 2)
         guard case .completed = await runner.advance(source, chain: done, lastPickup: nil, permissions: tickOnly) else {
-            Issue.record("результат должен был собраться")
+            Issue.record("the result should have been collected")
             return
         }
         #expect(temp.names(in: "pending/\(source.id.uuidString)/2026-09-28_101000") == ["archive.zip"])
@@ -281,7 +281,7 @@ struct StepChainRunnerTests {
     @Test(arguments: [[1, 2], [0, 2, 1]])
     func chainIsResetWhenTheStepItStoppedOnIsNoLongerInPlace(order: [Int]) async throws {
         defer { temp.remove() }
-        let original = source([manual("manifest-*.json"), command("Скачать"), command("Распаковать")])
+        let original = source([manual("manifest-*.json"), command("Download"), command("Unpack")])
         let position = chain(original, 1, startedAt: start, stepEnteredAt: start)
         var edited = original
         edited.steps = order.map { original.steps[$0] }

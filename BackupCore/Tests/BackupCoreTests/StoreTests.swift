@@ -113,7 +113,7 @@ struct StoreTests {
         var config = try store.loadConfig()
         #expect(config.schemaVersion == 2)
         #expect(config.sources.first?.singleFolder?.path == "~/Obsidian")
-        config.sources[0].description = "Заметки"
+        config.sources[0].description = "Notes"
         try store.saveConfig(config)
         try store.saveConfig(config)
 

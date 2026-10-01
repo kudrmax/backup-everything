@@ -12,12 +12,12 @@ struct ChainPresentationTests {
             name: "Claude",
             slug: "claude",
             steps: [
-                SourceStep(name: "Запросить экспорт", kind: .file(instructions: "Скачайте манифест.", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
-                SourceStep(name: "Скачать архивы", kind: .command(command: "true", timeoutSeconds: 60)),
+                SourceStep(name: "Request export", kind: .file(instructions: "Download the manifest.", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
+                SourceStep(name: "Download archives", kind: .command(command: "true", timeoutSeconds: 60)),
             ],
             schedule: .monthly,
             destinationIds: [cloud.id],
-            instructions: "Экспорт в два шага.",
+            instructions: "Export in two steps.",
             createdAt: now
         )
     }
@@ -28,26 +28,26 @@ struct ChainPresentationTests {
 
     @Test func positionIsShownOnlyForStepChains() {
         #expect(ChainPosition.label(of: folder, chain: nil) == nil)
-        #expect(ChainPosition.label(of: claude, chain: nil) == "шаг 1 из 2")
-        #expect(ChainPosition.label(of: claude, chain: ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now)) == "шаг 2 из 2")
-        #expect(ChainPosition.label(of: claude, chain: ChainState(stepIndex: 2, startedAt: now, stepEnteredAt: now)) == "шаг 2 из 2")
-        #expect(ChainPosition.label(index: 1, count: 3) == "шаг 2 из 3")
+        #expect(ChainPosition.label(of: claude, chain: nil) == "step 1 of 2")
+        #expect(ChainPosition.label(of: claude, chain: ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now)) == "step 2 of 2")
+        #expect(ChainPosition.label(of: claude, chain: ChainState(stepIndex: 2, startedAt: now, stepEnteredAt: now)) == "step 2 of 2")
+        #expect(ChainPosition.label(index: 1, count: 3) == "step 2 of 3")
     }
 
     @Test func noteStartsWithThePosition() {
         let stuck = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "x")
-        #expect(ChainPosition.note("пора сделать экспорт", of: claude, chain: nil, status: .exportDue) == "шаг 1 из 2 · пора сделать экспорт")
-        #expect(ChainPosition.note("нет архивов", of: claude, chain: stuck, status: .failed("x")) == "шаг 2 из 2 · нет архивов")
-        #expect(ChainPosition.note("1 файл · 2 Б · идёт загрузка", of: claude, chain: nil, status: .filesFound(count: 1, bytes: 2, downloading: true)) == "шаг 1 из 2 · 1 файл · 2 Б · идёт загрузка")
-        #expect(ChainPosition.note("ждёт файл", of: claude, chain: nil, status: .waiting) == "шаг 1 из 2 · ждёт файл")
+        #expect(ChainPosition.note("time to export", of: claude, chain: nil, status: .exportDue) == "step 1 of 2 · time to export")
+        #expect(ChainPosition.note("no archives", of: claude, chain: stuck, status: .failed("x")) == "step 2 of 2 · no archives")
+        #expect(ChainPosition.note("1 file · 2 B · downloading", of: claude, chain: nil, status: .filesFound(count: 1, bytes: 2, downloading: true)) == "step 1 of 2 · 1 file · 2 B · downloading")
+        #expect(ChainPosition.note("waiting for a file", of: claude, chain: nil, status: .waiting) == "step 1 of 2 · waiting for a file")
         #expect(ChainPosition.note(nil, of: claude, chain: nil, status: .ok) == nil)
-        #expect(ChainPosition.note("выключен", of: folder, chain: nil, status: .disabled) == "выключен")
+        #expect(ChainPosition.note("disabled", of: folder, chain: nil, status: .disabled) == "disabled")
     }
 
     @Test func positionIsNotAddedToNotesUnrelatedToTheChain() {
-        #expect(ChainPosition.note("не выбрано, куда бэкапить", of: claude, chain: nil, status: .noDestinations) == "не выбрано, куда бэкапить")
-        #expect(ChainPosition.note("диск отвалился", of: claude, chain: nil, status: .failed("диск отвалился")) == "диск отвалился")
-        #expect(ChainPosition.note("давно не было бэкапа", of: claude, chain: nil, status: .overdue) == "давно не было бэкапа")
+        #expect(ChainPosition.note("no destination chosen", of: claude, chain: nil, status: .noDestinations) == "no destination chosen")
+        #expect(ChainPosition.note("disk dropped off", of: claude, chain: nil, status: .failed("disk dropped off")) == "disk dropped off")
+        #expect(ChainPosition.note("no backup for a long time", of: claude, chain: nil, status: .overdue) == "no backup for a long time")
     }
 
     @Test func runButtonIsOfferedOnlyWhenItWouldDoSomething() {
@@ -70,34 +70,34 @@ struct ChainPresentationTests {
 
     @Test func menuLineCarriesThePosition() {
         let source = claude
-        let message = "Команда завершилась с кодом 1. нет архивов"
+        let message = "Command exited with code 1. no archives"
         let config = Config(sources: [source], destinations: [cloud])
         var state = AppState()
         state.updateSource(source.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: message) }
         let report = StatusReport(items: [.runFailed(sourceId: source.id, message: message)])
 
         let lines = MenuLines.of(config: config, state: state, report: report, unavailable: [])
-        #expect(lines.map(\.text) == ["шаг 2 из 2 · нет архивов"])
+        #expect(lines.map(\.text) == ["step 2 of 2 · no archives"])
         #expect(lines.first?.severity == .error)
     }
 
     @Test func guideJoinsTheSourceInstructionWithItsManualSteps() {
         #expect(SourceGuide.text(for: claude) == """
-        Экспорт в два шага.
+        Export in two steps.
 
-        **Шаг 1. Запросить экспорт**
+        **Step 1. Request export**
 
-        Скачайте манифест.
+        Download the manifest.
         """)
         var plain = folder
-        plain.instructions = "Укажите путь."
-        #expect(SourceGuide.text(for: plain) == "Укажите путь.")
+        plain.instructions = "Enter the path."
+        #expect(SourceGuide.text(for: plain) == "Enter the path.")
         #expect(SourceGuide.text(for: folder).isEmpty)
     }
 
     @Test func runningStepSaysWhatItDoes() {
-        #expect(ChainPosition.running(.folder("/Volumes/POCKETBOOK"), status: nil) == "копирует файлы…")
-        #expect(ChainPosition.running(.command("true", timeoutSeconds: 60), status: nil) == "выполняет команду…")
-        #expect(ChainPosition.running(.command("true", timeoutSeconds: 60), status: "скачано 2 из 5") == "скачано 2 из 5")
+        #expect(ChainPosition.running(.folder("/Volumes/POCKETBOOK"), status: nil) == "copying files…")
+        #expect(ChainPosition.running(.command("true", timeoutSeconds: 60), status: nil) == "running the command…")
+        #expect(ChainPosition.running(.command("true", timeoutSeconds: 60), status: "downloaded 2 of 5") == "downloaded 2 of 5")
     }
 }

@@ -11,10 +11,10 @@ enum StepKindChoice: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .folder: "Скопировать папку"
-        case .command: "Выполнить команду"
-        case .file: "Получить файл от тебя"
-        case .device: "Подключить устройство"
+        case .folder: "Copy folder"
+        case .command: "Run command"
+        case .file: "Get a file from you"
+        case .device: "Connect device"
         }
     }
 
@@ -28,7 +28,7 @@ enum StepKindChoice: String, CaseIterable, Identifiable {
     }
 }
 
-/// С чего начать пустой источник. «Папка на устройстве» сразу даёт два шага.
+/// What an empty source starts with. “Folder on a connected device” gives two steps right away.
 enum SourceStart: String, CaseIterable, Identifiable {
     case folder
     case command
@@ -39,10 +39,10 @@ enum SourceStart: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .folder: "Папка"
-        case .command: "Команда"
-        case .file: "Файл, который выгружаешь сам"
-        case .device: "Папка на подключаемом устройстве"
+        case .folder: "Folder"
+        case .command: "Command"
+        case .file: "File you export yourself"
+        case .device: "Folder on a connected device"
         }
     }
 
@@ -106,13 +106,13 @@ struct StepDraft: Identifiable, Equatable {
     }
 
     func problem(followedByFolder: Bool) -> String? {
-        if trimmed(name).isEmpty { return "укажите название." }
+        if trimmed(name).isEmpty { return "enter a name." }
         switch kindChoice {
-        case .folder where trimmed(folderPath).isEmpty: return "укажите папку или файл."
-        case .command where trimmed(command).isEmpty: return "укажите команду."
-        case .file where trimmed(watchPath).isEmpty: return "укажите папку, куда попадает файл."
-        case .file where trimmed(filePattern).isEmpty: return "укажите маску файла, например manifest-*.json."
-        case .device where trimmed(devicePath).isEmpty && !followedByFolder: return "укажите путь на устройстве."
+        case .folder where trimmed(folderPath).isEmpty: return "choose a folder or file."
+        case .command where trimmed(command).isEmpty: return "enter a command."
+        case .file where trimmed(watchPath).isEmpty: return "choose the folder the file lands in."
+        case .file where trimmed(filePattern).isEmpty: return "enter a file mask, e.g. manifest-*.json."
+        case .device where trimmed(devicePath).isEmpty && !followedByFolder: return "enter the path on the device."
         default: return nil
         }
     }
@@ -176,14 +176,14 @@ struct SourceDraft {
     var id: UUID { base.id }
 
     var problem: String? {
-        if steps.isEmpty { return "Добавьте хотя бы один шаг." }
+        if steps.isEmpty { return "Add at least one step." }
         for (index, step) in steps.enumerated() {
             let followedByFolder = steps[(index + 1)...].contains { $0.kindChoice == .folder }
             if let problem = step.problem(followedByFolder: followedByFolder) {
-                return steps.count == 1 ? problem.prefix(1).uppercased() + problem.dropFirst() : "Шаг \(index + 1): \(problem)"
+                return steps.count == 1 ? problem.prefix(1).uppercased() + problem.dropFirst() : "Step \(index + 1): \(problem)"
             }
         }
-        return trimmed(name).isEmpty ? "Укажите название." : nil
+        return trimmed(name).isEmpty ? "Enter a name." : nil
     }
 
     var hasChanges: Bool { build() != base }
@@ -220,8 +220,8 @@ enum DestinationTypeChoice: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .local: "Папка или диск"
-        case .rclone: "Облако (rclone)"
+        case .local: "Folder or disk"
+        case .rclone: "Cloud (rclone)"
         }
     }
 }
@@ -258,10 +258,10 @@ struct DestinationDraft {
     var id: UUID { base.id }
 
     var problem: String? {
-        if trimmed(name).isEmpty { return "Укажите название." }
+        if trimmed(name).isEmpty { return "Enter a name." }
         switch typeChoice {
-        case .local where trimmed(path).isEmpty: return "Выберите папку."
-        case .rclone where trimmed(remote).isEmpty: return "Выберите подключённое облако."
+        case .local where trimmed(path).isEmpty: return "Choose a folder."
+        case .rclone where trimmed(remote).isEmpty: return "Choose a connected cloud."
         default: return nil
         }
     }

@@ -8,11 +8,11 @@ public enum StoreError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .corrupted(file):
-            "Файл \(file) повреждён и не читается."
+            "The file \(file) is damaged and cannot be read."
         case let .unreadable(file):
-            "Не удалось прочитать файл \(file). Проверьте права доступа."
+            "Could not read the file \(file). Check the access permissions."
         case let .unsupportedVersion(file, version):
-            "Файл \(file) создан более новой версией приложения (формат \(version))."
+            "The file \(file) was created by a newer version of the app (format \(version))."
         }
     }
 }
@@ -55,7 +55,7 @@ public struct Store: Sendable {
         try write(config, to: configURL)
     }
 
-    /// Перед первой записью в новом формате старый файл сохраняется рядом: с ним можно вернуться на прежнюю версию приложения.
+    /// Before the first write in the new format the old file is kept alongside: with it you can go back to the previous version of the app.
     private func keepCopyOfOlderConfig() throws {
         guard let data = try? Data(contentsOf: configURL),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

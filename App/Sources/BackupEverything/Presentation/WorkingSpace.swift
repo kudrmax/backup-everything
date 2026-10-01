@@ -1,9 +1,9 @@
 import BackupCore
 import Foundation
 
-/// Сколько места нужно на ноутбуке, чтобы бэкапы шли. Они идут по одному, поэтому считается не сумма, а самый большой
-/// из тех, что собираются во временную папку (папка из одного шага копируется напрямую и места не берёт),
-/// плюс пакеты, которые уже ждут записи на отключённый диск.
+/// How much space the laptop needs for backups to run. They run one at a time, so it is not the sum but the largest
+/// of those collected into a temporary folder (a single-step folder is copied directly and takes no space),
+/// plus packages already waiting to be written to a disconnected disk.
 enum WorkingSpace {
     struct Need: Equatable {
         let bytes: Int64
@@ -20,19 +20,19 @@ enum WorkingSpace {
     }
 
     static func line(need: Need, free: Int64?) -> String {
-        let free = free.map { " · свободно \(Texts.bytes($0))" } ?? ""
-        return "Для бэкапов на ноутбуке нужно около \(Texts.bytes(need.bytes)) свободного места\(free)"
+        let free = free.map { " · \(Texts.bytes($0)) free" } ?? ""
+        return "Backups need about \(Texts.bytes(need.bytes)) of free space on the laptop\(free)"
     }
 
     static func details(need: Need) -> String {
-        var lines = ["Бэкапы делаются по одному, поэтому место нужно под самый большой из тех, что собираются во временную папку."]
+        var lines = ["Backups run one at a time, so there must be room for the largest of those collected into a temporary folder."]
         if let largest = need.largest {
-            lines.append("Самый большой — «\(largest.name)».")
+            lines.append("The largest is “\(largest.name)”.")
         }
         if need.waitingBytes > 0 {
-            lines.append("Ещё \(Texts.bytes(need.waitingBytes)) ждут записи на отключённый диск.")
+            lines.append("Another \(Texts.bytes(need.waitingBytes)) is waiting to be written to a disconnected disk.")
         }
-        lines.append("Папки, которые копируются напрямую, временного места не занимают.")
+        lines.append("Folders that are copied directly take no temporary space.")
         return lines.joined(separator: "\n")
     }
 }

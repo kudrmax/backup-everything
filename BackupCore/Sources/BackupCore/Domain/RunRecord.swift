@@ -43,7 +43,7 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
     public var totalBytes: Int64?
     public var collectError: String?
     public var details: String?
-    /// Догон готовой копией: имя назначения, откуда она взята. Источник при этом не собирался.
+    /// Catch-up with a ready copy: the name of the destination it was taken from. The source was not gathered.
     public var copiedFrom: String?
     public var deliveries: [Delivery]
 

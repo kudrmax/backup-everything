@@ -4,32 +4,32 @@ import Foundation
 enum Texts {
     static func schedule(_ schedule: Schedule) -> String {
         switch schedule {
-        case .daily: "Каждый день"
-        case .weekly: "Раз в неделю"
-        case .monthly: "Раз в месяц"
-        case .manual: "Только вручную"
+        case .daily: "Every day"
+        case .weekly: "Once a week"
+        case .monthly: "Once a month"
+        case .manual: "Manual only"
         }
     }
 
     static func trigger(_ trigger: RunTrigger) -> String {
         switch trigger {
-        case .scheduled: "По расписанию"
-        case .manual: "Вручную"
-        case .catchUp: "Догон"
-        case .pickup: "Подхват файлов"
+        case .scheduled: "Scheduled"
+        case .manual: "Manual"
+        case .catchUp: "Catch-up"
+        case .pickup: "File pickup"
         }
     }
 
     static func overall(_ status: OverallStatus) -> String {
         switch status {
-        case .ok: "Всё в порядке"
-        case .attention: "Требует внимания"
-        case .error: "Есть ошибки"
+        case .ok: "All good"
+        case .attention: "Needs attention"
+        case .error: "Errors"
         }
     }
 
     static func bytes(_ count: Int64) -> String {
-        let units = ["Б", "КБ", "МБ", "ГБ", "ТБ"]
+        let units = ["B", "KB", "MB", "GB", "TB"]
         var value = Double(count)
         var unit = 0
         while value >= 1000, unit < units.count - 1 {
@@ -39,7 +39,7 @@ enum Texts {
         let rounded = (value * 10).rounded() / 10
         let number = rounded >= 10 || rounded == rounded.rounded()
             ? String(format: "%.0f", rounded)
-            : String(format: "%.1f", rounded).replacingOccurrences(of: ".", with: ",")
+            : String(format: "%.1f", rounded)
         return "\(number) \(units[unit])"
     }
 
@@ -47,47 +47,47 @@ enum Texts {
         guard let date else { return "—" }
         let seconds = Int(now.timeIntervalSince(date))
         let days = seconds / 86_400
-        if seconds < 60 { return "сейчас" }
-        if seconds < 3600 { return "\(seconds / 60) мин" }
-        if days < 1 { return "\(seconds / 3600) ч" }
-        if days < 60 { return "\(days) дн" }
-        if days < 720 { return "\(days / 30) мес" }
-        return "\(days / 365) г"
+        if seconds < 60 { return "now" }
+        if seconds < 3600 { return "\(seconds / 60) min" }
+        if days < 1 { return "\(seconds / 3600) h" }
+        if days < 60 { return "\(days) d" }
+        if days < 720 { return "\(days / 30) mo" }
+        return "\(days / 365) y"
     }
 
-    /// Округляет вверх: до 18:04 в 16:44 — «через 2 ч», а не «через 1 ч».
+    /// Rounds up: at 16:44, 18:04 is “in 2 h”, not “in 1 h”.
     static func until(_ date: Date, now: Date = Date()) -> String {
         let seconds = date.timeIntervalSince(now)
-        if seconds < 60 { return "сейчас" }
+        if seconds < 60 { return "now" }
         let minutes = Int((seconds / 60).rounded(.up))
-        if minutes < 60 { return "через \(minutes) мин" }
+        if minutes < 60 { return "in \(minutes) min" }
         let hours = Int((seconds / 3600).rounded(.up))
-        if hours < 24 { return "через \(hours) ч" }
+        if hours < 24 { return "in \(hours) h" }
         let days = Int((seconds / 86_400).rounded(.up))
-        if days < 60 { return "через \(days) дн" }
-        return "через \(Int((Double(days) / 30).rounded(.up))) мес"
+        if days < 60 { return "in \(days) d" }
+        return "in \(Int((Double(days) / 30).rounded(.up))) mo"
     }
 
     static func duration(_ interval: TimeInterval) -> String {
         let seconds = max(0, Int(interval))
-        if seconds < 60 { return "\(seconds) с" }
-        if seconds < 3600 { return "\(seconds / 60) мин" }
-        return "\(seconds / 3600) ч \(seconds % 3600 / 60) мин"
+        if seconds < 60 { return "\(seconds) s" }
+        if seconds < 3600 { return "\(seconds / 60) min" }
+        return "\(seconds / 3600) h \(seconds % 3600 / 60) min"
     }
 
     static func errors(_ count: Int) -> String {
-        "\(count) \(plural(count, "ошибка", "ошибки", "ошибок"))"
+        "\(count) \(plural(count, "error", "errors"))"
     }
 
     static func files(_ count: Int) -> String {
-        "\(count) \(plural(count, "файл", "файла", "файлов"))"
+        "\(count) \(plural(count, "file", "files"))"
     }
 
     static func copies(_ count: Int) -> String {
-        "\(count) \(plural(count, "копия", "копии", "копий"))"
+        "\(count) \(plural(count, "copy", "copies"))"
     }
 
-    private static let commandFailures = ["Команда завершилась с кодом", "Команда не уложилась в"]
+    private static let commandFailures = ["Command exited with code", "Command did not finish within"]
 
     static func errorHeadline(_ message: String) -> String {
         if let reason = commandReason(message) { return reason }
@@ -96,7 +96,7 @@ enum Texts {
         return String(message[..<cut])
     }
 
-    /// У упавшей команды суть — в последней строке её вывода, а не в коде возврата.
+    /// For a failed command, the point is in the last line of its output, not in the exit code.
     private static func commandReason(_ message: String) -> String? {
         guard commandFailures.contains(where: message.hasPrefix), let cut = message.range(of: ". ") else { return nil }
         return message[cut.upperBound...]
@@ -114,68 +114,63 @@ enum Texts {
             }
         }
         if !failed.isEmpty { return errors(failed.count) }
-        guard report.items.allSatisfy({ $0.severity == .ok }) else { return "Нужно твоё действие" }
-        return isWorking ? "Идёт бэкап" : "Всё в порядке"
+        guard report.items.allSatisfy({ $0.severity == .ok }) else { return "Needs your action" }
+        return isWorking ? "Backing up" : "All good"
     }
 
-    static func plural(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
-        let tens = count % 100
-        let units = count % 10
-        if (11...14).contains(tens) { return many }
-        if units == 1 { return one }
-        if (2...4).contains(units) { return few }
-        return many
+    static func plural(_ count: Int, _ one: String, _ other: String) -> String {
+        count == 1 ? one : other
     }
 
     static func dateTime(_ date: Date) -> String {
-        date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Locale(identifier: "ru_RU")))
+        date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Locale(identifier: "en_GB")))
     }
 
     static func relative(_ date: Date, to now: Date = Date()) -> String {
         let interval = date.timeIntervalSince(now)
-        if abs(interval) < 60 { return interval <= 0 ? "только что" : "вот-вот" }
+        if abs(interval) < 60 { return interval <= 0 ? "just now" : "any moment" }
         let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.locale = Locale(identifier: "en_GB")
         formatter.unitsStyle = .full
         return formatter.localizedString(for: date, relativeTo: now)
     }
 
-    static let refreshTip = "Проверить сейчас то, что приложение и так проверяет само: докопировать на диски недостающие копии и запустить то, чему пора по расписанию. Лишних бэкапов не делает."
-    static let runAllTip = "Собрать все источники заново и записать свежие копии на все подключённые диски, не дожидаясь расписания. Источники, которым нужен файл от тебя или устройство, начнут их ждать."
+    static let refreshTip = "Check now what the app checks on its own anyway: copy missing copies to the disks and run whatever is due on schedule. Makes no extra backups."
+    static let runAllTip = "Collect every source again and write fresh copies to all connected disks without waiting for the schedule. Sources that need a file from you or a device will start waiting for it."
 
     static func stage(_ stage: SourceStage, destinationName: String?) -> String {
         switch stage {
-        case .queued: "в очереди"
-        case .collecting: "готовит копию…"
-        case .delivering: "копирует на «\(destinationName ?? "назначение")»…"
+        case .queued: "queued"
+        case .collecting: "preparing the copy…"
+        case .delivering: "copying to “\(destinationName ?? "destination")”…"
         }
     }
 
     static func outcome(_ outcome: DeliveryOutcome) -> String {
         switch outcome {
         case let .delivered(pruned, warning):
-            let base = pruned > 0 ? "Доставлено, удалено старых копий: \(pruned)" : "Доставлено"
+            let base = pruned > 0 ? "Delivered, old copies removed: \(pruned)" : "Delivered"
             return warning.map { "\(base). \($0)" } ?? base
         case .unavailable:
-            return "Недоступно, ждёт"
+            return "Unavailable, waiting"
         case let .failed(message):
-            return "Ошибка: \(message)"
+            return "Error: \(message)"
         }
     }
 
     static func runSummary(_ run: RunRecord) -> String {
-        if let collectError = run.collectError { return "Ошибка: \(collectError)" }
+        if let collectError = run.collectError { return "Error: \(collectError)" }
         let total = run.deliveries.count
         let delivered = run.deliveries.filter(\.outcome.isDelivered).count
         if let failure = run.firstFailure {
-            return "Доставлено: \(delivered) из \(total). Ошибка: \(failure)"
+            return "Delivered: \(delivered) of \(total). Error: \(failure)"
         }
-        if delivered == 0 { return "Назначения недоступны, бэкап отложен" }
-        if delivered < total { return "Доставлено: \(delivered) из \(total), остальные ждут" }
+        if delivered == 0 { return "Destinations unavailable, backup postponed" }
+        if delivered < total { return "Delivered: \(delivered) of \(total), the rest are waiting" }
         let pruned = run.deliveries.reduce(0) { sum, delivery in
             if case let .delivered(pruned, _) = delivery.outcome { return sum + pruned }
             return sum
         }
-        return pruned > 0 ? "Готово. Удалено старых копий: \(pruned)" : "Готово"
+        return pruned > 0 ? "Done. Old copies removed: \(pruned)" : "Done"
     }
 }

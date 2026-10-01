@@ -26,7 +26,7 @@ struct ClaudeTemplateTests {
         try temp.file("input/manifest-abc.json", #"{"created_at":"\#(createdAt)","total_files":\#(files.count),"data_files":[\#(entries.joined(separator: ","))],"version":"1.0"}"#)
     }
 
-    /// Подменяет браузер: записывает открытую ссылку и «скачивает» файл с тем именем, которое задано для ссылки.
+    /// Stands in for the browser: records the opened link and “downloads” the file with the name given for that link.
     private func fakeBrowser(_ downloads: [String: String]) throws -> String {
         let cases = downloads.map { #"  "\#($0.key)") echo data > "\#(temp.path("Downloads").path)/\#($0.value)" ;;"# }.joined(separator: "\n")
         let script = """
@@ -51,22 +51,22 @@ struct ClaudeTemplateTests {
         ]) { _ in }
     }
 
-    /// Login-оболочка может дописать в вывод своё, поэтому ошибки сверяются по концу текста.
+    /// A login shell may add its own output, so errors are matched by the end of the text.
     private func failure(opener: String) async -> String {
         do {
             _ = try await run(opener: opener)
-            Issue.record("ожидалась ошибка шага")
+            Issue.record("expected the step to fail")
             return ""
         } catch let SourceError.commandFailed(_, output) {
             return output
         } catch {
-            Issue.record("неожиданная ошибка: \(error)")
+            Issue.record("unexpected error: \(error)")
             return ""
         }
     }
 
     private func stillDownloading(_ name: String) -> String {
-        "Не скачались архивы: \(name). Ещё не докачались: \(name). Когда загрузка закончится, повторите шаг; если она прервалась, удалите незавершённые файлы в папке загрузок и повторите шаг."
+        "Archives not downloaded: \(name). Still downloading: \(name). When the download finishes, repeat the step; if it was interrupted, delete the unfinished files in the downloads folder and repeat the step."
     }
 
     private var opened: [String] {
@@ -76,10 +76,10 @@ struct ClaudeTemplateTests {
     private let two = [(name: "memories-000.zip", link: "https://claude.ai/export/x/download/1"), (name: "projects-000.zip", link: "https://claude.ai/export/x/download/2")]
 
     @Test func templateIsAManualStepFollowedByACommand() {
-        #expect(steps.map(\.name) == ["Запросить экспорт", "Скачать архивы"])
+        #expect(steps.map(\.name) == ["Request export", "Download archives"])
         guard case let .file(instructions, watchPath, filePattern, .single, includeInCopy, true) = steps.first?.kind,
               case let .command(_, timeoutSeconds) = steps.last?.kind else {
-            Issue.record("неожиданные шаги")
+            Issue.record("unexpected steps")
             return
         }
         #expect(watchPath == "~/Downloads")
@@ -96,7 +96,7 @@ struct ClaudeTemplateTests {
 
         let tail = try await run(opener: opener)
 
-        #expect(tail.hasSuffix("скачано 2 из 2"))
+        #expect(tail.hasSuffix("downloaded 2 of 2"))
         #expect(opened == two.map(\.link))
         #expect(temp.names(in: "output") == ["memories-000.zip", "projects-000.zip"])
         #expect(temp.names(in: "Downloads").isEmpty)
@@ -122,7 +122,7 @@ struct ClaudeTemplateTests {
         try temp.file("Downloads/memories-000.zip", "old", modified: old)
         let opener = try fakeBrowser(["https://claude.ai/export/x/download/2": "projects-000.zip"])
 
-        #expect(await failure(opener: opener).hasSuffix("В папке загрузок лежит старый файл memories-000.zip. Уберите его и повторите шаг."))
+        #expect(await failure(opener: opener).hasSuffix("The downloads folder has an old file memories-000.zip. Remove it and repeat the step."))
         #expect(opened.isEmpty)
         #expect(temp.names(in: "Downloads") == ["memories-000.zip"])
         #expect(temp.names(in: "output").isEmpty)
@@ -146,10 +146,10 @@ struct ClaudeTemplateTests {
         let opener = try fakeBrowser(["https://claude.ai/export/x/download/1": "memories-000.zip"])
 
         let output = await failure(opener: opener)
-        #expect(output.hasSuffix("Не скачались архивы: projects-000.zip. Запросите экспорт заново."))
-        #expect(output.components(separatedBy: "скачано 1 из 2").count == 2, "ход работы печатается только при изменении")
+        #expect(output.hasSuffix("Archives not downloaded: projects-000.zip. Request the export again."))
+        #expect(output.components(separatedBy: "downloaded 1 of 2").count == 2, "progress is printed only when it changes")
         #expect(temp.names(in: "Downloads").isEmpty)
-        #expect(temp.names(in: "output") == ["memories-000.zip"], "скачанное остаётся в копии и не потребуется при повторе шага")
+        #expect(temp.names(in: "output") == ["memories-000.zip"], "what was downloaded stays in the copy and is not needed again when the step is repeated")
     }
 
     @Test func archiveNameFromTheManifestCannotEscapeTheFolders() async throws {
@@ -165,7 +165,7 @@ struct ClaudeTemplateTests {
 
     @Test func stepFailsWithoutAManifest() async throws {
         defer { temp.remove() }
-        #expect(await failure(opener: "/usr/bin/true").hasSuffix("Манифест экспорта не найден."))
+        #expect(await failure(opener: "/usr/bin/true").hasSuffix("Export manifest not found."))
     }
 
     @Test func archiveAlreadyInTheCopyIsNotOpenedAgain() async throws {

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key>
-    <string>ru</string>
+    <string>en</string>
     <key>CFBundleExecutable</key>
     <string>BackupEverything</string>
     <key>CFBundleIdentifier</key>
@@ -23,14 +23,14 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSDownloadsFolderUsageDescription</key>
-    <string>Backup Everything забирает из «Загрузок» файлы ручных экспортов.</string>
+    <string>Backup Everything picks up manual export files from Downloads.</string>
     <key>NSDocumentsFolderUsageDescription</key>
-    <string>Backup Everything копирует выбранные вами папки.</string>
+    <string>Backup Everything copies the folders you choose.</string>
     <key>NSDesktopFolderUsageDescription</key>
-    <string>Backup Everything копирует выбранные вами папки.</string>
+    <string>Backup Everything copies the folders you choose.</string>
     <key>NSRemovableVolumesUsageDescription</key>
-    <string>Backup Everything сохраняет копии на внешний диск.</string>
+    <string>Backup Everything saves copies to an external disk.</string>
     <key>NSNetworkVolumesUsageDescription</key>
-    <string>Backup Everything сохраняет копии на сетевой диск.</string>
+    <string>Backup Everything saves copies to a network disk.</string>
 </dict>
 </plist>

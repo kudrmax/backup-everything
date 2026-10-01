@@ -14,11 +14,11 @@ struct MainWindow: View {
 
         var title: String {
             switch self {
-            case .overview: "Обзор"
-            case .sources: "Источники"
-            case .destinations: "Назначения"
-            case .history: "История"
-            case .settings: "Настройки"
+            case .overview: "Overview"
+            case .sources: "Sources"
+            case .destinations: "Destinations"
+            case .history: "History"
+            case .settings: "Settings"
             }
         }
 
@@ -95,7 +95,7 @@ struct ProblemBanner: View {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
             Text(text)
             Spacer()
-            Button("Скрыть") { model.dismissProblem() }
+            Button("Hide") { model.dismissProblem() }
         }
         .padding(10)
         .background(.red.opacity(0.1))

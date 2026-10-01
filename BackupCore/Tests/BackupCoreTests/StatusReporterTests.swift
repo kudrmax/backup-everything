@@ -137,8 +137,8 @@ struct StatusReporterTests {
         let now = Fixtures.date("2026-09-28 10:00:00")
         let cloud = Fixtures.localDestination("Cloud", at: URL(fileURLWithPath: "/tmp/cloud"))
         let steps = [
-            SourceStep(name: "Открыть страницу", kind: .command(command: "true", timeoutSeconds: 60)),
-            SourceStep(name: "Файл", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "x-*.csv", fileMode: .single, includeInCopy: true, removeOriginal: true)),
+            SourceStep(name: "Open page", kind: .command(command: "true", timeoutSeconds: 60)),
+            SourceStep(name: "File", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "x-*.csv", fileMode: .single, includeInCopy: true, removeOriginal: true)),
         ]
         let chain = Fixtures.source(name: "Chain", steps: steps, schedule: .manual, destinations: [cloud])
         let manualFirst = Fixtures.source(
@@ -158,10 +158,10 @@ struct StatusReporterTests {
         #expect(items(state) == [.manualExportDue(sourceId: manualFirst.id)])
 
         state.updateSource(chain.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now) }
-        state.updateSource(manualFirst.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "Команда завершилась с кодом 1. нет архивов") }
+        state.updateSource(manualFirst.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "Command exited with code 1. no archives") }
         #expect(items(state) == [
             .manualExportDue(sourceId: chain.id),
-            .runFailed(sourceId: manualFirst.id, message: "Команда завершилась с кодом 1. нет архивов"),
+            .runFailed(sourceId: manualFirst.id, message: "Command exited with code 1. no archives"),
         ])
     }
 
@@ -169,12 +169,12 @@ struct StatusReporterTests {
         let now = Fixtures.date("2026-09-28 10:00:00")
         let cloud = Fixtures.localDestination("Cloud", at: URL(fileURLWithPath: "/tmp/cloud"))
         let steps = [
-            SourceStep(name: "Файл", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
-            SourceStep(name: "Команда", kind: .command(command: "true", timeoutSeconds: 60)),
+            SourceStep(name: "File", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
+            SourceStep(name: "Command", kind: .command(command: "true", timeoutSeconds: 60)),
         ]
         let source = Fixtures.source(name: "Claude", steps: steps, schedule: .manual, destinations: [cloud])
         var state = AppState()
-        state.updateSource(source.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "ссылки сгорели") }
+        state.updateSource(source.id) { $0.chain = ChainState(stepIndex: 1, startedAt: now, stepEnteredAt: now, failure: "links expired") }
         let reporter = StatusReporter(planner: SchedulePlanner(calendar: Fixtures.calendar))
         func items(_ scan: InboxScan) -> [AttentionItem] {
             reporter.report(
@@ -190,7 +190,7 @@ struct StatusReporterTests {
         #expect(items(InboxScan(files: [manifest], totalBytes: 2, downloadInProgress: true)) == [
             .filesAwaitingPickup(sourceId: source.id, fileCount: 1, totalBytes: 2, downloadInProgress: true),
         ])
-        #expect(items(InboxScan(files: [manifest], totalBytes: 2, downloadInProgress: false)) == [.runFailed(sourceId: source.id, message: "ссылки сгорели")])
-        #expect(items(.empty) == [.runFailed(sourceId: source.id, message: "ссылки сгорели")])
+        #expect(items(InboxScan(files: [manifest], totalBytes: 2, downloadInProgress: false)) == [.runFailed(sourceId: source.id, message: "links expired")])
+        #expect(items(.empty) == [.runFailed(sourceId: source.id, message: "links expired")])
     }
 }

@@ -10,8 +10,8 @@ struct TooltipBubbleTests {
     }
 
     @Test func longTextWrapsAndTheBubbleGrowsToShowEveryLine() {
-        let short = size("Обновить")
-        let long = size(Texts.refreshTip)
+        let short = size("Refresh")
+        let long = size(ConnectReminder.settingsExplanation)
         #expect(short.width < TooltipBubble.maxWidth)
         #expect(long.width <= TooltipBubble.maxWidth)
         #expect(long.height > short.height * 2.5)

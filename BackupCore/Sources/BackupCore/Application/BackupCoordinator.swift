@@ -42,7 +42,7 @@ public actor BackupCoordinator {
         self.reporter = StatusReporter(planner: planner)
     }
 
-    /// Если впереди идёт другой бэкап, то, что проверка точно сделает, помечается «в очереди» сразу, а не когда до неё дойдёт.
+    /// If another backup is running ahead, whatever the check will certainly do is marked “queued” right away, not when its turn comes.
     public func tick() async throws -> TickResult {
         var announced: Set<UUID> = []
         if let config = try? store.loadConfig(), let state = try? store.loadState() {
@@ -53,7 +53,7 @@ public actor BackupCoordinator {
         return try await enqueue { [announced] in try await self.performTick(announced: announced) }
     }
 
-    /// Источник помечается «в очереди» сразу, даже если сейчас идёт другой бэкап.
+    /// The source is marked “queued” right away, even if another backup is running now.
     public func runNow(sourceId: UUID) async throws -> TickResult {
         if let config = try? store.loadConfig(), let source = config.source(sourceId),
            !config.destinations(of: source).isEmpty, startsWithoutWaiting(source) {
@@ -69,7 +69,7 @@ public actor BackupCoordinator {
         return try await enqueue { try await self.performRunAllNow() }
     }
 
-    /// Источники, которые проверка запустит наверняка: срок по расписанию или долг перед доступной локальной папкой, который есть чем закрыть.
+    /// Sources the check will certainly run: due by schedule, or owing an available local folder a copy that can be caught up.
     private func foreseenWork(config: Config, state: AppState, now: Date) async -> [Source] {
         let due = Set(planner.dueAutomaticSources(config: config, state: state, now: now).map(\.id))
         let retryable = planner.retryableDebts(state: state, now: now)
@@ -106,7 +106,7 @@ public actor BackupCoordinator {
         return work
     }
 
-    /// Запуск сразу пойдёт в работу, а не станет ждать файл или устройство.
+    /// The run will start working right away instead of waiting for a file or a device.
     private func startsWithoutWaiting(_ source: Source) -> Bool {
         guard let first = source.steps.first else { return false }
         return switch first.kind {
@@ -302,7 +302,7 @@ public actor BackupCoordinator {
         let targets: [Destination]
     }
 
-    /// Самая свежая копия источника на доступном назначении, которому она не задолжала. При равенстве — с локального.
+    /// The newest copy of the source on an available destination that is not behind. On a tie, the local one wins.
     private func newestCopy(of source: Source, config: Config, excluding debtors: Set<UUID>) async -> (snapshot: Snapshot, origin: Destination)? {
         var best: (snapshot: Snapshot, origin: Destination)?
         for destination in config.destinations(of: source) where !debtors.contains(destination.id) {
@@ -333,7 +333,7 @@ public actor BackupCoordinator {
         progress(.queued(sourceIds: sources.map(\.id)))
     }
 
-    /// Отменить можно только запуск, начатый кнопкой: ожидание по сроку — это напоминание, оно держится до бэкапа.
+    /// Only a run started by the button can be cancelled: waiting because it is due is a reminder, it stays until the backup.
     private func performCancelWaiting(sourceId: UUID) async throws -> TickResult {
         var state = try store.loadState()
         if state.sourceState(sourceId).chain != nil {
@@ -434,7 +434,7 @@ public actor BackupCoordinator {
         }
     }
 
-    /// Упавший шаг повторяется сам через час. Кроме команды после шага человека: она могла израсходовать то, что человек подготовил (одноразовые ссылки).
+    /// A failed step retries by itself in an hour. Except a command after a manual step: it may have used up what the person prepared (one-time links).
     private static func retriesByItself(_ chain: ChainState, in source: Source) -> Bool {
         let steps = source.steps
         guard chain.stepIndex < steps.count else { return false }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Результат, собранный с участием человека: лежит в pending, пока не доставлен во все назначения.
+/// A result gathered with manual steps: it stays in pending until it is delivered to every destination.
 public struct PendingSource: SourceProvider {
     private let sourceId: UUID
     private let trashAfterDelivery: Bool

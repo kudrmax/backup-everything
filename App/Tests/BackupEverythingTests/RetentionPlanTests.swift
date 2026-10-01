@@ -13,34 +13,34 @@ struct RetentionPlanTests {
 
     @Test func stagesTellWhatHappensToACopyAsItAges() {
         #expect(sentences(.standard) == [
-            "Первые 7 дней — хранятся все копии",
-            "Потом до 4 недель — остаётся одна в неделю",
-            "Потом до 12 месяцев — остаётся одна в месяц",
+            "First 7 days — every copy is kept",
+            "Then up to 4 weeks — one per week is kept",
+            "Then up to 12 months — one per month is kept",
         ])
-        #expect(sentences(rules(7, 4, 12, 5)).last == "Потом до 5 лет — остаётся одна в год")
+        #expect(sentences(rules(7, 4, 12, 5)).last == "Then up to 5 years — one per year is kept")
     }
 
     @Test func storyStartsFromTheFirstStageThatKeepsCopies() {
         #expect(sentences(rules(0, 4, 6, 0)) == [
-            "Первые 4 недели — остаётся одна в неделю",
-            "Потом до 6 месяцев — остаётся одна в месяц",
+            "First 4 weeks — one per week is kept",
+            "Then up to 6 months — one per month is kept",
         ])
-        #expect(sentences(rules(0, 0, 0, 2)) == ["Первые 2 года — остаётся одна в год"])
+        #expect(sentences(rules(0, 0, 0, 2)) == ["First 2 years — one per year is kept"])
     }
 
     @Test func wordsAgreeWithTheNumber() {
         #expect(sentences(rules(1, 1, 1, 1)) == [
-            "Первый 1 день — хранятся все копии",
-            "Потом до 1 недели — остаётся одна в неделю",
-            "Потом до 1 месяца — остаётся одна в месяц",
-            "Потом до 1 года — остаётся одна в год",
+            "First 1 day — every copy is kept",
+            "Then up to 1 week — one per week is kept",
+            "Then up to 1 month — one per month is kept",
+            "Then up to 1 year — one per year is kept",
         ])
-        #expect(sentences(rules(0, 1, 0, 0)) == ["Первую 1 неделю — остаётся одна в неделю"])
+        #expect(sentences(rules(0, 1, 0, 0)) == ["First 1 week — one per week is kept"])
         #expect(sentences(rules(3, 21, 2, 11)) == [
-            "Первые 3 дня — хранятся все копии",
-            "Потом до 21 недели — остаётся одна в неделю",
-            "Потом до 2 месяцев — остаётся одна в месяц",
-            "Потом до 11 лет — остаётся одна в год",
+            "First 3 days — every copy is kept",
+            "Then up to 21 weeks — one per week is kept",
+            "Then up to 2 months — one per month is kept",
+            "Then up to 11 years — one per year is kept",
         ])
     }
 
@@ -49,16 +49,16 @@ struct RetentionPlanTests {
         #expect(stages.map(\.unit) == [.day, .week, .month, .year])
         #expect(stages.map(\.isKept) == [true, false, true, false])
         #expect(stages[1].prefix == "—")
-        #expect(stages[1].unitName == "недель")
-        #expect(stages[1].effect == "не используется")
-        #expect(RetentionPlan.stages(rules(0, 4, 0, 0))[0].unitName == "дней")
+        #expect(stages[1].unitName == "weeks")
+        #expect(stages[1].effect == "not used")
+        #expect(RetentionPlan.stages(rules(0, 4, 0, 0))[0].unitName == "days")
     }
 
     @Test func summaryNamesHowFarBackCopiesGo() {
-        #expect(RetentionPlan.summary(.standard) == "до 12 месяцев")
-        #expect(RetentionPlan.summary(rules(7, 0, 0, 0)) == "до 7 дней")
-        #expect(RetentionPlan.summary(rules(0, 1, 0, 0)) == "до 1 недели")
-        #expect(RetentionPlan.summary(rules(7, 4, 12, 5)) == "до 5 лет")
-        #expect(RetentionPlan.summary(rules(0, 0, 0, 0)) == "только последнюю копию")
+        #expect(RetentionPlan.summary(.standard) == "up to 12 months")
+        #expect(RetentionPlan.summary(rules(7, 0, 0, 0)) == "up to 7 days")
+        #expect(RetentionPlan.summary(rules(0, 1, 0, 0)) == "up to 1 week")
+        #expect(RetentionPlan.summary(rules(7, 4, 12, 5)) == "up to 5 years")
+        #expect(RetentionPlan.summary(rules(0, 0, 0, 0)) == "only the latest copy")
     }
 }

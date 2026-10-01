@@ -84,12 +84,12 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         try container.encode(createdAt, forKey: .createdAt)
     }
 
-    /// Хотя бы один шаг делает человек: результат нельзя собрать заново, поэтому он хранится в pending до доставки.
+    /// At least one step is manual: the result cannot be gathered again, so it is kept in pending until delivered.
     public var needsHuman: Bool {
         steps.contains(where: \.needsHuman)
     }
 
-    /// Источник из одной папки отдаёт её как есть, без промежуточной копии.
+    /// A source made of a single folder hands it over as is, without an intermediate copy.
     public var singleFolder: (path: String, excludes: [String])? {
         guard steps.count == 1, case let .folder(path, excludes) = steps[0].kind else { return nil }
         return (path, excludes)
@@ -102,7 +102,7 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
-    /// Путь, появления которого ждёт шаг устройства. Пустой путь — это папка следующего шага «Скопировать папку».
+    /// The path whose appearance the device step waits for. An empty path means the folder of the next “Copy folder” step.
     public func devicePath(at index: Int) -> String? {
         guard index < steps.count, case let .device(_, path) = steps[index].kind else { return nil }
         if !path.isEmpty { return path }
@@ -116,7 +116,7 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         steps.contains { if case .device = $0.kind { true } else { false } }
     }
 
-    /// Оригиналы файлов, забранных у человека, после доставки уходят в Корзину, а не удаляются.
+    /// Originals of files picked up from the person go to the Trash after delivery instead of being deleted.
     public var trashesPickedUpFiles: Bool {
         steps.contains { if case let .file(_, _, _, _, _, removeOriginal) = $0.kind { removeOriginal } else { false } }
     }

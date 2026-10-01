@@ -44,18 +44,18 @@ enum SourceStatus: Equatable {
 
     var text: String {
         switch self {
-        case .disabled: "Выключен"
-        case let .failed(message): "Ошибка: \(message)"
-        case .overdue: "Бэкап сильно просрочен"
-        case .noDestinations: "Не выбрано, куда бэкапить"
+        case .disabled: "Disabled"
+        case let .failed(message): "Error: \(message)"
+        case .overdue: "Backup is long overdue"
+        case .noDestinations: "No destination chosen"
         case let .filesFound(count, bytes, downloading):
-            "Найдено файлов: \(count), \(Texts.bytes(bytes))" + (downloading ? ". Идёт загрузка" : "")
-        case .exportDue: "Пора сделать экспорт"
-        case .waiting: "Ждёт файл: скачайте его, и бэкап начнётся сам"
-        case .deviceDue: "Пора подключить устройство"
-        case .waitingForDevice: "Ждёт подключения: подключите устройство, и бэкап начнётся сам"
-        case .neverRun: "Ещё не запускался"
-        case .ok: "В порядке"
+            "Files found: \(count), \(Texts.bytes(bytes))" + (downloading ? ". Downloading" : "")
+        case .exportDue: "Time to export"
+        case .waiting: "Waiting for a file: download it and the backup starts on its own"
+        case .deviceDue: "Time to connect the device"
+        case .waitingForDevice: "Waiting for the device: connect it and the backup starts on its own"
+        case .neverRun: "Never run"
+        case .ok: "OK"
         }
     }
 
@@ -67,16 +67,16 @@ enum SourceStatus: Equatable {
     var note: String? {
         switch self {
         case .ok, .neverRun: nil
-        case .disabled: "выключен"
+        case .disabled: "disabled"
         case let .failed(message): Texts.errorHeadline(message)
-        case .overdue: "давно не было бэкапа"
-        case .noDestinations: "не выбрано, куда бэкапить"
+        case .overdue: "no backup for a long time"
+        case .noDestinations: "no destination chosen"
         case let .filesFound(count, bytes, downloading):
-            "\(Texts.files(count)) · \(Texts.bytes(bytes))" + (downloading ? " · идёт загрузка" : "")
-        case .exportDue: "пора сделать экспорт"
-        case .waiting: "ждёт файл"
-        case .deviceDue: "пора подключить"
-        case .waitingForDevice: "ждёт подключения"
+            "\(Texts.files(count)) · \(Texts.bytes(bytes))" + (downloading ? " · downloading" : "")
+        case .exportDue: "time to export"
+        case .waiting: "waiting for a file"
+        case .deviceDue: "time to connect"
+        case .waitingForDevice: "waiting for the device"
         }
     }
 

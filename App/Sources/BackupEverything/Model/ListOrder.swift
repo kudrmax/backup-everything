@@ -1,6 +1,6 @@
 import Foundation
 
-/// Перестановка при перетаскивании: брошенный элемент встаёт на место того, на который его бросили.
+/// Reordering by drag and drop: the dropped item takes the place of the one it was dropped on.
 enum ListOrder {
     static func moving(_ id: UUID, onto target: UUID, in ids: [UUID]) -> [UUID]? {
         guard id != target, let from = ids.firstIndex(of: id), let to = ids.firstIndex(of: target) else { return nil }

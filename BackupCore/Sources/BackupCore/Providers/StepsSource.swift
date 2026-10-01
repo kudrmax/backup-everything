@@ -1,6 +1,6 @@
 import Foundation
 
-/// Источник только из автоматических шагов: каждый запуск собирает копию заново во временной папке.
+/// A source made of automatic steps only: every run builds the copy from scratch in a temporary folder.
 public struct StepsSource: SourceProvider {
     private let sourceId: UUID
     private let steps: [SourceStep]

@@ -3,7 +3,7 @@ import Foundation
 
 enum ChainPosition {
     static func label(index: Int, count: Int) -> String {
-        "шаг \(index + 1) из \(count)"
+        "step \(index + 1) of \(count)"
     }
 
     static func label(of source: Source, chain: ChainState?) -> String? {
@@ -21,10 +21,10 @@ enum ChainPosition {
     static func running(_ step: SourceStep, status: String?) -> String {
         if let status { return status }
         switch step.kind {
-        case .folder: return "копирует файлы…"
-        case .command: return "выполняет команду…"
-        case .file: return "забирает файл…"
-        case .device: return "ждёт устройство…"
+        case .folder: return "copying files…"
+        case .command: return "running the command…"
+        case .file: return "picking up the file…"
+        case .device: return "waiting for the device…"
         }
     }
 

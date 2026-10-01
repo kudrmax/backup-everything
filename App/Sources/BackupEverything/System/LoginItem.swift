@@ -16,7 +16,7 @@ enum LoginItem {
             }
             return nil
         } catch {
-            return "Не удалось изменить автозапуск: \(error.localizedDescription)"
+            return "Could not change launch at login: \(error.localizedDescription)"
         }
     }
 }

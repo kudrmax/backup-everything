@@ -64,7 +64,7 @@ struct EditorLayout<Item: Identifiable, Label: View, AddMenu: View, Detail: View
         Menu {
             addMenu
         } label: {
-            SwiftUI.Label("Добавить", systemImage: "plus")
+            SwiftUI.Label("Add", systemImage: "plus")
         }
         .menuStyle(.borderlessButton)
         .pointing()
@@ -74,7 +74,7 @@ struct EditorLayout<Item: Identifiable, Label: View, AddMenu: View, Detail: View
         .padding(.vertical, 5)
     }
 
-    /// Элемент встаёт на место того, на который его бросили: снизу — над ним, сверху — под ним.
+    /// The item takes the place of the one it was dropped on: from below it goes above it, from above it goes below it.
     private func lineEdge(for id: UUID) -> Alignment {
         guard let dragged, let from = ids.firstIndex(of: dragged), let to = ids.firstIndex(of: id) else { return .top }
         return from < to ? .bottom : .top
@@ -114,7 +114,7 @@ struct EditorListItem<Label: View>: View {
     @State private var isHovered = false
 
     var body: some View {
-        // Не кнопка: кнопка на macOS не даёт начать перетаскивание строки.
+        // Not a button: on macOS a button prevents dragging the row.
         label
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -174,7 +174,7 @@ struct EditorHeader<Icon: View, Accessory: View>: View {
                 Text(name)
                     .font(.title2.weight(.semibold))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .hoverTip("Название задаётся при добавлении и не меняется: по нему названа папка с копиями")
+                    .hoverTip("The name is set when adding and can’t be changed: the copies folder is named after it")
             }
             accessory
         }
@@ -285,10 +285,10 @@ struct PathField: View {
     var allowsFiles = false
 
     var body: some View {
-        TextField("", text: $path, prompt: Text("не выбрано"))
+        TextField("", text: $path, prompt: Text("not chosen"))
             .textFieldStyle(.plain)
             .multilineTextAlignment(.trailing)
-        Button("Выбрать…") {
+        Button("Choose…") {
             if let chosen = FolderPicker.choose(allowsFiles: allowsFiles) { path = chosen }
         }
         .controlSize(.small)
@@ -392,9 +392,9 @@ struct SaveBar: View {
             }
             .font(.callout)
             Spacer()
-            Button("Отменить", action: cancel)
+            Button("Cancel", action: cancel)
                 .keyboardShortcut(.cancelAction)
-            Button(isNew ? "Добавить" : "Сохранить", action: save)
+            Button(isNew ? "Add" : "Save", action: save)
                 .keyboardShortcut(.defaultAction)
                 .disabled(problem != nil)
         }
@@ -409,7 +409,7 @@ struct SaveBar: View {
 struct DestinationIcon: View {
     @Environment(AppModel.self) private var model
     let destination: Destination
-    /// Без меток в углу: состояние видно только по цвету — для строки назначений, где рядом есть текст.
+    /// No corner marks: the state shows by colour only — for the destinations line, where text sits next to it.
     var showsMarks = true
 
     var body: some View {

@@ -26,19 +26,19 @@ final class Notifier {
     private static func text(for notice: Notice) -> (String, String) {
         switch notice {
         case let .deviceDue(_, sourceName):
-            ("Пора подключить устройство", "Подключите «\(sourceName)» кабелем — бэкап начнётся сам.")
+            ("Time to connect the device", "Connect “\(sourceName)” with a cable and the backup starts on its own.")
         case let .deviceCanBeUnplugged(_, sourceName):
-            ("Можно отключать", "Бэкап «\(sourceName)» готов, устройство можно отключить.")
+            ("Safe to disconnect", "The backup of “\(sourceName)” is done, you can disconnect the device.")
         case let .manualExportDue(_, sourceName):
-            ("Пора сделать экспорт", "\(sourceName): откройте Backup Everything, там инструкция.")
+            ("Time to export", "\(sourceName): open Backup Everything for instructions.")
         case let .connectDestination(_, destinationName, onlyCopyOf):
             ConnectReminder.notice(destinationName: destinationName, onlyCopyOf: onlyCopyOf)
         case let .runFailed(_, sourceName, message):
-            ("Бэкап не удался", "\(sourceName): \(message)")
+            ("Backup failed", "\(sourceName): \(message)")
         case let .destinationCaughtUp(_, destinationName):
-            ("Диск можно отключать", "«\(destinationName)» получил все накопившиеся бэкапы.")
+            ("Safe to disconnect the disk", "“\(destinationName)” has received all pending backups.")
         case let .copiesMissing(_, sourceName, destinationName):
-            ("Копия пропала", "В «\(destinationName)» не нашлось последней копии «\(sourceName)». Делаю новую.")
+            ("Copy missing", "The latest copy of “\(sourceName)” was not found on “\(destinationName)”. Making a new one.")
         }
     }
 }

@@ -16,8 +16,8 @@ struct DestinationsView: View {
                 Text(destination.name)
             }
         } addMenu: {
-            Button("Папка или внешний диск") { start(.localFolder(path: "")) }
-            Button("Облако (rclone)") { start(.rclone(remote: "", path: "backups")) }
+            Button("Folder or external disk") { start(.localFolder(path: "")) }
+            Button("Cloud (rclone)") { start(.rclone(remote: "", path: "backups")) }
         } detail: {
             if let draft {
                 DestinationEditor(
@@ -29,10 +29,10 @@ struct DestinationsView: View {
                 )
                 .id(draft.id)
             } else {
-                EmptyState(symbol: "externaldrive", title: "Назначений пока нет", message: "Добавьте папку, диск или облако кнопкой «Добавить» слева.")
+                EmptyState(symbol: "externaldrive", title: "No destinations yet", message: "Add a folder, disk or cloud with the “Add” button on the left.")
             }
         }
-        .navigationTitle("Назначения")
+        .navigationTitle("Destinations")
         .onAppear {
             let stored = UUID(uuidString: storedSelection).flatMap { model.config.destination($0) }
             selection = (stored ?? model.config.destinations.first)?.id
@@ -99,7 +99,7 @@ struct DestinationEditor: View {
 
     var body: some View {
         EditorPage {
-            EditorHeader(name: $draft.name, prompt: draft.typeChoice == .local ? "Название, например Внешний HDD" : "Название, например Облако") {
+            EditorHeader(name: $draft.name, prompt: draft.typeChoice == .local ? "Name, e.g. External HDD" : "Name, e.g. Cloud") {
                 if let saved {
                     DestinationIcon(destination: saved)
                         .hoverTip(DestinationDetails.text(of: saved, model: model))
@@ -109,7 +109,7 @@ struct DestinationEditor: View {
             } accessory: {
                 if let saved {
                     Menu {
-                        Button("Удалить…", role: .destructive) { confirmsDeletion = true }
+                        Button("Delete…", role: .destructive) { confirmsDeletion = true }
                     } label: {
                         Image(systemName: "ellipsis")
                     }
@@ -133,10 +133,10 @@ struct DestinationEditor: View {
                 case .local: localRows
                 case .rclone: rcloneRows
                 }
-                SettingsRow(title: "Подключение") {
+                SettingsRow(title: "Connection") {
                     Picker("", selection: $draft.isPeriodic) {
-                        Text("Всегда на связи").tag(false)
-                        Text("Время от времени").tag(true)
+                        Text("Always connected").tag(false)
+                        Text("From time to time").tag(true)
                     }
                     .labelsHidden()
                     .fixedSize()
@@ -144,8 +144,8 @@ struct DestinationEditor: View {
                 }
                 if draft.isPeriodic {
                     VStack(alignment: .leading, spacing: 0) {
-                        SettingsRow(title: "Можно не подключать") {
-                            Stepper("до \(draft.days) дн", value: $draft.days, in: 1...365)
+                        SettingsRow(title: "Can stay unplugged") {
+                            Stepper("up to \(draft.days) \(Texts.plural(draft.days, "day", "days"))", value: $draft.days, in: 1...365)
                             .pointing()
                         }
                         Text(ConnectReminder.settingsExplanation)
@@ -172,10 +172,10 @@ struct DestinationEditor: View {
         .task(id: draft.typeChoice) {
             if draft.typeChoice == .rclone { remotes = await model.rcloneRemotes() }
         }
-        .confirmationDialog("Удалить назначение «\(draft.name)»?", isPresented: $confirmsDeletion) {
-            Button("Удалить назначение", role: .destructive) { onDelete(draft.build()) }
+        .confirmationDialog("Delete destination “\(draft.name)”?", isPresented: $confirmsDeletion) {
+            Button("Delete destination", role: .destructive) { onDelete(draft.build()) }
         } message: {
-            Text("Копии, которые уже лежат в этом назначении, останутся на месте. Источники перестанут туда бэкапиться.")
+            Text("Copies already in this destination will stay where they are. Sources will stop backing up there.")
         }
     }
 
@@ -183,15 +183,15 @@ struct DestinationEditor: View {
         let waiting = model.waitingSources(for: destination).map(\.name)
         let parts = [
             model.condition(of: destination).problem,
-            waiting.isEmpty ? nil : "ждут: \(waiting.joined(separator: ", "))",
+            waiting.isEmpty ? nil : "waiting: \(waiting.joined(separator: ", "))",
         ].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var localRows: some View {
         SettingsRow(
-            title: "Папка",
-            tip: "Для внешнего диска выберите папку на нём.\nПриложение не создаёт эту папку само:\nесли диск не подключён, бэкап просто ждёт."
+            title: "Folder",
+            tip: "For an external disk, choose a folder on it.\nThe app doesn’t create this folder itself:\nif the disk isn’t connected, the backup just waits."
         ) {
             PathField(path: $draft.path)
         }
@@ -200,22 +200,22 @@ struct DestinationEditor: View {
     @ViewBuilder
     private var rcloneRows: some View {
         if !model.isRcloneInstalled {
-            Text("Не найден rclone. Установите его в терминале командой `brew install rclone` и откройте этот экран заново.")
+            Text("rclone not found. Install it in Terminal with `brew install rclone` and open this screen again.")
                 .foregroundStyle(.orange)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if remotes.isEmpty {
             HStack(alignment: .top) {
-                Text("В rclone пока нет подключённых облаков. Выполните в терминале `rclone config`, выберите «n» (new remote), дайте имя, выберите сервис и пройдите вход в браузере.")
+                Text("rclone has no connected clouds yet. Run `rclone config` in Terminal, choose “n” (new remote), give it a name, pick the service and sign in in the browser.")
                     .foregroundStyle(.secondary)
                 Spacer()
                 refreshButton
             }
             .padding(14)
         } else {
-            SettingsRow(title: "Облако") {
+            SettingsRow(title: "Cloud") {
                 Picker("", selection: $draft.remote) {
-                    Text("Не выбрано").tag("")
+                    Text("Not chosen").tag("")
                     ForEach(remotes, id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden()
@@ -224,7 +224,7 @@ struct DestinationEditor: View {
                 refreshButton
             }
         }
-        SettingsRow(title: "Папка в облаке") {
+        SettingsRow(title: "Folder in the cloud") {
             TextField("", text: $draft.remotePath, prompt: Text("backups"))
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.trailing)
@@ -238,7 +238,7 @@ struct DestinationEditor: View {
             Image(systemName: "arrow.clockwise")
         }
         .buttonStyle(.borderlessPointing)
-        .hoverTip("Обновить список облаков")
+        .hoverTip("Refresh the list of clouds")
     }
 }
 
@@ -252,7 +252,7 @@ struct DestinationCopies: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Копии")
+                Text("Copies")
                 Spacer()
                 if let usedBytes { Text(Texts.bytes(usedBytes)) }
             }
@@ -261,7 +261,7 @@ struct DestinationCopies: View {
             .padding(.horizontal, 14)
             .padding(.top, 6)
             if sources.isEmpty {
-                note("Сюда пока не бэкапится ни один источник.")
+                note("No source backs up here yet.")
             } else if let snapshots {
                 SettingsCard {
                     ForEach(sources) { source in
@@ -271,7 +271,7 @@ struct DestinationCopies: View {
             } else if model.condition(of: destination).isConnected {
                 ProgressView().controlSize(.small).padding(.horizontal, 14)
             } else {
-                note("Не подключено — копии не видны.")
+                note("Not connected — copies can’t be seen.")
             }
         }
         .task(id: LoadKey(destination: destination, isConnected: model.condition(of: destination).isConnected, runs: model.runs.count)) {
@@ -324,7 +324,7 @@ struct CopiesRow: View {
                 HStack(spacing: 12) {
                     SourceIcon(source)
                     Text(source.name).fontWeight(.medium).lineLimit(1)
-                    Text(snapshots.isEmpty ? "копий ещё нет" : Texts.copies(snapshots.count))
+                    Text(snapshots.isEmpty ? "no copies yet" : Texts.copies(snapshots.count))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 8)
@@ -373,7 +373,7 @@ struct SnapshotLine: View {
                     Image(systemName: "folder")
                 }
                 .buttonStyle(.borderlessPointing)
-                .hoverTip("Показать в Finder")
+                .hoverTip("Show in Finder")
                 .opacity(isHovered ? 1 : 0)
             } else {
                 Text(snapshot.name).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)

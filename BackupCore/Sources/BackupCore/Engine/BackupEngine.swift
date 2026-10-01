@@ -102,7 +102,7 @@ public struct BackupEngine: Sendable {
         return record
     }
 
-    /// Догон уже сделанной копией: тот же снимок под тем же именем переносится с `origin` на `destinations`, источник заново не собирается.
+    /// Catch-up with an existing copy: the same snapshot under the same name is transferred from `origin` to `destinations`, the source is not gathered again.
     public func copy(_ snapshot: Snapshot, of source: Source, from origin: Destination, to destinations: [Destination]) async -> RunRecord {
         var record = RunRecord(
             sourceId: source.id,
@@ -128,7 +128,7 @@ public struct BackupEngine: Sendable {
             record.collectedAt = snapshot.date
             record.fileCount = stats.fileCount
             record.totalBytes = stats.totalBytes
-            record.details = "Скопировано с «\(origin.name)»"
+            record.details = "Copied from “\(origin.name)”"
             record.copiedFrom = origin.name
             for destination in destinations {
                 let store = stores.store(for: destination)
@@ -142,7 +142,7 @@ public struct BackupEngine: Sendable {
                 record.deliveries.append(Delivery(destinationId: destination.id, destinationName: destination.name, outcome: outcome))
             }
         } catch {
-            let message = "Не удалось взять копию с «\(origin.name)»: \(error.localizedDescription)"
+            let message = "Could not take the copy from “\(origin.name)”: \(error.localizedDescription)"
             record.deliveries = destinations.map { Delivery(destinationId: $0.id, destinationName: $0.name, outcome: .failed(message: message)) }
         }
         record.finishedAt = time.now
@@ -174,7 +174,7 @@ public struct BackupEngine: Sendable {
             }
             return .delivered(pruned: doomed.count, warning: nil)
         } catch {
-            return .delivered(pruned: 0, warning: "Не удалось очистить старые копии: \(error.localizedDescription)")
+            return .delivered(pruned: 0, warning: "Could not clean up old copies: \(error.localizedDescription)")
         }
     }
 }

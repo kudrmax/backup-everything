@@ -8,7 +8,7 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Button("Открыть окно", systemImage: "macwindow", action: showWindow)
+            Button("Open window", systemImage: "macwindow", action: showWindow)
             separator
             status
                 .padding(.horizontal, 8)
@@ -18,16 +18,16 @@ struct MenuBarView: View {
                     showWindow()
                 }
             separator
-            Button("Обновить", systemImage: "arrow.clockwise") {
+            Button("Refresh", systemImage: "arrow.clockwise") {
                 Task { await model.tick() }
             }
             .hoverTip(Texts.refreshTip)
-            Button("Сделать все бэкапы заново", systemImage: "play.fill") {
+            Button("Back up everything again", systemImage: "play.fill") {
                 Task { await model.runAll() }
             }
             .hoverTip(Texts.runAllTip)
             separator
-            Button("Выйти", systemImage: "power") {
+            Button("Quit", systemImage: "power") {
                 NSApp.terminate(nil)
             }
         }
@@ -56,7 +56,7 @@ struct MenuBarView: View {
                 MenuLineLayout {
                     ProgressView().controlSize(.small)
                 } content: {
-                    Text("Идёт проверка…").foregroundStyle(.blue)
+                    Text("Checking…").foregroundStyle(.blue)
                 }
             }
             ForEach(model.menuLines) { line in
@@ -66,9 +66,9 @@ struct MenuBarView: View {
                 MenuLineLayout {
                     Image(systemName: StatusStyle.symbol(.ok)).foregroundStyle(StatusStyle.color(.ok))
                 } content: {
-                    Text("Всё в порядке").fontWeight(.medium)
+                    Text("All good").fontWeight(.medium)
                     if let latest = model.latestBackup {
-                        Text("последний бэкап \(Texts.relative(latest))")
+                        Text("last backup \(Texts.relative(latest))")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -107,7 +107,7 @@ struct MenuLineRow: View {
                 .foregroundStyle(line.severity == .error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .lineLimit(1)
             if line.canPickUp, case let .source(source) = line.subject {
-                Button("Забрать") {
+                Button("Pick up") {
                     Task { await model.confirmPickup(source) }
                 }
                 .buttonStyle(.borderedProminentPointing)

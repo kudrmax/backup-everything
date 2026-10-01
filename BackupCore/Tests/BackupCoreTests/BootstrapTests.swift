@@ -16,7 +16,7 @@ struct BootstrapTests {
         let config = try store.loadConfig()
         #expect(config.sources.map(\.name) == [Bootstrap.selfSourceName])
         #expect(config.sources[0].singleFolder?.path == temp.path("data").path)
-        #expect(config.sources[0].slug == "настройки-backup-everything")
+        #expect(config.sources[0].slug == "backup-everything-settings")
         #expect(store.loadTemplates().count == BundledTemplates.all.count)
         #expect(!temp.exists("work/staging"))
     }
@@ -55,7 +55,7 @@ struct BootstrapTests {
         let result = try await coordinator.tick()
 
         #expect(result.runs.count == 1)
-        #expect(temp.exists("backups/настройки-backup-everything/2026-09-28_100000/config.json"))
-        #expect(temp.exists("backups/настройки-backup-everything/2026-09-28_100000/templates/github.json"))
+        #expect(temp.exists("backups/backup-everything-settings/2026-09-28_100000/config.json"))
+        #expect(temp.exists("backups/backup-everything-settings/2026-09-28_100000/templates/github.json"))
     }
 }

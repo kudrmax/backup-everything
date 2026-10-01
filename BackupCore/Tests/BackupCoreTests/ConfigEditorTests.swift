@@ -27,7 +27,7 @@ struct ConfigEditorTests {
         var config = Config()
         var source = editor.makeSource(name: "Obsidian", steps: [.folder("/a", excludes: [])], now: now, in: config)
         editor.save(source, in: &config)
-        source.name = "Заметки"
+        source.name = "Notes"
         source.slug = "tampered"
         source.steps = [.folder("/b", id: source.steps[0].id)]
         editor.save(source, in: &config)
@@ -38,7 +38,7 @@ struct ConfigEditorTests {
 
     @Test func folderOfCopiesIsNamedAfterTheNameTheSourceIsFirstSavedWith() {
         var config = Config(sources: [Fixtures.source(name: "Anki")])
-        var source = editor.makeSource(name: "Новый источник", steps: [.folder("/a", excludes: [])], now: now, in: config)
+        var source = editor.makeSource(name: "New source", steps: [.folder("/a", excludes: [])], now: now, in: config)
         source.name = "Anki"
         editor.save(source, in: &config)
         #expect(config.sources.map(\.slug) == ["anki", "anki-2"])
@@ -69,9 +69,9 @@ struct ConfigEditorTests {
         var config = Config()
         editor.save(cloud, in: &config)
         var renamed = cloud
-        renamed.name = "Облако"
+        renamed.name = "Cloud"
         editor.save(renamed, in: &config)
-        #expect(config.destinations.map(\.name) == ["Облако"])
+        #expect(config.destinations.map(\.name) == ["Cloud"])
 
         let source = Fixtures.source()
         editor.save(source, in: &config)
@@ -80,31 +80,31 @@ struct ConfigEditorTests {
     }
 
     @Test func findsManualSourcesWhoseMasksOverlapInTheSameFolder() {
-        let passwords = manual("Пароли", "Passwords*.csv")
-        let finance = manual("Финансы", "*.csv")
+        let passwords = manual("Passwords", "Passwords*.csv")
+        let finance = manual("Finance", "*.csv")
         let photos = manual("Photos", "takeout-*.zip")
-        let elsewhere = manual("Другая папка", "*.csv", folder: "~/Documents")
+        let elsewhere = manual("Other folder", "*.csv", folder: "~/Documents")
         let config = Config(sources: [passwords, finance, photos, elsewhere, Fixtures.source()])
 
-        #expect(editor.maskConflicts(for: passwords, in: config).map(\.name) == ["Финансы"])
-        #expect(editor.maskConflicts(for: finance, in: config).map(\.name) == ["Пароли"])
+        #expect(editor.maskConflicts(for: passwords, in: config).map(\.name) == ["Finance"])
+        #expect(editor.maskConflicts(for: finance, in: config).map(\.name) == ["Passwords"])
         #expect(editor.maskConflicts(for: photos, in: config).isEmpty)
         #expect(editor.maskConflicts(for: Fixtures.source(), in: config).isEmpty)
     }
 
     @Test func emptyMaskConflictsWithNothing() {
-        let blank = manual("Финансы", "")
-        let config = Config(sources: [blank, manual("Пароли", "Passwords*.csv")])
+        let blank = manual("Finance", "")
+        let config = Config(sources: [blank, manual("Passwords", "Passwords*.csv")])
         #expect(editor.maskConflicts(for: blank, in: config).isEmpty)
     }
 
     @Test func manualStepMaskConflictsWithManualExportInTheSameFolder() {
-        let step = SourceStep(name: "Манифест", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "*.json", fileMode: .single, includeInCopy: false, removeOriginal: true))
+        let step = SourceStep(name: "Manifest", kind: .file(instructions: "", watchPath: "~/Downloads", filePattern: "*.json", fileMode: .single, includeInCopy: false, removeOriginal: true))
         let chain = Fixtures.source(name: "Claude", steps: [step])
-        let export = manual("Экспорт", "data-*.json")
-        let elsewhere = manual("Другая папка", "*.json", folder: "~/Desktop")
+        let export = manual("Export", "data-*.json")
+        let elsewhere = manual("Other folder", "*.json", folder: "~/Desktop")
         let config = Config(sources: [chain, export, elsewhere])
-        #expect(editor.maskConflicts(for: chain, in: config).map(\.name) == ["Экспорт"])
+        #expect(editor.maskConflicts(for: chain, in: config).map(\.name) == ["Export"])
         #expect(editor.maskConflicts(for: export, in: config).map(\.name) == ["Claude"])
     }
 }

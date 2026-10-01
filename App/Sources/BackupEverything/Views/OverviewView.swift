@@ -42,7 +42,7 @@ struct OverviewView: View {
             .frame(maxWidth: 780, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle("Обзор")
+        .navigationTitle("Overview")
     }
 
     private var sortedSources: [Source] {
@@ -68,24 +68,24 @@ struct OverviewHeader: View {
             Spacer()
             if model.isWorking {
                 ProgressView().controlSize(.small)
-                Text(model.currentSourceName ?? "проверка…").foregroundStyle(.blue)
+                Text(model.currentSourceName ?? "checking…").foregroundStyle(.blue)
             }
             Picker(selection: $order) {
                 ForEach(OverviewOrder.allCases) { Text($0.title).tag($0) }
             } label: {
-                Label("Порядок", systemImage: "arrow.up.arrow.down")
+                Label("Order", systemImage: "arrow.up.arrow.down")
             }
             .pickerStyle(.menu)
             .labelsHidden()
             .fixedSize()
             .pointing()
-            .hoverTip("Порядок источников")
-            Button("Обновить", systemImage: "arrow.clockwise") {
+            .hoverTip("Source order")
+            Button("Refresh", systemImage: "arrow.clockwise") {
                 Task { await model.tick() }
             }
             .labelStyle(.titleAndIcon)
             .hoverTip(Texts.refreshTip)
-            Button("Сделать все бэкапы заново", systemImage: "play.fill") {
+            Button("Back up everything again", systemImage: "play.fill") {
                 Task { await model.runAll() }
             }
             .labelStyle(.titleAndIcon)
@@ -100,12 +100,12 @@ struct GettingStarted: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("С чего начать").font(.headline)
-            Text("1. Добавьте назначение — папку, внешний диск или облако.")
-            Text("2. Добавьте источники из шаблонов и выберите, куда их бэкапить.")
+            Text("Getting started").font(.headline)
+            Text("1. Add a destination — a folder, an external disk or a cloud.")
+            Text("2. Add sources from templates and choose where to back them up.")
             HStack {
-                Button("Добавить назначение", action: openDestinations).buttonStyle(.borderedProminentPointing)
-                Button("Перейти к источникам", action: openSources)
+                Button("Add destination", action: openDestinations).buttonStyle(.borderedProminentPointing)
+                Button("Go to sources", action: openSources)
             }
             .padding(.top, 4)
         }
@@ -152,7 +152,7 @@ struct SourceRow: View {
                     .transition(.opacity)
             }
             if canPickUp(status) {
-                Button("Забрать") {
+                Button("Pick up") {
                     Task { await model.confirmPickup(source) }
                 }
                 .buttonStyle(.borderedProminentPointing)
@@ -238,7 +238,7 @@ struct SourceRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plainPointing)
-            .hoverTip("Нажми, чтобы открыть и скопировать ошибку")
+            .hoverTip("Click to open and copy the error")
         } else if let note = status.note {
             Text(positioned(note))
                 .font(.callout)
@@ -284,7 +284,7 @@ struct SourceRow: View {
             Text("→ \(note)")
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
-                .hoverTip("Следующий бэкап: \(NextBackup.detail(source, nextDue: model.nextDue(of: source), isWaiting: model.isWaitingForPerson(source)))")
+                .hoverTip("Next backup: \(NextBackup.detail(source, nextDue: model.nextDue(of: source), isWaiting: model.isWaitingForPerson(source)))")
         } else {
             Color.clear
         }
@@ -299,7 +299,7 @@ struct SourceRow: View {
         let chain = model.chain(of: source.id)
         return HStack(spacing: 4) {
             if model.isWaitingForPerson(source) {
-                action("Отменить: больше не ждать", symbol: "xmark.circle") {
+                action("Cancel: stop waiting", symbol: "xmark.circle") {
                     Task { await model.cancelWaiting(source) }
                 }
             } else if ChainPosition.canRunNow(source, chain: chain) {
@@ -309,48 +309,48 @@ struct SourceRow: View {
                 .disabled(destinations.isEmpty)
             }
             if chain != nil {
-                action("Начать заново", symbol: "arrow.counterclockwise") {
+                action("Start over", symbol: "arrow.counterclockwise") {
                     Task { await model.restartChain(source) }
                 }
                 .disabled(model.isWorking)
             }
             if !SourceGuide.text(for: source).isEmpty {
-                action("Инструкция", symbol: "book") { showsInstructions = true }
+                action("Instructions", symbol: "book") { showsInstructions = true }
             }
             if let original = SourceLinks.original(of: source) {
-                action("Открыть оригинал в Finder", symbol: "folder") { model.reveal(original) }
+                action("Show original in Finder", symbol: "folder") { model.reveal(original) }
             }
             copyAction
-            action("Изменить", symbol: "pencil", perform: edit)
+            action("Edit", symbol: "pencil", perform: edit)
         }
         .buttonStyle(.borderlessPointing)
     }
 
     private func runTitle(_ chain: ChainState?) -> String {
-        if chain?.failure != nil { return "Повторить шаг" }
+        if chain?.failure != nil { return "Retry step" }
         if chain == nil, let first = source.steps.first {
             switch first.kind {
-            case .file: return "Запустить: ждать файл экспорта"
-            case .device: return "Запустить: ждать подключения"
+            case .file: return "Run: wait for the export file"
+            case .device: return "Run: wait for the device"
             case .folder, .command: break
             }
         }
-        return "Запустить"
+        return "Run"
     }
 
     @ViewBuilder
     private var copyAction: some View {
         let places = SourceLinks.copies(of: source, config: model.config, state: model.state)
         if places.count == 1, let place = places.first {
-            action("Открыть копию", symbol: "archivebox") {
+            action("Open copy", symbol: "archivebox") {
                 if let folder = place.folder { model.reveal(folder) }
             }
             .disabled(place.folder == nil)
-            .hoverTip(place.unavailableReason.map { "Открыть копию: \($0.lowercased())" } ?? "Открыть копию в Finder")
+            .hoverTip(place.unavailableReason.map { "Open copy: \($0.prefix(1).lowercased() + $0.dropFirst())" } ?? "Show copy in Finder")
         } else if places.count > 1 {
             Menu {
                 ForEach(places) { place in
-                    Button(place.unavailableReason.map { "\(place.destination.name) — \($0.lowercased())" } ?? place.destination.name) {
+                    Button(place.unavailableReason.map { "\(place.destination.name) — \($0.prefix(1).lowercased() + $0.dropFirst())" } ?? place.destination.name) {
                         if let folder = place.folder { model.reveal(folder) }
                     }
                     .disabled(place.folder == nil)
@@ -362,7 +362,7 @@ struct SourceRow: View {
             .buttonStyle(.borderlessPointing)
             .menuIndicator(.hidden)
             .fixedSize()
-            .hoverTip("Открыть копию в Finder")
+            .hoverTip("Show copy in Finder")
         }
     }
 
@@ -379,17 +379,17 @@ struct SourceRow: View {
     }
 
     private var timeDetails: String {
-        var lines = ["Последний бэкап: \(model.lastBackup(of: source).map(Texts.dateTime) ?? "ещё не было")"]
+        var lines = ["Last backup: \(model.lastBackup(of: source).map(Texts.dateTime) ?? "never")"]
         if source.enabled {
             if let due = model.nextDue(of: source) {
-                let prefix = source.steps.first?.needsHuman == true ? "Напомнит" : "Следующий"
-                lines.append("\(prefix): \(due <= Date() ? "уже пора" : Texts.dateTime(due))")
+                let prefix = source.steps.first?.needsHuman == true ? "Reminder" : "Next"
+                lines.append("\(prefix): \(due <= Date() ? "due now" : Texts.dateTime(due))")
             } else {
-                lines.append("Следующий: только вручную")
+                lines.append("Next: manual only")
             }
         }
         if let size = model.lastSize(of: source) {
-            lines.append("Размер копии: \(Texts.bytes(size))")
+            lines.append("Copy size: \(Texts.bytes(size))")
         }
         return lines.joined(separator: "\n")
     }
@@ -447,22 +447,22 @@ struct DestinationBadge: View {
     }
 
     private var details: String {
-        if isDelivering { return "\(destination.name)\nзаписывается…" }
+        if isDelivering { return "\(destination.name)\nwriting…" }
         let last = model.lastDelivery(of: source, to: destination)
         switch state {
         case .delivered:
-            return "\(destination.name)\nдоставлено \(last.map { Texts.relative($0.date) } ?? "")"
+            return "\(destination.name)\ndelivered \(last.map { Texts.relative($0.date) } ?? "")"
         case .failed:
-            let message = last.map { Texts.outcome($0.outcome) } ?? "ошибка"
-            return "\(destination.name)\n\(message)\nповтор позже"
+            let message = last.map { Texts.outcome($0.outcome) } ?? "error"
+            return "\(destination.name)\n\(message)\nretrying later"
         case .waiting:
             let line = ConnectReminder.waitingLine(
                 elsewhere: model.isCoveredElsewhere(source, for: destination),
                 otherDestinations: model.otherCopies(of: source, besides: destination).map(\.name)
             )
-            return "\(destination.name)\nждёт подключения\n\(line)"
+            return "\(destination.name)\nwaiting to be connected\n\(line)"
         case .none:
-            return "\(destination.name)\nкопий ещё нет"
+            return "\(destination.name)\nno copies yet"
         }
     }
 }
@@ -510,8 +510,8 @@ struct DestinationStrip: View {
     }
 
     private func action(for destination: Destination, isConnected: Bool) -> String {
-        guard folder(of: destination) != nil, isConnected else { return "Нажми, чтобы открыть настройки" }
-        return "Нажми, чтобы открыть в Finder"
+        guard folder(of: destination) != nil, isConnected else { return "Click to open settings" }
+        return "Click to show in Finder"
     }
 
     private func style(_ condition: DestinationCondition) -> AnyShapeStyle {
@@ -526,17 +526,17 @@ struct DestinationStrip: View {
 @MainActor
 enum DestinationDetails {
     static func text(of destination: Destination, model: AppModel) -> String {
-        var lines = [model.condition(of: destination).isConnected ? "Доступно" : "Сейчас не подключено"]
+        var lines = [model.condition(of: destination).isConnected ? "Available" : "Not connected now"]
         let waiting = model.waitingSources(for: destination)
         if let caughtUp = model.lastCaughtUp(destination) {
-            lines.append("Получило всё: \(Texts.relative(caughtUp))")
+            lines.append("Got everything: \(Texts.relative(caughtUp))")
         }
-        lines.append(waiting.isEmpty ? "Ничего не ждёт доставки" : "Ждут доставки: \(waiting.map(\.name).joined(separator: ", "))")
+        lines.append(waiting.isEmpty ? "Nothing waiting for delivery" : "Waiting for delivery: \(waiting.map(\.name).joined(separator: ", "))")
         let unique = waiting.filter { !model.isCoveredElsewhere($0, for: destination) }
         if !unique.isEmpty {
-            lines.append("Больше нигде нет: \(unique.map(\.name).joined(separator: ", ")) — подключи диск")
+            lines.append("Nowhere else: \(unique.map(\.name).joined(separator: ", ")) — connect the disk")
         } else if let deadline = model.connectDeadline(of: destination), deadline > Date() {
-            lines.append("Копии есть на других дисках — напомню \(Texts.until(deadline))")
+            lines.append("Copies are on other disks — reminder \(Texts.until(deadline))")
         }
         return lines.joined(separator: "\n")
     }
@@ -557,7 +557,7 @@ struct InstructionsSheet: View {
             }
             HStack {
                 Spacer()
-                Button("Закрыть") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Close") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)

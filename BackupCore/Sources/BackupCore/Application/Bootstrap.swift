@@ -1,8 +1,8 @@
 import Foundation
 
 public struct Bootstrap: Sendable {
-    public static let selfSourceDescription = "Настройки, история и шаблоны самого приложения. Нужны, чтобы восстановить его на другом Mac."
-    public static let selfSourceName = "Настройки Backup Everything"
+    public static let selfSourceDescription = "Settings, history and templates of the app itself. Needed to restore it on another Mac."
+    public static let selfSourceName = "Backup Everything settings"
 
     private let store: Store
     private let workDirectory: URL

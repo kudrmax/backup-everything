@@ -17,45 +17,29 @@ struct RetentionStage: Equatable, Identifiable {
 
     var prefix: String {
         guard isKept else { return "—" }
-        guard opensStory else { return "Потом до" }
-        guard count == 1 else { return "Первые" }
-        return unit == .week ? "Первую" : "Первый"
+        return opensStory ? "First" : "Then up to"
     }
 
     var unitName: String {
-        opensStory ? Texts.plural(count, accusative.0, accusative.1, accusative.2) : genitive
+        switch unit {
+        case .day: Texts.plural(count, "day", "days")
+        case .week: Texts.plural(count, "week", "weeks")
+        case .month: Texts.plural(count, "month", "months")
+        case .year: Texts.plural(count, "year", "years")
+        }
     }
 
     var effect: String {
-        guard isKept else { return "не используется" }
+        guard isKept else { return "not used" }
         switch unit {
-        case .day: return "хранятся все копии"
-        case .week: return "остаётся одна в неделю"
-        case .month: return "остаётся одна в месяц"
-        case .year: return "остаётся одна в год"
+        case .day: return "every copy is kept"
+        case .week: return "one per week is kept"
+        case .month: return "one per month is kept"
+        case .year: return "one per year is kept"
         }
     }
 
-    var limit: String { "до \(count) \(genitive)" }
-
-    private var genitive: String {
-        let isSingular = count % 10 == 1 && count % 100 != 11
-        switch unit {
-        case .day: return isSingular ? "дня" : "дней"
-        case .week: return isSingular ? "недели" : "недель"
-        case .month: return isSingular ? "месяца" : "месяцев"
-        case .year: return isSingular ? "года" : "лет"
-        }
-    }
-
-    private var accusative: (String, String, String) {
-        switch unit {
-        case .day: ("день", "дня", "дней")
-        case .week: ("неделю", "недели", "недель")
-        case .month: ("месяц", "месяца", "месяцев")
-        case .year: ("год", "года", "лет")
-        }
-    }
+    var limit: String { "up to \(count) \(unitName)" }
 }
 
 enum RetentionPlan {
@@ -68,6 +52,6 @@ enum RetentionPlan {
     }
 
     static func summary(_ rules: RetentionRules) -> String {
-        stages(rules).last(where: \.isKept)?.limit ?? "только последнюю копию"
+        stages(rules).last(where: \.isKept)?.limit ?? "only the latest copy"
     }
 }

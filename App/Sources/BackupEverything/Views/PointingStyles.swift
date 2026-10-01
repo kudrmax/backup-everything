@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Системные кнопки с рамкой: вид прежний, курсор — рука.
+/// System bordered buttons: same look, with a pointing-hand cursor.
 struct PointingButtonStyle<Base: PrimitiveButtonStyle>: PrimitiveButtonStyle {
     let base: Base
 
@@ -19,7 +19,7 @@ extension PrimitiveButtonStyle where Self == PointingButtonStyle<BorderedPromine
     static var borderedProminentPointing: Self { PointingButtonStyle(base: BorderedProminentButtonStyle()) }
 }
 
-/// Кнопка без рамки, у которой собственный вид задаёт подпись: нажимается вся её площадь, при нажатии темнеет.
+/// A borderless button whose label defines its look: the whole area is clickable and darkens when pressed.
 struct PlainPointingButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         PressableBody(configuration: configuration) { label, isPressed, _ in
@@ -30,7 +30,7 @@ struct PlainPointingButtonStyle: ButtonStyle {
     }
 }
 
-/// Значок или короткая подпись без рамки: под курсором подсвечивается подложкой, как кнопки панели инструментов.
+/// An icon or short borderless label: highlighted with a backdrop under the cursor, like toolbar buttons.
 struct BorderlessPointingButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         PressableBody(configuration: configuration) { label, isPressed, isHovered in
@@ -44,7 +44,7 @@ struct BorderlessPointingButtonStyle: ButtonStyle {
     }
 }
 
-/// Строка меню во всю ширину: подсвечивается целиком и нажимается в любом месте.
+/// A full-width menu row: highlighted as a whole and clickable anywhere.
 struct MenuRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         PressableBody(configuration: configuration) { label, isPressed, isHovered in
@@ -94,7 +94,7 @@ private struct Highlight: View {
     }
 }
 
-/// Общая часть стилей: наведение, курсор и вид выключенной кнопки.
+/// The shared part of the styles: hover, cursor and the look of a disabled button.
 private struct PressableBody<Content: View>: View {
     let configuration: ButtonStyleConfiguration
     @ViewBuilder let content: (ButtonStyleConfiguration.Label, Bool, Bool) -> Content
@@ -112,13 +112,13 @@ private struct PressableBody<Content: View>: View {
 }
 
 extension View {
-    /// Для меню, переключателей и выпадающих списков, у которых нет стиля кнопки.
+    /// For menus, toggles and pop-up lists that have no button style.
     func pointing() -> some View {
         pointerStyle(.link)
     }
 }
 
-/// Нажимаемая строка, внутри которой есть свои кнопки (поэтому это не Button): подсветка и клик по всей площади.
+/// A clickable row with its own buttons inside (hence not a Button): highlight and click over the whole area.
 private struct TappableRow: ViewModifier {
     let action: () -> Void
     @State private var isHovered = false

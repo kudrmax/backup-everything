@@ -36,10 +36,10 @@ struct ActivityTrackerTests {
         #expect(tracker.waitingCount == 0)
     }
 
-    @Test func stageTextsArePlainRussian() {
-        #expect(Texts.stage(.queued, destinationName: nil) == "в очереди")
-        #expect(Texts.stage(.collecting, destinationName: nil) == "готовит копию…")
-        #expect(Texts.stage(.delivering(destinationId: disk), destinationName: "HDD") == "копирует на «HDD»…")
+    @Test func stageTextsArePlainEnglish() {
+        #expect(Texts.stage(.queued, destinationName: nil) == "queued")
+        #expect(Texts.stage(.collecting, destinationName: nil) == "preparing the copy…")
+        #expect(Texts.stage(.delivering(destinationId: disk), destinationName: "HDD") == "copying to “HDD”…")
     }
 
     @Test func deliveryStateCombinesLastOutcomeAndDebt() {
@@ -48,8 +48,8 @@ struct ActivityTrackerTests {
         #expect(DeliveryState.of(lastOutcome: .delivered(pruned: 0, warning: nil), isWaiting: false) == .delivered)
         #expect(DeliveryState.of(lastOutcome: .delivered(pruned: 0, warning: nil), isWaiting: true) == .waiting)
         #expect(DeliveryState.of(lastOutcome: .unavailable, isWaiting: true) == .waiting)
-        #expect(DeliveryState.of(lastOutcome: .failed(message: "квота"), isWaiting: true) == .failed)
-        #expect(DeliveryState.of(lastOutcome: .failed(message: "квота"), isWaiting: false) == .none)
+        #expect(DeliveryState.of(lastOutcome: .failed(message: "quota"), isWaiting: true) == .failed)
+        #expect(DeliveryState.of(lastOutcome: .failed(message: "quota"), isWaiting: false) == .none)
     }
 
     @Test func remembersWhenTheRunStartedAndWhatTheSourceReports() {
@@ -59,9 +59,9 @@ struct ActivityTrackerTests {
         #expect(tracker.startedAt(of: first) == nil)
 
         tracker.apply(.collecting(sourceId: first), at: start.addingTimeInterval(5))
-        tracker.apply(.status(sourceId: first, text: "3 из 40 · repo"), at: start.addingTimeInterval(60))
+        tracker.apply(.status(sourceId: first, text: "3 of 40 · repo"), at: start.addingTimeInterval(60))
         #expect(tracker.stage(of: first) == .collecting)
-        #expect(tracker.status(of: first) == "3 из 40 · repo")
+        #expect(tracker.status(of: first) == "3 of 40 · repo")
         #expect(tracker.startedAt(of: first) == start.addingTimeInterval(5))
 
         tracker.apply(.delivering(sourceId: first, destinationId: disk), at: start.addingTimeInterval(90))
@@ -73,11 +73,11 @@ struct ActivityTrackerTests {
     }
 
     @Test func durationIsShortAndCoarse() {
-        #expect(Texts.duration(0) == "0 с")
-        #expect(Texts.duration(42) == "42 с")
-        #expect(Texts.duration(60) == "1 мин")
-        #expect(Texts.duration(16 * 60 + 30) == "16 мин")
-        #expect(Texts.duration(3600 + 5 * 60) == "1 ч 5 мин")
+        #expect(Texts.duration(0) == "0 s")
+        #expect(Texts.duration(42) == "42 s")
+        #expect(Texts.duration(60) == "1 min")
+        #expect(Texts.duration(16 * 60 + 30) == "16 min")
+        #expect(Texts.duration(3600 + 5 * 60) == "1 h 5 min")
     }
 
     @Test func usualDurationComesFromTheLatestCompleteRun() {
@@ -90,7 +90,7 @@ struct ActivityTrackerTests {
         }
         let runs = [
             run(first, .catchUp, seconds: 2),
-            run(first, .manual, seconds: 5, error: "сломалось", delivered: false),
+            run(first, .manual, seconds: 5, error: "broke", delivered: false),
             run(second, .scheduled, seconds: 900),
             run(first, .scheduled, seconds: 1320),
             run(first, .scheduled, seconds: 60),
@@ -108,7 +108,7 @@ struct ActivityTrackerTests {
                 deliveries: [Delivery(destinationId: disk, destinationName: "HDD", outcome: .delivered(pruned: 0, warning: nil))]
             )
         }
-        let runs = [run(.pickup, seconds: 1), run(.catchUp, seconds: 78, copiedFrom: "Папка на ноуте")]
+        let runs = [run(.pickup, seconds: 1), run(.catchUp, seconds: 78, copiedFrom: "Laptop folder")]
         #expect(RunTiming.usualDuration(of: first, in: runs, copying: true) == 78)
         #expect(RunTiming.usualDuration(of: first, in: runs, copying: false) == nil)
     }
@@ -125,8 +125,8 @@ struct ActivityTrackerTests {
     }
 
     @Test func elapsedTipMentionsTheUsualDurationWhenKnown() {
-        #expect(RunTiming.tip(elapsed: 960, usual: 1320) == "Идёт 16 мин\nВ прошлый раз заняло 22 мин")
-        #expect(RunTiming.tip(elapsed: 960, usual: nil) == "Идёт 16 мин")
+        #expect(RunTiming.tip(elapsed: 960, usual: 1320) == "Running for 16 min\nLast time took 22 min")
+        #expect(RunTiming.tip(elapsed: 960, usual: nil) == "Running for 16 min")
     }
 
     @Test func trackerRemembersWhichStepIsRunning() {

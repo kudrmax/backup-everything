@@ -11,7 +11,7 @@ enum IconImporter {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.png, .jpeg, .icns, .tiff]
-        panel.prompt = "Выбрать"
+        panel.prompt = "Choose"
         return panel.runModal() == .OK ? panel.url : nil
     }
 

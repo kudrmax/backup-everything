@@ -4,7 +4,7 @@ import Testing
 
 struct RcloneIntegrationTests {
     @Test func roundTripsThroughRealRcloneLocalBackend() async throws {
-        let executable = try #require(RcloneLocator().find(), "Нужен rclone: brew install rclone")
+        let executable = try #require(RcloneLocator().find(), "rclone is required: brew install rclone")
         let temp = try TempDirectory()
         defer { temp.remove() }
         try temp.file("vault/a.md", "alpha")

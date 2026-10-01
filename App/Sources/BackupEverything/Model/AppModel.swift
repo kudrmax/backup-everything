@@ -24,8 +24,8 @@ final class AppModel {
     private(set) var problem: String?
     private(set) var activity = ActivityTracker()
     private(set) var unavailableDestinations: Set<UUID> = []
-    /// Сколько занимают копии в каждом назначении; считается в фоне, пока бэкапы не идут.
-    /// У отключённого диска — размер с последнего подключения.
+    /// How much space the copies take in each destination; measured in the background while no backups run.
+    /// For a disconnected disk, the size from the last time it was connected.
     private(set) var destinationUsage: [UUID: Int64] = AppModel.rememberedUsage()
     private(set) var waitingPackages: [UUID: Int64] = [:]
     private(set) var freeSpace: Int64?
@@ -39,7 +39,7 @@ final class AppModel {
 
     @ObservationIgnored var onNotices: ([Notice]) -> Void = { _ in }
     @ObservationIgnored var onChange: () -> Void = {}
-    /// Настройки сохранены: новые назначения и источники должны получить копию сразу, а не к следующему сроку.
+    /// Settings were saved: new destinations and sources should get a copy right away, not at the next due time.
     @ObservationIgnored var onConfigEdited: () -> Void = {}
 
     @ObservationIgnored private let store: Store
@@ -120,7 +120,7 @@ final class AppModel {
         await perform { try await self.coordinator.cancelWaiting(sourceId: source.id) }
     }
 
-    /// Запуск начат кнопкой и ждёт человека: только такое ожидание можно отменить.
+    /// The run was started by the button and is waiting for a person: only such a wait can be cancelled.
     func isWaitingForPerson(_ source: Source) -> Bool {
         let sourceState = state.sourceState(source.id)
         guard let chain = sourceState.chain else {
@@ -191,7 +191,7 @@ final class AppModel {
 
     func importIcon(from file: URL) -> String? {
         guard let png = IconImporter.pngData(from: file) else {
-            problem = "Не удалось прочитать картинку «\(file.lastPathComponent)»."
+            problem = "Could not read the image “\(file.lastPathComponent)”."
             return nil
         }
         do {
@@ -302,19 +302,19 @@ final class AppModel {
         state.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
     }
 
-    /// Пропущенный бэкап есть на другом диске источника.
+    /// The missed backup exists on another disk of the source.
     func isCoveredElsewhere(_ source: Source, for destination: Destination) -> Bool {
         state.debts.first { $0.sourceId == source.id && $0.destinationId == destination.id }?.elsewhere ?? true
     }
 
-    /// Другие диски источника, на которых есть его копия.
+    /// Other disks of the source that hold its copy.
     func otherCopies(of source: Source, besides destination: Destination) -> [Destination] {
         config.destinations(of: source).filter { other in
             other.id != destination.id && state.lastDeliveredSnapshot(sourceId: source.id, destinationId: other.id) != nil
         }
     }
 
-    /// Когда диск «время от времени» попросят подключить; `nil` — ему ничего не задолжали.
+    /// When a “from time to time” disk will be asked to connect; `nil` means nothing is owed to it.
     func connectDeadline(of destination: Destination) -> Date? {
         planner.connectDeadline(for: destination, state: state)
     }
@@ -361,7 +361,7 @@ final class AppModel {
     func reveal(_ url: URL) {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            problem = "Не найдено: \(url.path). Возможно, диск не подключён."
+            problem = "Not found: \(url.path). The disk may not be connected."
             return
         }
         if isDirectory.boolValue {
@@ -409,8 +409,8 @@ final class AppModel {
         return WorkingSpace.need(sources: config.sources, lastSizes: lastSizes, waiting: waitingPackages)
     }
 
-    /// Обходит папки назначений, поэтому только между бэкапами и, если ничего не поменялось, не чаще раза в минуту.
-    /// Сразу — когда подключили диск и когда закончился бэкап.
+    /// Walks the destination folders, so only between backups and, if nothing changed, at most once a minute.
+    /// Right away when a disk is connected and when a backup finishes.
     private func refreshSpace(force: Bool = false) {
         guard activeOperations == 0, force || Date().timeIntervalSince(lastSpaceCheck) > 60 else { return }
         lastSpaceCheck = Date()

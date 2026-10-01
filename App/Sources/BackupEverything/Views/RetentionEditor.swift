@@ -27,21 +27,21 @@ struct RetentionEditor: View {
                 }
                 if keepsHistory {
                     GridRow {
-                        Text("Потом")
+                        Text("Then")
                         Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                         Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                        Text("удаляются")
+                        Text("deleted")
                             .foregroundStyle(.secondary)
                             .padding(.leading, 8)
                     }
                 }
             }
             if !keepsHistory {
-                Text("Хранится только самая свежая копия.")
+                Text("Only the latest copy is kept.")
                     .foregroundStyle(.secondary)
             }
             if let showCopies {
-                Button("Показать копии по датам…", action: showCopies)
+                Button("Show copies by date…", action: showCopies)
                     .controlSize(.small)
             }
         }

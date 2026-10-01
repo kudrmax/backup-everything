@@ -41,11 +41,11 @@ struct SourceProviderTests {
         defer { temp.remove() }
         let source = StepsSource(
             sourceId: UUID(),
-            steps: [.folder(temp.path("gone").path, name: "Книги"), .command("true", timeoutSeconds: 30)],
+            steps: [.folder(temp.path("gone").path, name: "Books"), .command("true", timeoutSeconds: 30)],
             stagingRoot: temp.path("staging"),
             runner: FakeProcessRunner()
         )
-        await #expect(throws: SourceError.stepFailed(index: 0, count: 2, name: "Книги", reason: SourceError.pathMissing(temp.path("gone").path).localizedDescription)) {
+        await #expect(throws: SourceError.stepFailed(index: 0, count: 2, name: "Books", reason: SourceError.pathMissing(temp.path("gone").path).localizedDescription)) {
             try await source.collect(at: date)
         }
         #expect(temp.names(in: "staging").isEmpty)
@@ -101,25 +101,25 @@ struct SourceProviderTests {
 
     @Test func commandSourcePassesCommandOutputAsStatus() async throws {
         defer { temp.remove() }
-        let runner = FakeProcessRunner(output: ["1 из 2 · first", "2 из 2 · second"])
+        let runner = FakeProcessRunner(output: ["1 of 2 · first", "2 of 2 · second"])
         let source = commandSource("gh repo list", timeoutSeconds: 30, runner: runner)
         let statuses = LockedBox<[String]>([])
         let payload = try await source.collect(at: date) { status in statuses.set(statuses.get() + [status]) }
         source.finish(payload, deliveredEverywhere: true)
-        #expect(statuses.get() == ["1 из 2 · first", "2 из 2 · second"])
+        #expect(statuses.get() == ["1 of 2 · first", "2 of 2 · second"])
     }
 
     @Test func shellCommandPassesEnvironmentAndReportsFailures() async throws {
         defer { temp.remove() }
-        let runner = FakeProcessRunner(output: ["1 из 2"]) { call in
-            call.environment["MODE"] == "fail" ? ProcessResult(exitCode: 3, stdout: "out\n", stderr: "boom\n") : ProcessResult(exitCode: 0, stdout: "готово\n")
+        let runner = FakeProcessRunner(output: ["1 of 2"]) { call in
+            call.environment["MODE"] == "fail" ? ProcessResult(exitCode: 3, stdout: "out\n", stderr: "boom\n") : ProcessResult(exitCode: 0, stdout: "done\n")
         }
         let shell = ShellCommand(runner: runner)
         let lines = LockedBox<[String]>([])
 
         let tail = try await shell.run("echo hi", timeoutSeconds: 30, environment: ["MODE": "ok"]) { lines.set(lines.get() + [$0]) }
-        #expect(tail == "готово")
-        #expect(lines.get() == ["1 из 2"])
+        #expect(tail == "done")
+        #expect(lines.get() == ["1 of 2"])
         #expect(runner.calls.first?.arguments == ["-lc", "echo hi"])
         #expect(runner.calls.first?.executable.path == "/bin/zsh")
         #expect(runner.calls.first?.timeout == 30)

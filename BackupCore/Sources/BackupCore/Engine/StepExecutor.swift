@@ -1,6 +1,6 @@
 import Foundation
 
-/// Выполняет автоматические шаги — папку и команду — в рабочих папках запуска.
+/// Runs automatic steps — folder and command — in the run's working folders.
 struct StepExecutor: Sendable {
     private let shell: ShellCommand
     private let walker = PayloadWalker()
@@ -9,7 +9,7 @@ struct StepExecutor: Sendable {
         shell = ShellCommand(runner: runner)
     }
 
-    /// Возвращает хвост вывода команды, у папки — nil.
+    /// Returns the tail of the command output; nil for a folder.
     func run(_ kind: StepKind, in folders: WorkFolders, status: @escaping StatusHandler) async throws -> String? {
         switch kind {
         case let .folder(path, excludes):
@@ -18,7 +18,7 @@ struct StepExecutor: Sendable {
         case let .command(command, timeoutSeconds):
             return try await shell.run(command, timeoutSeconds: timeoutSeconds, environment: folders.environment, status: status)
         case .file, .device:
-            preconditionFailure("Шаги человека выполняет StepChainRunner")
+            preconditionFailure("Manual steps are run by StepChainRunner")
         }
     }
 

@@ -22,7 +22,7 @@ public struct SchedulePlanner: Sendable {
         return true
     }
 
-    /// Шаг человека в начале источника принимается, только когда его ждут: подошёл срок или нажата кнопка.
+    /// A manual step at the start of a source is accepted only when it is awaited: the time has come or the button was pressed.
     public func awaitsFile(_ source: Source, state: SourceState, now: Date) -> Bool {
         state.armedAt != nil || dueDateReached(source, state: state, now: now)
     }

@@ -21,7 +21,7 @@ public struct ChainPermissions: Sendable, Equatable {
     }
 }
 
-/// Проводит по шагам источник, в котором есть шаг человека. Один вызов — один переход; результат копится в pending.
+/// Walks a source with a manual step through its steps. One call is one transition; the result accumulates in pending.
 public struct StepChainRunner: Sendable {
     private let chainsRoot: URL
     private let inbox: ManualExportInbox
@@ -115,7 +115,7 @@ public struct StepChainRunner: Sendable {
         currentStepScan(source, chain: chain, lastPickup: lastPickup, now: time.now)
     }
 
-    /// Текущий шаг — подключить устройство, а его нет.
+    /// The current step is to connect a device, and it is not there.
     public func awaitsDevice(_ source: Source, chain: ChainState?) -> Bool {
         let index = chain?.stepIndex ?? 0
         guard index < source.steps.count, case .device = source.steps[index].kind else { return false }
@@ -148,7 +148,7 @@ public struct StepChainRunner: Sendable {
         Set((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
     }
 
-    /// Шаг после устройства упал, а устройства уже нет: его отключили посреди копирования. Это ожидание, а не ошибка.
+    /// A step after the device failed and the device is gone: it was disconnected mid-copy. This is waiting, not an error.
     private func unpluggedDevice(before index: Int, in source: Source) -> Int? {
         guard let device = source.steps[..<index].lastIndex(where: { if case .device = $0.kind { true } else { false } }),
               let path = source.devicePath(at: device), !exists(path) else { return nil }
@@ -180,12 +180,12 @@ public struct StepChainRunner: Sendable {
         return package
     }
 
-    /// Сборку могли прервать сразу после переноса результата в pending: такой пакет — уже готовый результат этого запуска.
+    /// The run may have been interrupted right after moving the result to pending: such a package is already this run's finished result.
     private func isProduct(_ package: PendingPackage, of chain: ChainState) -> Bool {
         package.collectedAt.addingTimeInterval(1) > chain.startedAt
     }
 
-    /// Забрать все файлы или ни одного: при ошибке уже перенесённые возвращаются на место.
+    /// Pick up all files or none: on an error the ones already moved are put back.
     private func take(_ files: [URL], into directory: URL, keepOriginals: Bool) throws {
         let fileManager = FileManager.default
         var taken: [(original: URL, copy: URL)] = []

@@ -91,7 +91,7 @@ public struct SystemProcessRunner: ProcessRunner {
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
         posix_spawnattr_setpgroup(&attributes, 0)
-        // Поток GCD блокирует сигналы; без сброса потомок унаследует маску и не отреагирует на SIGTERM.
+        // A GCD thread blocks signals; without a reset the child inherits the mask and ignores SIGTERM.
         var unblocked = sigset_t()
         sigemptyset(&unblocked)
         posix_spawnattr_setsigmask(&attributes, &unblocked)

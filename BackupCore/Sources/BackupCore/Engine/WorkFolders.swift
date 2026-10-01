@@ -1,6 +1,6 @@
 import Foundation
 
-/// Рабочие папки одного запуска: файлы от человека для команд, будущая копия и черновик.
+/// Working folders of one run: files from the person for commands, the future copy and a draft.
 struct WorkFolders {
     let root: URL
 

@@ -20,10 +20,10 @@ enum SourceLinks {
     static func copies(of source: Source, config: Config, state: AppState) -> [CopyPlace] {
         config.destinations(of: source).map { destination in
             guard case let .localFolder(path) = destination.kind else {
-                return CopyPlace(destination: destination, folder: nil, unavailableReason: "Копия в облаке — в Finder не открыть")
+                return CopyPlace(destination: destination, folder: nil, unavailableReason: "The copy is in the cloud and can’t be opened in Finder")
             }
             guard let snapshot = state.lastDeliveredSnapshot(sourceId: source.id, destinationId: destination.id) else {
-                return CopyPlace(destination: destination, folder: nil, unavailableReason: "Копий ещё нет")
+                return CopyPlace(destination: destination, folder: nil, unavailableReason: "No copies yet")
             }
             let folder = AppPaths.expand(path).appendingPathComponent(source.slug).appendingPathComponent(snapshot)
             return CopyPlace(destination: destination, folder: folder, unavailableReason: nil)

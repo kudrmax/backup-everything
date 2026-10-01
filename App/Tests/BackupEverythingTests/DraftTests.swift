@@ -7,17 +7,17 @@ struct DraftTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
     private func source(_ steps: [SourceStep]) -> Source {
-        Source(name: "Источник", slug: "istochnik", steps: steps, schedule: .weekly, createdAt: now)
+        Source(name: "Source", slug: "source", steps: steps, schedule: .weekly, createdAt: now)
     }
 
     @Test(arguments: [
         [SourceStep.folder("~/Obsidian", excludes: [".trash", "*.tmp"])],
         [SourceStep.command("gh repo list", timeoutSeconds: 600)],
-        [SourceStep.file("takeout-*.zip", in: "~/Downloads", mode: .multiple, includeInCopy: true, removeOriginal: false, instructions: "выгрузи")],
-        [SourceStep.device("/Volumes/PocketBook", instructions: "подключи"), SourceStep.folder("/Volumes/PocketBook/Books", excludes: [".cache"])],
+        [SourceStep.file("takeout-*.zip", in: "~/Downloads", mode: .multiple, includeInCopy: true, removeOriginal: false, instructions: "export it")],
+        [SourceStep.device("/Volumes/PocketBook", instructions: "connect it"), SourceStep.folder("/Volumes/PocketBook/Books", excludes: [".cache"])],
         [
-            SourceStep.file("manifest-*.json", in: "~/Downloads", includeInCopy: false, instructions: "скачай", name: "Манифест"),
-            SourceStep.command("echo hi", timeoutSeconds: 3600, name: "Архивы"),
+            SourceStep.file("manifest-*.json", in: "~/Downloads", includeInCopy: false, instructions: "download it", name: "Manifest"),
+            SourceStep.command("echo hi", timeoutSeconds: 3600, name: "Archives"),
         ],
     ])
     func sourceDraftRoundTripsAnySteps(steps: [SourceStep]) {
@@ -44,26 +44,26 @@ struct DraftTests {
 
     @Test func sourceDraftExplainsWhatIsMissing() {
         var draft = SourceDraft(source([]))
-        #expect(draft.problem == "Добавьте хотя бы один шаг.")
+        #expect(draft.problem == "Add at least one step.")
 
         draft.steps = SourceStart.folder.steps
-        #expect(draft.problem == "Укажите папку или файл.")
+        #expect(draft.problem == "Choose a folder or file.")
         draft.steps[0].folderPath = "~/Obsidian"
         draft.name = " "
-        #expect(draft.problem == "Укажите название.")
+        #expect(draft.problem == "Enter a name.")
         draft.name = "Obsidian"
         #expect(draft.problem == nil)
 
         draft.steps = [StepDraft(new: .file), StepDraft(new: .command)]
-        #expect(draft.problem == "Шаг 1: укажите маску файла, например manifest-*.json.")
+        #expect(draft.problem == "Step 1: enter a file mask, e.g. manifest-*.json.")
         draft.steps[0].filePattern = " manifest-*.json "
-        #expect(draft.problem == "Шаг 2: укажите команду.")
+        #expect(draft.problem == "Step 2: enter a command.")
         draft.steps[1].command = "echo hi"
         draft.steps[1].name = "  "
-        #expect(draft.problem == "Шаг 2: укажите название.")
-        draft.steps[1].name = " Скачать "
+        #expect(draft.problem == "Step 2: enter a name.")
+        draft.steps[1].name = " Download "
         draft.steps[0].watchPath = ""
-        #expect(draft.problem == "Шаг 1: укажите папку, куда попадает файл.")
+        #expect(draft.problem == "Step 1: choose the folder the file lands in.")
         draft.steps[0].watchPath = "~/Downloads"
         #expect(draft.problem == nil)
         #expect(draft.build().steps.map(\.kind) == [
@@ -76,7 +76,7 @@ struct DraftTests {
         var draft = SourceDraft(source([]))
         draft.name = "PocketBook"
         draft.steps = SourceStart.device.steps
-        #expect(draft.problem == "Шаг 2: укажите папку или файл.")
+        #expect(draft.problem == "Step 2: choose a folder or file.")
         draft.steps[1].folderPath = "/Volumes/PocketBook/Books"
         #expect(draft.problem == nil)
         let built = draft.build()
@@ -87,11 +87,11 @@ struct DraftTests {
         #expect(built.devicePath(at: 0) == "/Volumes/PocketBook/Books")
 
         draft.steps.removeLast()
-        #expect(draft.problem == "Укажите путь на устройстве.")
+        #expect(draft.problem == "Enter the path on the device.")
     }
 
     @Test func stepDraftKeepsBothFormsWhileTheKindIsSwitched() {
-        var step = StepDraft(SourceStep(name: "Архивы", kind: .command(command: "echo hi", timeoutSeconds: 1800)))
+        var step = StepDraft(SourceStep(name: "Archives", kind: .command(command: "echo hi", timeoutSeconds: 1800)))
         #expect(step.timeoutMinutes == 30)
         step.kindChoice = .file
         step.filePattern = "x-*.zip"
@@ -101,18 +101,18 @@ struct DraftTests {
 
     @Test func destinationDraftRoundTrips() {
         let disk = Destination(name: "HDD", kind: .localFolder(path: "/Volumes/HDD/Backups"), expectedEvery: .days(30))
-        let cloud = Destination(name: "Облако", kind: .rclone(remote: "gdrive", path: "backups"))
+        let cloud = Destination(name: "Cloud", kind: .rclone(remote: "gdrive", path: "backups"))
         #expect(DestinationDraft(disk).build() == disk)
         #expect(DestinationDraft(cloud).build() == cloud)
     }
 
     @Test func destinationDraftExplainsWhatIsMissing() {
         var draft = DestinationDraft(Destination(name: "", kind: .localFolder(path: "")))
-        #expect(draft.problem == "Укажите название.")
+        #expect(draft.problem == "Enter a name.")
         draft.name = "HDD"
-        #expect(draft.problem == "Выберите папку.")
+        #expect(draft.problem == "Choose a folder.")
         draft.typeChoice = .rclone
-        #expect(draft.problem == "Выберите подключённое облако.")
+        #expect(draft.problem == "Choose a connected cloud.")
         draft.remote = "gdrive"
         #expect(draft.problem == nil)
         draft.isPeriodic = true
@@ -143,13 +143,13 @@ struct DraftTests {
 
     @Test func sourceDraftCarriesDescriptionAndIcon() {
         var original = source([.folder("~/Obsidian")])
-        original.description = "Все заметки"
+        original.description = "All notes"
         original.icon = "a.png"
         var draft = SourceDraft(original)
         #expect(draft.build() == original)
-        draft.description = "  Заметки  "
+        draft.description = "  Notes  "
         draft.icon = nil
-        #expect(draft.build().description == "Заметки")
+        #expect(draft.build().description == "Notes")
         #expect(draft.build().icon == nil)
     }
 }

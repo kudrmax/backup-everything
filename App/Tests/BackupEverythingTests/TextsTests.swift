@@ -4,7 +4,7 @@ import Testing
 @testable import BackupEverything
 
 struct TextsTests {
-    private let cloud = Destination(name: "Облако", kind: .localFolder(path: "/c"))
+    private let cloud = Destination(name: "Cloud", kind: .localFolder(path: "/c"))
     private let disk = Destination(name: "HDD", kind: .localFolder(path: "/h"), expectedEvery: .days(30))
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
@@ -19,7 +19,7 @@ struct TextsTests {
         let config = Config(sources: [photos, github, healthy], destinations: [cloud, disk])
         let report = StatusReport(items: [
             .filesAwaitingPickup(sourceId: photos.id, fileCount: 2, totalBytes: 23_000_000_000, downloadInProgress: false),
-            .runFailed(sourceId: github.id, message: "Команда завершилась с кодом 1. fatal: early EOF"),
+            .runFailed(sourceId: github.id, message: "Command exited with code 1. fatal: early EOF"),
             .severelyOverdue(sourceId: github.id),
             .connectDestination(destinationId: disk.id),
         ])
@@ -28,8 +28,8 @@ struct TextsTests {
 
         #expect(lines == [
             MenuLine(subject: .source(github), severity: .error, text: "fatal: early EOF", canPickUp: false),
-            MenuLine(subject: .source(photos), severity: .attention, text: "2 файла · 23 ГБ", canPickUp: true),
-            MenuLine(subject: .destination(disk), severity: .attention, text: "пора подключить", canPickUp: false),
+            MenuLine(subject: .source(photos), severity: .attention, text: "2 files · 23 GB", canPickUp: true),
+            MenuLine(subject: .destination(disk), severity: .attention, text: "time to connect", canPickUp: false),
         ])
     }
 
@@ -42,7 +42,7 @@ struct TextsTests {
         let photos = source("Google Photos")
         let report = StatusReport(items: [.filesAwaitingPickup(sourceId: photos.id, fileCount: 1, totalBytes: 5_000_000, downloadInProgress: true)])
         let lines = MenuLines.of(config: Config(sources: [photos]), state: AppState(), report: report, unavailable: [])
-        #expect(lines.map(\.text) == ["1 файл · 5 МБ · идёт загрузка"])
+        #expect(lines.map(\.text) == ["1 file · 5 MB · downloading"])
         #expect(lines.map(\.canPickUp) == [false])
     }
 
@@ -54,22 +54,22 @@ struct TextsTests {
                 deliveries: outcomes.map { Delivery(destinationId: UUID(), destinationName: "d", outcome: $0) }
             )
         }
-        #expect(Texts.runSummary(run(collectError: "нет папки", [])) == "Ошибка: нет папки")
-        #expect(Texts.runSummary(run([.delivered(pruned: 0, warning: nil), .failed(message: "квота")])) == "Доставлено: 1 из 2. Ошибка: квота")
-        #expect(Texts.runSummary(run([.delivered(pruned: 2, warning: nil), .unavailable])) == "Доставлено: 1 из 2, остальные ждут")
-        #expect(Texts.runSummary(run([.delivered(pruned: 2, warning: nil)])) == "Готово. Удалено старых копий: 2")
-        #expect(Texts.runSummary(run([.delivered(pruned: 0, warning: nil)])) == "Готово")
-        #expect(Texts.runSummary(run([.unavailable])) == "Назначения недоступны, бэкап отложен")
+        #expect(Texts.runSummary(run(collectError: "no folder", [])) == "Error: no folder")
+        #expect(Texts.runSummary(run([.delivered(pruned: 0, warning: nil), .failed(message: "quota")])) == "Delivered: 1 of 2. Error: quota")
+        #expect(Texts.runSummary(run([.delivered(pruned: 2, warning: nil), .unavailable])) == "Delivered: 1 of 2, the rest are waiting")
+        #expect(Texts.runSummary(run([.delivered(pruned: 2, warning: nil)])) == "Done. Old copies removed: 2")
+        #expect(Texts.runSummary(run([.delivered(pruned: 0, warning: nil)])) == "Done")
+        #expect(Texts.runSummary(run([.unavailable])) == "Destinations unavailable, backup postponed")
     }
 
     @Test func sourceStatusPicksTheMostImportantFact() {
         let obsidian = source("Obsidian")
         let report = StatusReport(items: [
             .severelyOverdue(sourceId: obsidian.id),
-            .runFailed(sourceId: obsidian.id, message: "квота"),
+            .runFailed(sourceId: obsidian.id, message: "quota"),
             .manualExportDue(sourceId: UUID()),
         ])
-        #expect(SourceStatus.of(obsidian, report: report, lastRun: now) == .failed("квота"))
+        #expect(SourceStatus.of(obsidian, report: report, lastRun: now) == .failed("quota"))
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastRun: now) == .ok)
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastRun: nil) == .neverRun)
         var disabled = obsidian
@@ -78,9 +78,9 @@ struct TextsTests {
     }
 
     @Test func relativeTimeTreatsTheLastMinuteAsJustNow() {
-        #expect(Texts.relative(now.addingTimeInterval(-20), to: now) == "только что")
-        #expect(Texts.relative(now.addingTimeInterval(20), to: now) == "вот-вот")
-        #expect(Texts.relative(now.addingTimeInterval(-7200), to: now) == "2 часа назад")
-        #expect(Texts.relative(now.addingTimeInterval(86_400), to: now) == "через 1 день")
+        #expect(Texts.relative(now.addingTimeInterval(-20), to: now) == "just now")
+        #expect(Texts.relative(now.addingTimeInterval(20), to: now) == "any moment")
+        #expect(Texts.relative(now.addingTimeInterval(-7200), to: now) == "2 hours ago")
+        #expect(Texts.relative(now.addingTimeInterval(86_400), to: now) == "in 1 day")
     }
 }

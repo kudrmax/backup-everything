@@ -41,7 +41,7 @@ public struct ConfigEditor: Sendable {
         config.sources.removeAll { $0.id == id }
     }
 
-    /// Источники, которых нет в `ids` (например, добавленные тем временем), остаются в конце в прежнем порядке.
+    /// Sources missing from `ids` (for example, added in the meantime) stay at the end in their previous order.
     public func orderSources(_ ids: [UUID], in config: inout Config) {
         let rank = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         config.sources = config.sources.enumerated()

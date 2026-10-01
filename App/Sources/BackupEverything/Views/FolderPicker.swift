@@ -8,7 +8,7 @@ enum FolderPicker {
         panel.canChooseFiles = allowsFiles
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "Выбрать"
+        panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         return (url.path as NSString).abbreviatingWithTildeInPath
     }

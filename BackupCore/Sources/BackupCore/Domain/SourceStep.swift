@@ -42,7 +42,7 @@ extension StepKind: Codable {
         let path: String
     }
 
-    /// Ручной шаг из первой версии «По шагам»: один файл, оригинал уходит.
+    /// A manual step from the first version of “By steps”: one file, the original is moved away.
     private struct LegacyManual: Codable {
         let instructions: String
         let watchPath: String
@@ -77,7 +77,7 @@ extension StepKind: Codable {
                 removeOriginal: true
             )
         } else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Неизвестный вид шага"))
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown step kind"))
         }
     }
 
@@ -117,7 +117,7 @@ public struct SourceStep: Codable, Sendable, Equatable, Identifiable {
         self.kind = kind
     }
 
-    /// Шаг, который делает человек: приложение только ждёт его результата.
+    /// A step done by the person: the app only waits for its result.
     public var needsHuman: Bool {
         switch kind {
         case .file, .device: true
@@ -132,11 +132,11 @@ public struct SourceStep: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
-    public static func folder(_ path: String, excludes: [String] = [], name: String = "Скопировать папку", id: UUID = UUID()) -> SourceStep {
+    public static func folder(_ path: String, excludes: [String] = [], name: String = "Copy folder", id: UUID = UUID()) -> SourceStep {
         SourceStep(id: id, name: name, kind: .folder(path: path, excludes: excludes))
     }
 
-    public static func command(_ command: String, timeoutSeconds: Int, name: String = "Выполнить команду", id: UUID = UUID()) -> SourceStep {
+    public static func command(_ command: String, timeoutSeconds: Int, name: String = "Run command", id: UUID = UUID()) -> SourceStep {
         SourceStep(id: id, name: name, kind: .command(command: command, timeoutSeconds: timeoutSeconds))
     }
 
@@ -147,7 +147,7 @@ public struct SourceStep: Codable, Sendable, Equatable, Identifiable {
         includeInCopy: Bool = true,
         removeOriginal: Bool = true,
         instructions: String = "",
-        name: String = "Получить файл",
+        name: String = "Get file",
         id: UUID = UUID()
     ) -> SourceStep {
         SourceStep(
@@ -164,7 +164,7 @@ public struct SourceStep: Codable, Sendable, Equatable, Identifiable {
         )
     }
 
-    public static func device(_ path: String, instructions: String = "", name: String = "Подключить устройство", id: UUID = UUID()) -> SourceStep {
+    public static func device(_ path: String, instructions: String = "", name: String = "Connect device", id: UUID = UUID()) -> SourceStep {
         SourceStep(id: id, name: name, kind: .device(instructions: instructions, path: path))
     }
 }

@@ -8,7 +8,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 SettingsCard {
-                    SettingsRow(title: "Запускать при входе в систему") {
+                    SettingsRow(title: "Launch at login") {
                         Toggle("", isOn: $launchesAtLogin)
                             .toggleStyle(.switch)
                             .pointing()
@@ -27,7 +27,7 @@ struct SettingsView: View {
             .frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle("Настройки")
+        .navigationTitle("Settings")
         .onChange(of: launchesAtLogin) { _, enabled in
             guard enabled != LoginItem.isEnabled else { return }
             loginProblem = LoginItem.setEnabled(enabled)

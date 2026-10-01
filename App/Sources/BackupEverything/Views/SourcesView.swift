@@ -16,12 +16,12 @@ struct SourcesView: View {
             }
             .foregroundStyle(source.enabled ? .primary : .secondary)
         } addMenu: {
-            Section("Из шаблона") {
+            Section("From a template") {
                 ForEach(model.templates) { template in
                     Button(template.name) { start(model.newSource(from: template), as: nil) }
                 }
             }
-            Section("Пустой — с чего начать") {
+            Section("Empty — start with") {
                 ForEach(SourceStart.allCases) { choice in
                     Button(choice.title) { start(model.newSource(from: nil), as: choice) }
                 }
@@ -37,10 +37,10 @@ struct SourcesView: View {
                 )
                 .id(draft.id)
             } else {
-                EmptyState(symbol: "tray.and.arrow.up", title: "Источников пока нет", message: "Добавьте первый кнопкой «Добавить» слева.")
+                EmptyState(symbol: "tray.and.arrow.up", title: "No sources yet", message: "Add the first one with the “Add” button on the left.")
             }
         }
-        .navigationTitle("Источники")
+        .navigationTitle("Sources")
         .onAppear {
             let stored = UUID(uuidString: storedSelection).flatMap { model.config.source($0) }
             selection = (stored ?? model.config.sources.first)?.id
@@ -105,28 +105,28 @@ struct SourceEditor: View {
 
     var body: some View {
         EditorPage {
-            EditorHeader(name: $draft.name, prompt: "Название", isNameEditable: isNew) {
+            EditorHeader(name: $draft.name, prompt: "Name", isNameEditable: isNew) {
                 Button {
                     if let file = IconImporter.chooseFile(), let icon = model.importIcon(from: file) { draft.icon = icon }
                 } label: {
                     SourceIcon(icon: draft.icon, symbol: symbol, size: 22)
                 }
                 .buttonStyle(.plainPointing)
-                .hoverTip("Выбрать значок")
+                .hoverTip("Choose icon")
             } accessory: {
-                Toggle("Включён", isOn: $draft.enabled)
+                Toggle("Enabled", isOn: $draft.enabled)
                     .toggleStyle(.switch)
                     .pointing()
                     .controlSize(.small)
                     .labelsHidden()
-                    .hoverTip(draft.enabled ? "Включён" : "Выключен")
+                    .hoverTip(draft.enabled ? "Enabled" : "Disabled")
                 if !isNew || draft.icon != nil {
                     Menu {
                         if draft.icon != nil {
-                            Button("Убрать значок") { draft.icon = nil }
+                            Button("Remove icon") { draft.icon = nil }
                         }
                         if !isNew {
-                            Button("Удалить источник…", role: .destructive) { confirmsDeletion = true }
+                            Button("Delete source…", role: .destructive) { confirmsDeletion = true }
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -137,7 +137,7 @@ struct SourceEditor: View {
                     .fixedSize()
                 }
             }
-            TextField("", text: $draft.description, prompt: Text("Описание: что здесь бэкапится"), axis: .vertical)
+            TextField("", text: $draft.description, prompt: Text("Description: what is backed up here"), axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -145,8 +145,8 @@ struct SourceEditor: View {
                 .padding(.top, -8)
                 .padding(.bottom, 4)
         } content: {
-            SettingsSection(title: "Как часто и куда", isProminent: true) {
-                SettingsRow(title: "Как часто") {
+            SettingsSection(title: "How often and where", isProminent: true) {
+                SettingsRow(title: "How often") {
                     Picker("", selection: $draft.schedule) {
                         ForEach(Schedule.allCases, id: \.self) { Text(Texts.schedule($0)).tag($0) }
                     }
@@ -155,14 +155,14 @@ struct SourceEditor: View {
                     .pointing()
                 }
                 if !isNew, let saved = model.config.source(draft.id) {
-                    SettingsRow(title: "Следующий бэкап") {
+                    SettingsRow(title: "Next backup") {
                         Text(NextBackup.detail(saved, nextDue: model.nextDue(of: saved), isWaiting: model.isWaitingForPerson(saved)))
                             .foregroundStyle(.secondary)
                     }
                 }
-                SettingsRow(title: "Куда") {
+                SettingsRow(title: "Where") {
                     if model.config.destinations.isEmpty {
-                        Text("сначала добавьте назначение").foregroundStyle(.secondary)
+                        Text("add a destination first").foregroundStyle(.secondary)
                     } else {
                         TrailingFlow {
                             ForEach(model.config.destinations) { destination in
@@ -177,14 +177,14 @@ struct SourceEditor: View {
                 }
             }
             StepsEditor(steps: $draft.steps, currentIndex: isNew ? nil : model.chain(of: draft.id)?.stepIndex)
-            SettingsSection(title: "Дополнительно") {
-                DisclosureRow(title: "Хранить копии", summary: RetentionPlan.summary(draft.retention)) {
+            SettingsSection(title: "More") {
+                DisclosureRow(title: "Keep copies", summary: RetentionPlan.summary(draft.retention)) {
                     RetentionEditor(rules: $draft.retention, showCopies: isNew ? nil : {
                         let source = draft.build()
                         Task { previews = await model.retentionPreview(for: source) }
                     })
                 }
-                DisclosureRow(title: "Инструкция: как настроить один раз", summary: instructionsSummary) {
+                DisclosureRow(title: "Instructions: one-time setup", summary: instructionsSummary) {
                     instructionsEditor
                 }
             }
@@ -199,10 +199,10 @@ struct SourceEditor: View {
         .sheet(isPresented: Binding(get: { previews != nil }, set: { if !$0 { previews = nil } })) {
             RetentionPreviewSheet(previews: previews ?? [])
         }
-        .confirmationDialog("Удалить источник «\(draft.name)»?", isPresented: $confirmsDeletion) {
-            Button("Удалить источник", role: .destructive) { onDelete(draft.build()) }
+        .confirmationDialog("Delete source “\(draft.name)”?", isPresented: $confirmsDeletion) {
+            Button("Delete source", role: .destructive) { onDelete(draft.build()) }
         } message: {
-            Text("Уже сделанные копии в назначениях останутся на месте.")
+            Text("Copies already made in the destinations will stay where they are.")
         }
     }
 
@@ -221,14 +221,14 @@ struct SourceEditor: View {
 
     private var instructionsSummary: String {
         let firstLine = draft.instructions.split(separator: "\n").first.map(String.init) ?? ""
-        return firstLine.isEmpty ? "нет" : firstLine
+        return firstLine.isEmpty ? "none" : firstLine
     }
 
     private var conflictWarning: String? {
         guard draft.steps.contains(where: { $0.kindChoice == .file }) else { return nil }
         let conflicts = model.maskConflicts(for: draft.build())
         guard !conflicts.isEmpty else { return nil }
-        return "Маска пересекается с источником «\(conflicts.map(\.name).joined(separator: "», «"))» в той же папке."
+        return "The mask overlaps with the source “\(conflicts.map(\.name).joined(separator: "”, “"))” in the same folder."
     }
 
     private func membership(of id: UUID) -> Binding<Bool> {
@@ -251,28 +251,28 @@ struct RetentionPreviewSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Хранение копий").font(.title3.weight(.semibold))
+            Text("Keeping copies").font(.title3.weight(.semibold))
             if previews.isEmpty {
-                Text("У источника не выбраны назначения.").foregroundStyle(.secondary)
+                Text("The source has no destinations selected.").foregroundStyle(.secondary)
             }
             List {
                 ForEach(previews) { preview in
                     Section(preview.destination.name) {
                         if preview.kept.isEmpty && preview.doomed.isEmpty {
-                            Text("Копий пока нет или назначение недоступно.").foregroundStyle(.secondary)
+                            Text("No copies yet, or the destination is unavailable.").foregroundStyle(.secondary)
                         }
                         ForEach(preview.kept, id: \.self) { snapshot in
                             Label(Texts.dateTime(snapshot.date), systemImage: "checkmark.circle").foregroundStyle(.primary)
                         }
                         ForEach(preview.doomed, id: \.self) { snapshot in
-                            Label("\(Texts.dateTime(snapshot.date)) — будет удалена", systemImage: "trash").foregroundStyle(.red)
+                            Label("\(Texts.dateTime(snapshot.date)) — will be deleted", systemImage: "trash").foregroundStyle(.red)
                         }
                     }
                 }
             }
             HStack {
                 Spacer()
-                Button("Закрыть") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Close") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)

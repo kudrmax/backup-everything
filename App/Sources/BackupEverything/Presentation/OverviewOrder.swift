@@ -1,7 +1,7 @@
 import BackupCore
 import Foundation
 
-/// Порядок источников в обзоре.
+/// The order of sources in the overview.
 enum OverviewOrder: String, CaseIterable, Identifiable {
     case manual
     case nextBackup
@@ -10,12 +10,12 @@ enum OverviewOrder: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .manual: "Как в настройках"
-        case .nextBackup: "По следующему бэкапу"
+        case .manual: "As in settings"
+        case .nextBackup: "By next backup"
         }
     }
 
-    /// Ближайший бэкап выше; без расписания и выключенные — внизу, в порядке настроек.
+    /// The nearest backup first; unscheduled and disabled ones at the bottom, in settings order.
     func sorted(_ sources: [Source], nextDue: (Source) -> Date?) -> [Source] {
         guard self == .nextBackup else { return sources }
         return sources.enumerated()

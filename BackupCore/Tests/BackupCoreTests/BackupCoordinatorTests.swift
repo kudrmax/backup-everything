@@ -280,7 +280,7 @@ struct BackupCoordinatorTests {
 
         let result = try await coordinator.tick()
         #expect(result.runs.map(\.trigger) == [.scheduled, .pickup])
-        #expect(result.runs[1].collectError?.hasPrefix("Не удалось забрать файлы") == true)
+        #expect(result.runs[1].collectError?.hasPrefix("Could not pick up the files") == true)
         #expect(result.notices.count == 1)
         #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000"])
         #expect(temp.exists("Downloads/takeout-1.zip"))
@@ -305,7 +305,7 @@ struct BackupCoordinatorTests {
     @Test func announcesTheQueueBeforeRunningIt() async throws {
         defer { temp.remove() }
         let first = vault([cloud])
-        let second = Fixtures.source(name: "Второй", steps: [.folder(temp.path("vault").path, excludes: [])], destinations: [cloud], createdAt: created)
+        let second = Fixtures.source(name: "Second", steps: [.folder(temp.path("vault").path, excludes: [])], destinations: [cloud], createdAt: created)
         try store.saveConfig(Config(sources: [first, second], destinations: [cloud]))
 
         _ = try await coordinator.tick()
@@ -468,7 +468,7 @@ struct BackupCoordinatorTests {
         time.advance(600)
         let result = try await coordinator.tick()
         #expect(result.runs.map(\.trigger) == [.catchUp])
-        #expect(result.runs.first?.details == "Скопировано с «Cloud»")
+        #expect(result.runs.first?.details == "Copied from “Cloud”")
         #expect(result.runs.first?.copiedFrom == "Cloud")
         #expect(temp.names(in: "hdd/obsidian") == ["2026-09-29_100000"])
         #expect(try String(contentsOf: temp.path("hdd/obsidian/2026-09-29_100000/a.md"), encoding: .utf8) == "second day")
@@ -519,8 +519,8 @@ struct BackupCoordinatorTests {
         Fixtures.source(
             name: "Claude",
             steps: [
-                SourceStep(name: "Запросить экспорт", kind: .file(instructions: "", watchPath: temp.path("Downloads").path, filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
-                SourceStep(name: "Скачать архивы", kind: .command(command: command, timeoutSeconds: 60)),
+                SourceStep(name: "Request export", kind: .file(instructions: "", watchPath: temp.path("Downloads").path, filePattern: "manifest-*.json", fileMode: .single, includeInCopy: false, removeOriginal: true)),
+                SourceStep(name: "Download archives", kind: .command(command: command, timeoutSeconds: 60)),
             ],
             schedule: .monthly,
             destinations: destinations,
@@ -554,20 +554,20 @@ struct BackupCoordinatorTests {
 
     @Test func failedStepIsRecordedOnceAndWaitsForTheUser() async throws {
         defer { temp.remove() }
-        let source = claude([cloud], command: "echo 'Не скачались архивы: a.zip' >&2; exit 1")
+        let source = claude([cloud], command: "echo 'Archives not downloaded: a.zip' >&2; exit 1")
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
         try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
 
         let failed = try await coordinator.tick()
         let message = try #require(failed.runs.first?.collectError)
         #expect(failed.runs.count == 1)
-        #expect(message.hasPrefix("Шаг 2 из 2 «Скачать архивы». Команда завершилась с кодом 1."))
-        #expect(message.hasSuffix("Не скачались архивы: a.zip"))
+        #expect(message.hasPrefix("Step 2 of 2 “Download archives”. Command exited with code 1."))
+        #expect(message.hasSuffix("Archives not downloaded: a.zip"))
         #expect(failed.notices.contains(.runFailed(sourceId: source.id, sourceName: "Claude", message: message)))
         #expect(store.loadRuns().count == 1)
         let stuck = try store.loadState().sourceState(source.id)
         #expect(stuck.chain?.stepIndex == 1)
-        #expect(stuck.chain?.failure?.hasPrefix("Команда завершилась с кодом 1.") == true)
+        #expect(stuck.chain?.failure?.hasPrefix("Command exited with code 1.") == true)
         #expect(stuck.lastError == nil)
         #expect(stuck.retryAfter == nil)
         #expect(events.get().last == .finished(sourceId: source.id))
@@ -632,8 +632,8 @@ struct BackupCoordinatorTests {
     @Test func sourceOfOneCommandRunsOnSchedule() async throws {
         defer { temp.remove() }
         let source = Fixtures.source(
-            name: "Отчёт",
-            steps: [SourceStep(name: "Собрать", kind: .command(command: #"echo data > "$BACKUP_OUTPUT_DIR/report.txt""#, timeoutSeconds: 60))],
+            name: "Report",
+            steps: [SourceStep(name: "Collect", kind: .command(command: #"echo data > "$BACKUP_OUTPUT_DIR/report.txt""#, timeoutSeconds: 60))],
             schedule: .daily,
             destinations: [cloud],
             createdAt: created
@@ -641,7 +641,7 @@ struct BackupCoordinatorTests {
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
 
         #expect(try await coordinator.tick().runs.map(\.trigger) == [.scheduled])
-        #expect(temp.names(in: "cloud/отчёт") == ["2026-09-28_100000"])
+        #expect(temp.names(in: "cloud/report") == ["2026-09-28_100000"])
 
         time.advance(3600)
         #expect(try await coordinator.tick().runs.isEmpty)
@@ -782,7 +782,7 @@ struct BackupCoordinatorTests {
         try store.saveConfig(Config(sources: [kept], destinations: [cloud]))
         var state = AppState()
         state.updateSource(kept.id) {
-            $0.chain = ChainState(stepIndex: 1, stepId: kept.steps[1].id, startedAt: start, stepEnteredAt: start, failure: "ждёт повтора")
+            $0.chain = ChainState(stepIndex: 1, stepId: kept.steps[1].id, startedAt: start, stepEnteredAt: start, failure: "waiting for retry")
         }
         try store.saveState(state)
         try temp.file("work/chains/\(kept.id.uuidString)/input/manifest-kept.json", "{}")
@@ -899,7 +899,7 @@ struct BackupCoordinatorTests {
         try temp.directory("PB")
 
         let failed = try await coordinator.tick()
-        #expect(failed.runs.first?.collectError?.hasPrefix("Шаг 2 из 2 «Скопировать папку». Не найден путь источника") == true)
+        #expect(failed.runs.first?.collectError?.hasPrefix("Step 2 of 2 “Copy folder”. Source path not found") == true)
         time.advance(1800)
         #expect(try await coordinator.tick().runs.isEmpty)
 
@@ -926,7 +926,7 @@ struct BackupCoordinatorTests {
         #expect(temp.names(in: "trash").isEmpty)
 
         time.advance(40 * 86_400)
-        #expect(try await coordinator.tick().runs.isEmpty, "тот же файл второй раз не забирается")
+        #expect(try await coordinator.tick().runs.isEmpty, "the same file is not picked up twice")
     }
 
     @Test func runAllStartsADeviceSourceOnlyWhenTheDeviceIsHere() async throws {
@@ -943,10 +943,10 @@ struct BackupCoordinatorTests {
     @Test func cancellingARunStartedByTheButtonDropsWhatItCollected() async throws {
         defer { temp.remove() }
         let source = Fixtures.source(
-            name: "Двойной",
+            name: "Double",
             steps: [
-                .file("part-*.csv", in: temp.path("Downloads").path, includeInCopy: true, name: "Первая часть"),
-                .file("last-*.csv", in: temp.path("Downloads").path, includeInCopy: true, name: "Вторая часть"),
+                .file("part-*.csv", in: temp.path("Downloads").path, includeInCopy: true, name: "First part"),
+                .file("last-*.csv", in: temp.path("Downloads").path, includeInCopy: true, name: "Second part"),
             ],
             schedule: .manual,
             destinations: [cloud],
@@ -993,7 +993,7 @@ struct BackupCoordinatorTests {
     @Test func failedCopyLeavesNothingBehindSoTheRetrySucceeds() async throws {
         defer { temp.remove() }
         let source = Fixtures.source(
-            name: "Двойной",
+            name: "Double",
             steps: [
                 .file("part-*.csv", in: temp.path("Downloads").path),
                 .folder(temp.path("books").path),
@@ -1015,7 +1015,7 @@ struct BackupCoordinatorTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path)
         time.advance(3600)
         #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
-        #expect(temp.names(in: "cloud/двойной/2026-09-28_110000") == ["_snapshot.json", "a.epub", "b.epub", "part-1.csv"])
+        #expect(temp.names(in: "cloud/double/2026-09-28_110000") == ["_snapshot.json", "a.epub", "b.epub", "part-1.csv"])
     }
 
     @Test func unplugNoticeGoesOutBeforeDelivery() async throws {
@@ -1042,7 +1042,7 @@ struct BackupCoordinatorTests {
         let source = photos(.multiple, [cloud])
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
 
-        #expect(try await coordinator.confirmPickup(sourceId: source.id).runs.first?.collectError?.hasPrefix("Не удалось забрать файлы") == true)
+        #expect(try await coordinator.confirmPickup(sourceId: source.id).runs.first?.collectError?.hasPrefix("Could not pick up the files") == true)
         let report = try await coordinator.statusReport()
         #expect(report.items.contains(.filesAwaitingPickup(sourceId: source.id, fileCount: 1, totalBytes: 3, downloadInProgress: false)))
 

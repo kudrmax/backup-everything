@@ -20,8 +20,8 @@ enum DestinationCondition: Equatable {
 
     var problem: String? {
         switch self {
-        case .needsConnection: "пора подключить"
-        case .unreachable: "недоступно"
+        case .needsConnection: "time to connect"
+        case .unreachable: "unavailable"
         case .available, .offline: nil
         }
     }

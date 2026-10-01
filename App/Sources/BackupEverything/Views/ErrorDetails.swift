@@ -6,7 +6,7 @@ struct CopyButton: View {
     @State private var isCopied = false
 
     var body: some View {
-        Button(isCopied ? "Скопировано" : "Скопировать", systemImage: isCopied ? "checkmark" : "doc.on.doc") {
+        Button(isCopied ? "Copied" : "Copy", systemImage: isCopied ? "checkmark" : "doc.on.doc") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
             isCopied = true
@@ -21,7 +21,7 @@ struct ErrorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Ошибка: \(title)").font(.title3.weight(.semibold))
+            Text("Error: \(title)").font(.title3.weight(.semibold))
             ScrollView {
                 Text(message)
                     .font(.callout.monospaced())
@@ -34,7 +34,7 @@ struct ErrorSheet: View {
             HStack {
                 CopyButton(text: message)
                 Spacer()
-                Button("Закрыть") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Close") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)

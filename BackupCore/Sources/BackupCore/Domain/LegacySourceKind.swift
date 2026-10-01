@@ -1,6 +1,6 @@
 import Foundation
 
-/// Тип источника из конфигов до перехода на шаги. Только читается и сразу превращается в шаги.
+/// A source type from configs before steps existed. Only read, and immediately turned into steps.
 enum LegacySourceKind: Decodable {
     case folder(path: String, excludes: [String])
     case command(command: String, timeoutSeconds: Int)
@@ -8,7 +8,7 @@ enum LegacySourceKind: Decodable {
     case steps(steps: [SourceStep])
     case device(path: String, excludes: [String])
 
-    /// Шаги и то, что остаётся общей инструкцией источника: у ручных типов она переезжает в шаг человека.
+    /// Steps and what remains as the source's general instructions: for manual types they move into the manual step.
     func converted(owner: UUID, instructions: String) -> (steps: [SourceStep], instructions: String) {
         switch self {
         case let .folder(path, excludes):
@@ -22,7 +22,7 @@ enum LegacySourceKind: Decodable {
                 mode: fileMode,
                 removeOriginal: removeOriginal,
                 instructions: instructions,
-                name: "Выгрузить файл",
+                name: "Export file",
                 id: Self.stepId(owner, 0)
             )
             return ([step], "")
@@ -39,7 +39,7 @@ enum LegacySourceKind: Decodable {
         }
     }
 
-    /// Постоянный id шага, выведенный из id источника: при каждом чтении старого конфига шаги узнаются как те же.
+    /// A stable step id derived from the source id: each read of an old config recognises the steps as the same.
     static func stepId(_ owner: UUID, _ index: Int) -> UUID {
         var bytes = owner.uuid
         bytes.14 ^= 0x5A

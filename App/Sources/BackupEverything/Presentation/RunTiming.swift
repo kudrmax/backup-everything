@@ -2,8 +2,8 @@ import BackupCore
 import Foundation
 
 enum RunTiming {
-    /// Сколько длился прошлый такой же запуск: копирование с другого диска сравнивается с копированием, сбор — со сбором.
-    /// Запись пакета от шагов человека (`pickup`) не годится: сам сбор шёл раньше и в неё не вошёл.
+    /// How long the previous run of the same kind took: copying from another disk is compared with copying, collecting with collecting.
+    /// A record of a package from manual steps (`pickup`) does not fit: the collecting itself happened earlier and is not in it.
     static func usualDuration(of sourceId: UUID, in runs: [RunRecord], copying: Bool) -> TimeInterval? {
         runs.first { run in
             run.sourceId == sourceId
@@ -15,7 +15,7 @@ enum RunTiming {
     }
 
     static func tip(elapsed: TimeInterval, usual: TimeInterval?) -> String {
-        let lines = ["Идёт \(Texts.duration(elapsed))"] + [usual.map { "В прошлый раз заняло \(Texts.duration($0))" }].compactMap { $0 }
+        let lines = ["Running for \(Texts.duration(elapsed))"] + [usual.map { "Last time took \(Texts.duration($0))" }].compactMap { $0 }
         return lines.joined(separator: "\n")
     }
 }

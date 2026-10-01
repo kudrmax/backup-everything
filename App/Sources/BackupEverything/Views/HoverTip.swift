@@ -1,14 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// Подсказка при наведении. Живёт в отдельной панели, которая пропускает мышь насквозь:
-/// курсор, наведение и клик по элементу под ней работают как обычно.
+/// A hover tooltip. It lives in a separate panel that lets the mouse pass through:
+/// the cursor, hover and clicks on the element below work as usual.
 @MainActor
 final class TooltipController {
     static let shared = TooltipController()
 
     private static let delay: Duration = .milliseconds(450)
-    /// Пока подсказки только что показывались, следующая появляется сразу — как в системных приложениях.
+    /// While tooltips were just shown, the next one appears immediately, as in system apps.
     private static let warmPeriod: TimeInterval = 0.8
     private static let gap: CGFloat = 6
 
@@ -32,7 +32,7 @@ final class TooltipController {
         installMonitor()
     }
 
-    /// Текст поменялся, пока подсказка открыта (например, идущее время): перерисовать на месте.
+    /// The text changed while the tooltip is open (e.g. a running timer): redraw it in place.
     func update(_ text: String, owner: UUID) {
         guard self.owner == owner, panel?.isVisible == true, let rect = anchor?() else { return }
         show(text, below: rect)
@@ -93,7 +93,7 @@ final class TooltipController {
 }
 
 struct TooltipBubble: View {
-    /// Ширина, дальше которой текст переносится на новую строку (вместе с полями).
+    /// The width beyond which text wraps to a new line (including padding).
     static let maxWidth: CGFloat = 358
 
     let text: String
@@ -110,7 +110,7 @@ struct TooltipBubble: View {
     }
 }
 
-/// Пустой NSView в фоне элемента: по нему подсказка узнаёт, где элемент на экране.
+/// An empty NSView behind the element: the tooltip uses it to find where the element is on screen.
 private final class AnchorView: NSView {
     var screenRect: NSRect? {
         guard let window else { return nil }
