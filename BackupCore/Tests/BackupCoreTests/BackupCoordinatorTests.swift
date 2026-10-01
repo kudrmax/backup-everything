@@ -352,6 +352,7 @@ struct BackupCoordinatorTests {
         _ = try await coordinator.tick()
 
         time.advance(600)
+        events.set([])
         let running = Task { try await coordinator.runNow(sourceId: slow.id) }
         while !events.get().contains(.collecting(sourceId: slow.id)) { try await Task.sleep(for: .milliseconds(5)) }
         try temp.directory("second")
