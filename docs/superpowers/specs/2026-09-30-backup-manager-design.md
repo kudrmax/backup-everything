@@ -45,7 +45,7 @@
 - Расписание на источник, хранение по GFS с превью, догон недоступных назначений.
 - Menu bar, окно с разделами «Обзор», «Источники», «Назначения», «История», «Настройки».
 - Уведомления, автозапуск при входе.
-- Шаблоны источников: GitHub, Obsidian, Bitwarden, Google Photos, Claude, Claude Code, Пароли macOS, iOS-финансы.
+- Шаблоны источников: GitHub, Obsidian, Bitwarden, Google Photos, Claude, Claude Code, Passwords (Apple), Contacts (Apple), iOS-финансы.
 - Источник «Настройки Backup Everything», создаваемый при первом запуске.
 
 Не входит:

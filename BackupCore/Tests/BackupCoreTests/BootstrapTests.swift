@@ -17,7 +17,7 @@ struct BootstrapTests {
         #expect(config.sources.map(\.name) == [Bootstrap.selfSourceName])
         #expect(config.sources[0].singleFolder?.path == temp.path("data").path)
         #expect(config.sources[0].slug == "настройки-backup-everything")
-        #expect(store.loadTemplates().count == 8)
+        #expect(store.loadTemplates().count == BundledTemplates.all.count)
         #expect(!temp.exists("work/staging"))
     }
 

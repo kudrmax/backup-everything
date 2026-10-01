@@ -1,7 +1,7 @@
 import Foundation
 
 enum BundledTemplates {
-    static let all: [SourceTemplate] = [obsidian, github, bitwarden, applePasswords, googlePhotos, claude, claudeCode, iosFinance]
+    static let all: [SourceTemplate] = [obsidian, github, bitwarden, applePasswords, appleContacts, googlePhotos, claude, claudeCode, iosFinance]
 
     private static let downloads = "~/Downloads"
 
@@ -90,7 +90,7 @@ enum BundledTemplates {
 
     private static let applePasswords = SourceTemplate(
         id: "apple-passwords",
-        name: "Пароли (macOS)",
+        name: "Passwords (Apple)",
         steps: [
             .file(
                 "Passwords*.csv",
@@ -109,6 +109,38 @@ enum BundledTemplates {
         schedule: .monthly,
         retention: RetentionRules(daily: 0, weekly: 0, monthly: 12, yearly: 0),
         description: "Все пароли из приложения «Пароли» одним файлом CSV. Файл не зашифрован — направляйте его только в назначения, которым доверяете.",
+        instructions: ""
+    )
+
+    private static let appleContacts = SourceTemplate(
+        id: "apple-contacts",
+        name: "Contacts (Apple)",
+        steps: [
+            .file(
+                "*.vcf",
+                in: downloads,
+                mode: .single,
+                instructions: """
+                С iPhone (рекомендуется):
+
+                1. Откройте «Контакты» и нажмите «Списки» вверху слева.
+                2. Удерживайте «Все контакты» → «Экспортировать» → «Экспортировать».
+                3. Отправьте файл на этот Mac через AirDrop — он попадёт в «Загрузки».
+
+                Или с Mac:
+
+                1. Откройте «Контакты», выберите «Все контакты» и выделите всё (⌘A).
+                2. Файл → Экспортировать → Экспортировать vCard…
+                3. Сохраните файл в «Загрузки».
+
+                Приложение заберёт его из «Загрузок» само.
+                """,
+                name: "Выгрузить контакты"
+            ),
+        ],
+        schedule: .monthly,
+        retention: RetentionRules(daily: 0, weekly: 0, monthly: 12, yearly: 0),
+        description: "Все контакты одним файлом vCard. Восстановление: откройте файл на iPhone или Mac.",
         instructions: ""
     )
 
