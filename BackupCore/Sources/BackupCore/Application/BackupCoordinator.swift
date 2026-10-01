@@ -42,8 +42,15 @@ public actor BackupCoordinator {
         self.reporter = StatusReporter(planner: planner)
     }
 
+    /// Если впереди идёт другой бэкап, то, что проверка точно сделает, помечается «в очереди» сразу, а не когда до неё дойдёт.
     public func tick() async throws -> TickResult {
-        try await enqueue { try await self.performTick() }
+        var announced: Set<UUID> = []
+        if let config = try? store.loadConfig(), let state = try? store.loadState() {
+            let foreseen = await foreseenWork(config: config, state: state, now: time.now)
+            announce(foreseen)
+            announced = Set(foreseen.map(\.id))
+        }
+        return try await enqueue { [announced] in try await self.performTick(announced: announced) }
     }
 
     /// Источник помечается «в очереди» сразу, даже если сейчас идёт другой бэкап.
@@ -60,6 +67,43 @@ public actor BackupCoordinator {
             announce(config.sources.filter { $0.enabled && !config.destinations(of: $0).isEmpty && startsWithoutWaiting($0) })
         }
         return try await enqueue { try await self.performRunAllNow() }
+    }
+
+    /// Источники, которые проверка запустит наверняка: срок по расписанию или долг перед доступной локальной папкой, который есть чем закрыть.
+    private func foreseenWork(config: Config, state: AppState, now: Date) async -> [Source] {
+        let due = Set(planner.dueAutomaticSources(config: config, state: state, now: now).map(\.id))
+        let retryable = planner.retryableDebts(state: state, now: now)
+        var work: [Source] = []
+        for source in config.sources where source.enabled {
+            if due.contains(source.id) {
+                work.append(source)
+                continue
+            }
+            let sourceState = state.sourceState(source.id)
+            guard sourceState.lastRun != nil else { continue }
+            let owed = config.destinations(of: source).filter { destination in
+                if state.hasDebt(sourceId: source.id, destinationId: destination.id) {
+                    return retryable.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
+                }
+                return state.lastDeliveredSnapshot(sourceId: source.id, destinationId: destination.id) == nil
+            }
+            var reachable = false
+            for destination in owed {
+                guard case .localFolder = destination.kind else { continue }
+                if await stores.store(for: destination).isAvailable() {
+                    reachable = true
+                    break
+                }
+            }
+            guard reachable else { continue }
+            let hasCopy = config.destinations(of: source).contains { other in
+                !owed.contains(other) && state.lastDeliveredSnapshot(sourceId: source.id, destinationId: other.id) != nil
+            }
+            if !source.needsHuman || hasCopy || inbox.pendingPackage(for: source.id) != nil {
+                work.append(source)
+            }
+        }
+        return work
     }
 
     /// Запуск сразу пойдёт в работу, а не станет ждать файл или устройство.
@@ -108,7 +152,7 @@ public actor BackupCoordinator {
         return try await task.value
     }
 
-    private func performTick() async throws -> TickResult {
+    private func performTick(announced: Set<UUID> = []) async throws -> TickResult {
         let config = try store.loadConfig()
         var state = try store.loadState()
         reducer.dropOrphans(config: config, state: &state)
@@ -143,7 +187,7 @@ public actor BackupCoordinator {
                 catchUps.append(source)
             }
         }
-        announce(copies.map(\.source) + catchUps + due)
+        announce((copies.map(\.source) + catchUps + due).filter { !announced.contains($0.id) })
         for plan in copies {
             let record = await engine.copy(plan.snapshot, of: plan.source, from: plan.origin, to: plan.targets)
             try register(record, trigger: .catchUp, state: &state, runs: &runs)

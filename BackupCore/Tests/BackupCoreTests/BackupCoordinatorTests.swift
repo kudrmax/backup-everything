@@ -344,6 +344,30 @@ struct BackupCoordinatorTests {
         _ = try await run.value
     }
 
+    @Test func checkWaitingBehindABackupQueuesSourcesGivenANewDiskRightAway() async throws {
+        defer { temp.remove() }
+        let slow = Fixtures.source(name: "Slow", steps: [.command("sleep 1; echo x > \"$BACKUP_OUTPUT_DIR/x\"", timeoutSeconds: 60)], destinations: [cloud], createdAt: created)
+        var other = vault([cloud])
+        try store.saveConfig(Config(sources: [slow, other], destinations: [cloud]))
+        _ = try await coordinator.tick()
+
+        time.advance(600)
+        let running = Task { try await coordinator.runNow(sourceId: slow.id) }
+        while !events.get().contains(.collecting(sourceId: slow.id)) { try await Task.sleep(for: .milliseconds(5)) }
+        try temp.directory("second")
+        let second = Fixtures.localDestination("Second", at: temp.path("second"))
+        other.destinationIds.append(second.id)
+        try store.saveConfig(Config(sources: [slow, other], destinations: [cloud, second]))
+        events.set([])
+        let check = Task { try await coordinator.tick() }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(events.get().first == .queued(sourceIds: [other.id]))
+        #expect(!events.get().contains(.finished(sourceId: slow.id)))
+        _ = try await running.value
+        _ = try await check.value
+        #expect(temp.names(in: "second/obsidian").count == 1)
+    }
+
     @Test func runAllQueuesEverythingItWillStartRightAway() async throws {
         defer { temp.remove() }
         let slow = Fixtures.source(name: "Slow", steps: [.command("sleep 1; echo x > \"$BACKUP_OUTPUT_DIR/x\"", timeoutSeconds: 60)], destinations: [cloud], createdAt: created)
