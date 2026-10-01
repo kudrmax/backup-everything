@@ -409,14 +409,15 @@ struct SaveBar: View {
 struct DestinationIcon: View {
     @Environment(AppModel.self) private var model
     let destination: Destination
-    var marksAvailable = true
+    /// Без меток в углу: состояние видно только по цвету — для строки назначений, где рядом есть текст.
+    var showsMarks = true
 
     var body: some View {
         let condition = model.condition(of: destination)
         Image(systemName: StatusStyle.symbol(for: destination.kind))
             .foregroundStyle(color(condition))
             .overlay(alignment: .bottomTrailing) {
-                if let mark = mark(condition) {
+                if showsMarks, let mark = mark(condition) {
                     Image(systemName: mark)
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(color(condition))
@@ -428,7 +429,7 @@ struct DestinationIcon: View {
 
     private func color(_ condition: DestinationCondition) -> AnyShapeStyle {
         switch condition {
-        case .available: marksAvailable ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary)
+        case .available: showsMarks ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary)
         case .offline: AnyShapeStyle(.tertiary)
         case .needsConnection, .unreachable: AnyShapeStyle(.orange)
         }
@@ -436,7 +437,7 @@ struct DestinationIcon: View {
 
     private func mark(_ condition: DestinationCondition) -> String? {
         switch condition {
-        case .available: marksAvailable ? "checkmark.circle.fill" : nil
+        case .available: "checkmark.circle.fill"
         case .offline: "minus.circle.fill"
         case .needsConnection: "clock.fill"
         case .unreachable: "exclamationmark.circle.fill"

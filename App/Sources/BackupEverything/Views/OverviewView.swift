@@ -476,9 +476,8 @@ struct DestinationStrip: View {
                     open(destination, isConnected: condition.isConnected)
                 } label: {
                     HStack(spacing: 6) {
-                        DestinationIcon(destination: destination, marksAvailable: false)
+                        DestinationIcon(destination: destination, showsMarks: false)
                         Text(condition.problem.map { "\(destination.name) · \($0)" } ?? destination.name)
-                            .padding(.leading, condition.isConnected ? 0 : 3)
                             .foregroundStyle(style(condition))
                     }
                     .font(.callout)
