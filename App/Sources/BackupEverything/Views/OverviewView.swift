@@ -29,7 +29,10 @@ struct OverviewView: View {
                     .animation(.snappy, value: sortedSources.map(\.id))
                 }
                 if !model.config.destinations.isEmpty {
-                    DestinationStrip()
+                    DestinationStrip(openSettings: { destination in
+                        UserDefaults.standard.set(destination.id.uuidString, forKey: "selectedDestination")
+                        openDestinations()
+                    })
                 }
             }
             .padding(24)
@@ -463,22 +466,45 @@ struct DestinationBadge: View {
 
 struct DestinationStrip: View {
     @Environment(AppModel.self) private var model
+    let openSettings: (Destination) -> Void
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 8) {
             ForEach(model.config.destinations) { destination in
                 let condition = model.condition(of: destination)
-                HStack(spacing: 6) {
-                    DestinationIcon(destination: destination, marksAvailable: false)
-                    Text(condition.problem.map { "\(destination.name) · \($0)" } ?? destination.name)
-                        .padding(.leading, condition.isConnected ? 0 : 3)
-                        .foregroundStyle(style(condition))
+                Button {
+                    open(destination, isConnected: condition.isConnected)
+                } label: {
+                    HStack(spacing: 6) {
+                        DestinationIcon(destination: destination, marksAvailable: false)
+                        Text(condition.problem.map { "\(destination.name) · \($0)" } ?? destination.name)
+                            .padding(.leading, condition.isConnected ? 0 : 3)
+                            .foregroundStyle(style(condition))
+                    }
+                    .font(.callout)
                 }
-                .font(.callout)
-                .hoverTip(DestinationDetails.text(of: destination, model: model))
+                .hoverTip(DestinationDetails.text(of: destination, model: model) + "\n\n" + action(for: destination, isConnected: condition.isConnected))
             }
         }
-        .padding(.horizontal, 4)
+        .buttonStyle(.borderlessPointing)
+    }
+
+    private func folder(of destination: Destination) -> URL? {
+        guard case let .localFolder(path) = destination.kind else { return nil }
+        return AppPaths.expand(path)
+    }
+
+    private func open(_ destination: Destination, isConnected: Bool) {
+        if let folder = folder(of: destination), isConnected {
+            model.reveal(folder)
+        } else {
+            openSettings(destination)
+        }
+    }
+
+    private func action(for destination: Destination, isConnected: Bool) -> String {
+        guard folder(of: destination) != nil, isConnected else { return "Нажми, чтобы открыть настройки" }
+        return "Нажми, чтобы открыть в Finder"
     }
 
     private func style(_ condition: DestinationCondition) -> AnyShapeStyle {
