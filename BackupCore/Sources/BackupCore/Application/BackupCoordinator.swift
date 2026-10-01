@@ -46,12 +46,30 @@ public actor BackupCoordinator {
         try await enqueue { try await self.performTick() }
     }
 
+    /// Источник помечается «в очереди» сразу, даже если сейчас идёт другой бэкап.
     public func runNow(sourceId: UUID) async throws -> TickResult {
-        try await enqueue { try await self.performRunNow(sourceId: sourceId) }
+        if let config = try? store.loadConfig(), let source = config.source(sourceId),
+           !config.destinations(of: source).isEmpty, startsWithoutWaiting(source) {
+            announce([source])
+        }
+        return try await enqueue { try await self.performRunNow(sourceId: sourceId) }
     }
 
     public func runAllNow() async throws -> TickResult {
-        try await enqueue { try await self.performRunAllNow() }
+        if let config = try? store.loadConfig() {
+            announce(config.sources.filter { $0.enabled && !config.destinations(of: $0).isEmpty && startsWithoutWaiting($0) })
+        }
+        return try await enqueue { try await self.performRunAllNow() }
+    }
+
+    /// Запуск сразу пойдёт в работу, а не станет ждать файл или устройство.
+    private func startsWithoutWaiting(_ source: Source) -> Bool {
+        guard let first = source.steps.first else { return false }
+        return switch first.kind {
+        case .folder, .command: true
+        case .device: !chains.awaitsDevice(source, chain: nil)
+        case .file: false
+        }
     }
 
     public func confirmPickup(sourceId: UUID) async throws -> TickResult {
@@ -303,16 +321,12 @@ public actor BackupCoordinator {
         notices: inout [Notice]
     ) async throws {
         let destinations = config.destinations(of: source)
-        guard !destinations.isEmpty, let first = source.steps.first else { return }
+        guard !destinations.isEmpty, !source.steps.isEmpty else { return }
         var didWork = false
         while true {
             let sourceState = state.sourceState(source.id)
             let startedAt = time.now
-            let opensWithoutWaiting = switch first.kind {
-            case .folder, .command: true
-            case .device: !chains.awaitsDevice(source, chain: nil)
-            case .file: false
-            }
+            let opensWithoutWaiting = startsWithoutWaiting(source)
             let retryDue = sourceState.chain?.retryAfter.map { $0 <= startedAt } ?? false
             let permissions = ChainPermissions(
                 mayStart: mode == .runNow

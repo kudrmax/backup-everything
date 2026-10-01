@@ -321,6 +321,38 @@ struct BackupCoordinatorTests {
         #expect(events.get().first == .queued(sourceIds: [first.id, second.id]))
     }
 
+    @Test func sourceRunByHandIsQueuedRightAwayWhileAnotherBackupIsRunning() async throws {
+        defer { temp.remove() }
+        let slow = Fixtures.source(name: "Slow", steps: [.command("sleep 1; echo x > \"$BACKUP_OUTPUT_DIR/x\"", timeoutSeconds: 60)], destinations: [cloud], createdAt: created)
+        let other = Fixtures.source(name: "Other", steps: [.folder(temp.path("vault").path)], schedule: .manual, destinations: [cloud], createdAt: created)
+        try store.saveConfig(Config(sources: [slow, other], destinations: [cloud]))
+
+        let tick = Task { try await coordinator.tick() }
+        while !events.get().contains(.collecting(sourceId: slow.id)) { try await Task.sleep(for: .milliseconds(20)) }
+        let run = Task { try await coordinator.runNow(sourceId: other.id) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(events.get().contains(.queued(sourceIds: [other.id])))
+        #expect(!events.get().contains(.finished(sourceId: slow.id)))
+        _ = try await tick.value
+        _ = try await run.value
+    }
+
+    @Test func runAllQueuesEverythingItWillStartRightAway() async throws {
+        defer { temp.remove() }
+        let slow = Fixtures.source(name: "Slow", steps: [.command("sleep 1; echo x > \"$BACKUP_OUTPUT_DIR/x\"", timeoutSeconds: 60)], destinations: [cloud], createdAt: created)
+        let other = vault([cloud])
+        try store.saveConfig(Config(sources: [slow, other], destinations: [cloud]))
+
+        let tick = Task { try await coordinator.tick() }
+        while !events.get().contains(.collecting(sourceId: slow.id)) { try await Task.sleep(for: .milliseconds(20)) }
+        events.set([])
+        let all = Task { try await coordinator.runAllNow() }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(events.get().first == .queued(sourceIds: [slow.id, other.id]))
+        _ = try await tick.value
+        _ = try await all.value
+    }
+
     @Test func deletedCopiesAreNoticedAndRestored() async throws {
         defer { temp.remove() }
         let source = vault([cloud])
