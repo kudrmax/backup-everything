@@ -129,6 +129,7 @@ public struct BackupEngine: Sendable {
             record.fileCount = stats.fileCount
             record.totalBytes = stats.totalBytes
             record.details = "Скопировано с «\(origin.name)»"
+            record.copiedFrom = origin.name
             for destination in destinations {
                 let store = stores.store(for: destination)
                 let outcome: DeliveryOutcome

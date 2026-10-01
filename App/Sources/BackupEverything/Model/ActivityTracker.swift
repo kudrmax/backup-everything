@@ -12,6 +12,7 @@ struct ActivityTracker {
     private var starts: [UUID: Date] = [:]
     private var statuses: [UUID: String] = [:]
     private var steps: [UUID: (index: Int, count: Int)] = [:]
+    private var collected: Set<UUID> = []
 
     func stage(of sourceId: UUID) -> SourceStage? {
         stages[sourceId]
@@ -27,6 +28,12 @@ struct ActivityTracker {
 
     func step(of sourceId: UUID) -> (index: Int, count: Int)? {
         steps[sourceId]
+    }
+
+    /// Идёт запись без сбора — то есть копирование готовой копии с другого диска.
+    func isCopying(_ sourceId: UUID) -> Bool {
+        if case .delivering = stages[sourceId] { return !collected.contains(sourceId) }
+        return false
     }
 
     var active: Set<UUID> {
@@ -49,6 +56,7 @@ struct ActivityTracker {
             }
         case let .collecting(sourceId):
             stages[sourceId] = .collecting
+            collected.insert(sourceId)
             starts[sourceId] = starts[sourceId] ?? date
         case let .status(sourceId, text):
             statuses[sourceId] = text
@@ -65,6 +73,7 @@ struct ActivityTracker {
             starts[sourceId] = nil
             statuses[sourceId] = nil
             steps[sourceId] = nil
+            collected.remove(sourceId)
         }
     }
 
@@ -73,5 +82,6 @@ struct ActivityTracker {
         starts = [:]
         statuses = [:]
         steps = [:]
+        collected = []
     }
 }

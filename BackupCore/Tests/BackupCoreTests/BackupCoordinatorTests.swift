@@ -445,6 +445,7 @@ struct BackupCoordinatorTests {
         let result = try await coordinator.tick()
         #expect(result.runs.map(\.trigger) == [.catchUp])
         #expect(result.runs.first?.details == "Скопировано с «Cloud»")
+        #expect(result.runs.first?.copiedFrom == "Cloud")
         #expect(temp.names(in: "hdd/obsidian") == ["2026-09-29_100000"])
         #expect(try String(contentsOf: temp.path("hdd/obsidian/2026-09-29_100000/a.md"), encoding: .utf8) == "second day")
         #expect(try store.loadState().debts.isEmpty)

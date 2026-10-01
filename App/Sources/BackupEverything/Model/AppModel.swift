@@ -258,7 +258,7 @@ final class AppModel {
     }
 
     func usualDuration(of source: Source) -> TimeInterval? {
-        RunTiming.usualDuration(of: source.id, in: runs)
+        RunTiming.usualDuration(of: source.id, in: runs, copying: activity.isCopying(source.id))
     }
 
     var currentSourceName: String? {

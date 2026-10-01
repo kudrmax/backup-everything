@@ -17,10 +17,12 @@ final class TooltipController {
     private var owner: UUID?
     private var lastShownAt = Date.distantPast
     private var monitor: Any?
+    private var anchor: (() -> NSRect?)?
 
     func request(_ text: String, anchor: @escaping () -> NSRect?, owner: UUID) {
         pending?.cancel()
         self.owner = owner
+        self.anchor = anchor
         let isWarm = panel?.isVisible == true || Date().timeIntervalSince(lastShownAt) < Self.warmPeriod
         pending = Task { [weak self] in
             if !isWarm { try? await Task.sleep(for: Self.delay) }
@@ -28,6 +30,12 @@ final class TooltipController {
             self.show(text, below: rect)
         }
         installMonitor()
+    }
+
+    /// Текст поменялся, пока подсказка открыта (например, идущее время): перерисовать на месте.
+    func update(_ text: String, owner: UUID) {
+        guard self.owner == owner, panel?.isVisible == true, let rect = anchor?() else { return }
+        show(text, below: rect)
     }
 
     func dismiss(owner: UUID) {
@@ -39,6 +47,7 @@ final class TooltipController {
         pending?.cancel()
         pending = nil
         owner = nil
+        anchor = nil
         if panel?.isVisible == true { lastShownAt = Date() }
         panel?.orderOut(nil)
         if let monitor { NSEvent.removeMonitor(monitor) }
@@ -142,6 +151,7 @@ private struct HoverTip: ViewModifier {
                     TooltipController.shared.dismiss(owner: id)
                 }
             }
+            .onChange(of: text) { _, newText in TooltipController.shared.update(newText, owner: id) }
             .onDisappear { TooltipController.shared.dismiss(owner: id) }
     }
 }

@@ -95,13 +95,38 @@ struct ActivityTrackerTests {
             run(first, .scheduled, seconds: 1320),
             run(first, .scheduled, seconds: 60),
         ]
-        #expect(RunTiming.usualDuration(of: first, in: runs) == 1320)
-        #expect(RunTiming.usualDuration(of: UUID(), in: runs) == nil)
+        #expect(RunTiming.usualDuration(of: first, in: runs, copying: false) == 1320)
+        #expect(RunTiming.usualDuration(of: UUID(), in: runs, copying: false) == nil)
+    }
+
+    @Test func copyingIsComparedWithAnEarlierCopyAndPickupsTellNothingAboutCollecting() {
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        func run(_ trigger: RunTrigger, seconds: TimeInterval, copiedFrom: String? = nil) -> RunRecord {
+            RunRecord(
+                sourceId: first, sourceName: "PocketBook", trigger: trigger, startedAt: start,
+                finishedAt: start.addingTimeInterval(seconds), copiedFrom: copiedFrom,
+                deliveries: [Delivery(destinationId: disk, destinationName: "HDD", outcome: .delivered(pruned: 0, warning: nil))]
+            )
+        }
+        let runs = [run(.pickup, seconds: 1), run(.catchUp, seconds: 78, copiedFrom: "Папка на ноуте")]
+        #expect(RunTiming.usualDuration(of: first, in: runs, copying: true) == 78)
+        #expect(RunTiming.usualDuration(of: first, in: runs, copying: false) == nil)
+    }
+
+    @Test func trackerTellsACopyFromACollection() {
+        let id = UUID()
+        var tracker = ActivityTracker()
+        tracker.apply(.delivering(sourceId: id, destinationId: disk))
+        #expect(tracker.isCopying(id))
+        tracker.apply(.finished(sourceId: id))
+        tracker.apply(.collecting(sourceId: id))
+        tracker.apply(.delivering(sourceId: id, destinationId: disk))
+        #expect(!tracker.isCopying(id))
     }
 
     @Test func elapsedTipMentionsTheUsualDurationWhenKnown() {
         #expect(RunTiming.tip(elapsed: 960, usual: 1320) == "Идёт 16 мин\nВ прошлый раз заняло 22 мин")
-        #expect(RunTiming.tip(elapsed: 960, usual: nil) == "Идёт 16 мин\nСколько займёт, станет известно после первого запуска")
+        #expect(RunTiming.tip(elapsed: 960, usual: nil) == "Идёт 16 мин")
     }
 
     @Test func trackerRemembersWhichStepIsRunning() {

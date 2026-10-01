@@ -43,6 +43,8 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
     public var totalBytes: Int64?
     public var collectError: String?
     public var details: String?
+    /// Догон готовой копией: имя назначения, откуда она взята. Источник при этом не собирался.
+    public var copiedFrom: String?
     public var deliveries: [Delivery]
 
     public init(
@@ -58,6 +60,7 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
         totalBytes: Int64? = nil,
         collectError: String? = nil,
         details: String? = nil,
+        copiedFrom: String? = nil,
         deliveries: [Delivery] = []
     ) {
         self.id = id
@@ -72,6 +75,7 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
         self.totalBytes = totalBytes
         self.collectError = collectError
         self.details = details
+        self.copiedFrom = copiedFrom
         self.deliveries = deliveries
     }
 
