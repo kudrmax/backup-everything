@@ -27,7 +27,7 @@ struct LocalFolderDestinationTests {
 
     @Test func writesFilesAsIsWithManifestLast() async throws {
         defer { temp.remove() }
-        try await destination.write(try vaultPayload(), manifest: manifest(), sourceSlug: "obsidian", snapshotName: name)
+        try await destination.write(try vaultPayload(), manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
 
         #expect(try String(contentsOf: temp.path("disk/obsidian/\(name)/sub/b.md"), encoding: .utf8) == "beta")
         #expect(temp.exists("disk/obsidian/\(name)/empty"))
@@ -42,7 +42,7 @@ struct LocalFolderDestinationTests {
     @Test func writesSingleFilePayload() async throws {
         defer { temp.remove() }
         let file = try temp.file("export.csv", "1;2")
-        try await destination.write(Payload(root: file, collectedAt: date), manifest: manifest(), sourceSlug: "finance", snapshotName: name)
+        try await destination.write(Payload(root: file, collectedAt: date), manifest: manifest(), sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         #expect(temp.names(in: "disk/finance/\(name)") == ["_snapshot.json", "export.csv"])
     }
 
@@ -63,7 +63,7 @@ struct LocalFolderDestinationTests {
         #expect(await unplugged.isAvailable() == false)
         let payload = try vaultPayload()
         await #expect(throws: DestinationError.unavailable) {
-            try await unplugged.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name)
+            try await unplugged.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
         }
         #expect(!temp.exists("Volumes"))
         #expect(try await unplugged.listSnapshots(sourceSlug: "obsidian").isEmpty)
@@ -71,7 +71,7 @@ struct LocalFolderDestinationTests {
 
     @Test func deletesOnlySnapshotDirectories() async throws {
         defer { temp.remove() }
-        try await destination.write(try vaultPayload(), manifest: manifest(), sourceSlug: "obsidian", snapshotName: name)
+        try await destination.write(try vaultPayload(), manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
         try temp.file("disk/obsidian/Photos/keep.jpg")
 
         try await destination.delete(Snapshot(name: "Photos", date: date), sourceSlug: "obsidian")
@@ -85,7 +85,7 @@ struct LocalFolderDestinationTests {
         defer { temp.remove() }
         let payload = Payload(root: temp.path("missing-source"), collectedAt: date)
         await #expect(throws: SourceError.pathMissing(temp.path("missing-source").path)) {
-            try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name)
+            try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
         }
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
         try await destination.removeIncomplete(sourceSlug: "obsidian")

@@ -21,7 +21,7 @@ struct CloneSnapshotsTests {
         Fixtures.naming.name(for: date)
     }
 
-    private func backUp(_ destination: LocalFolderDestination, at date: Date) async throws {
+    private func backUp(_ destination: LocalFolderDestination, at date: Date, savesSpace: Bool = true) async throws {
         let payload = Payload(root: temp.path("vault"), collectedAt: date)
         let stats = PayloadWalker().stats(of: try PayloadWalker().entries(of: payload))
         let manifest = SnapshotManifest(
@@ -31,7 +31,7 @@ struct CloneSnapshotsTests {
             fileCount: stats.fileCount,
             totalBytes: stats.totalBytes
         )
-        try await destination.write(payload, manifest: manifest, sourceSlug: "obsidian", snapshotName: name(date))
+        try await destination.write(payload, manifest: manifest, sourceSlug: "obsidian", snapshotName: name(date), reusingStoredFiles: savesSpace)
     }
 
     private func snapshot(_ date: Date) -> URL {
@@ -228,6 +228,26 @@ struct CloneSnapshotsTests {
         #expect(try content(second, "a.md") == "alpha")
         #expect(try manifest(second).sharesData == false)
         #expect(try manifest(second).files?.count == 1)
+    }
+
+    @Test func sourceThatDoesNotSaveSpaceGetsFullCopies() async throws {
+        defer { temp.remove() }
+        let cloning = RecordingCloning()
+        try temp.file("vault/a.md", "alpha")
+        try await backUp(destination(cloning), at: first, savesSpace: false)
+        try await backUp(destination(cloning), at: second, savesSpace: false)
+
+        #expect(cloning.clones.isEmpty)
+        #expect(try manifest(second).sharesData == false)
+        #expect(try content(second, "a.md") == "alpha")
+    }
+
+    @Test func destinationTellsWhetherCopiesCanShareFiles() async throws {
+        defer { temp.remove() }
+        #expect(await destination(RecordingCloning()).canShareUnchangedFiles() == true)
+        #expect(await destination(RecordingCloning(.unsupported)).canShareUnchangedFiles() == false)
+        let unplugged = LocalFolderDestination(root: temp.path("Volumes/HDD"), naming: Fixtures.naming, cloning: RecordingCloning())
+        #expect(await unplugged.canShareUnchangedFiles() == nil)
     }
 
     @Test func failedCloneFallsBackToACopy() async throws {

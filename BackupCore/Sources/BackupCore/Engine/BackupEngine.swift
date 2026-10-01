@@ -161,7 +161,13 @@ public struct BackupEngine: Sendable {
             try await store.removeIncomplete(sourceSlug: source.slug)
             let existing = try await store.listSnapshots(sourceSlug: source.slug)
             if !existing.contains(where: { $0.name == snapshotName }) {
-                try await store.write(payload, manifest: manifest, sourceSlug: source.slug, snapshotName: snapshotName)
+                try await store.write(
+                    payload,
+                    manifest: manifest,
+                    sourceSlug: source.slug,
+                    snapshotName: snapshotName,
+                    reusingStoredFiles: source.savesSpace
+                )
             }
         } catch {
             return .failed(message: error.localizedDescription)

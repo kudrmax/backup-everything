@@ -50,7 +50,7 @@ public struct RcloneDestination: DestinationStore {
         }
     }
 
-    public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String) async throws {
+    public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws {
         let fileManager = FileManager.default
         let scratch = fileManager.temporaryDirectory.appendingPathComponent("rclone-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -81,6 +81,10 @@ public struct RcloneDestination: DestinationStore {
         try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
         try check(try await rclone(["copy", target(sourceSlug, snapshot.name), local.path]))
         return local
+    }
+
+    public func canShareUnchangedFiles() async -> Bool? {
+        false
     }
 
     public func usedBytes() async throws -> Int64 {

@@ -158,6 +158,7 @@ struct SourceDraft {
     var instructions: String
     var icon: String?
     var enabled: Bool
+    var savesSpace: Bool
     var steps: [StepDraft]
 
     init(_ source: Source) {
@@ -170,6 +171,7 @@ struct SourceDraft {
         instructions = source.instructions
         icon = source.icon
         enabled = source.enabled
+        savesSpace = source.savesSpace
         steps = source.steps.map(StepDraft.init)
     }
 
@@ -203,6 +205,7 @@ struct SourceDraft {
         source.instructions = instructions
         source.icon = icon
         source.enabled = enabled
+        source.savesSpace = savesSpace
         source.steps = steps.map { $0.build() }
         return source
     }

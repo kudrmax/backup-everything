@@ -112,9 +112,17 @@ private struct PressableBody<Content: View>: View {
 }
 
 extension View {
-    /// For menus, toggles and pop-up lists that have no button style.
+    /// For menus, toggles and pop-up lists that have no button style. A disabled control gets no hand.
     func pointing() -> some View {
-        pointerStyle(.link)
+        modifier(Pointing())
+    }
+}
+
+private struct Pointing: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        content.pointerStyle(isEnabled ? .link : nil)
     }
 }
 

@@ -25,7 +25,7 @@ struct BackupEngineTests {
         source = Fixtures.source(retention: RetentionRules(daily: 2, weekly: 0, monthly: 0, yearly: 0), destinations: [disk, cloud])
     }
 
-    private func run(_ trigger: RunTrigger = .scheduled) async -> RunRecord {
+    private func run(_ trigger: RunTrigger = .scheduled, source: Source? = nil) async -> RunRecord {
         let factories = FakeFactories(sourceProvider: provider, destinationStores: [disk.id: diskStore, cloud.id: cloudStore])
         let engine = BackupEngine(
             providers: factories,
@@ -35,7 +35,7 @@ struct BackupEngineTests {
             time: FakeTimeSource(now),
             progress: { [events] event in events.set(events.get() + [event]) }
         )
-        return await engine.run(source: source, destinations: [disk, cloud], trigger: trigger)
+        return await engine.run(source: source ?? self.source, destinations: [disk, cloud], trigger: trigger)
     }
 
     @Test func deliversSnapshotToEveryDestination() async {
@@ -50,6 +50,18 @@ struct BackupEngineTests {
         #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .delivered(pruned: 0, warning: nil)])
         #expect(diskStore.log == ["removeIncomplete", "write:\(name)"])
         #expect(provider.finished == [true])
+    }
+
+    @Test func destinationsAreToldWhetherTheSourceSavesSpace() async {
+        defer { temp.remove() }
+        _ = await run()
+        var frugal = source
+        frugal.savesSpace = false
+        _ = await run(source: frugal)
+        #expect(diskStore.reusedStoredFiles == [true])
+        diskStore.snapshots = []
+        _ = await run(source: frugal)
+        #expect(diskStore.reusedStoredFiles == [true, false])
     }
 
     @Test func unavailableDestinationDoesNotBlockOthers() async {

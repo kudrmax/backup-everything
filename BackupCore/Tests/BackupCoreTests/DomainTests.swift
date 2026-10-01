@@ -63,12 +63,13 @@ struct DomainTests {
     }
 
     @Test func everyStepKindRoundTripsThroughJSON() throws {
-        let source = Fixtures.source(name: "Everything at once", steps: [
+        var source = Fixtures.source(name: "Everything at once", steps: [
             .device("/Volumes/PB", instructions: "connect it"),
             .file("manifest-*.json", in: "~/Downloads", mode: .multiple, includeInCopy: false, removeOriginal: false, instructions: "download it"),
             .command("echo hi", timeoutSeconds: 60),
             .folder("/Volumes/PB/Books", excludes: [".cache"]),
         ])
+        source.savesSpace = false
         #expect(try JSONCoding.decoder().decode(Source.self, from: JSONCoding.encoder().encode(source)) == source)
     }
 
@@ -82,6 +83,7 @@ struct DomainTests {
         let folder = try legacy(#"{"folder":{"path":"~/Obsidian","excludes":[".trash"]}}"#)
         #expect(folder.steps.map(\.kind) == [.folder(path: "~/Obsidian", excludes: [".trash"])])
         #expect(folder.instructions == "how to export")
+        #expect(folder.savesSpace)
 
         let command = try legacy(#"{"command":{"command":"gh repo list","timeoutSeconds":600}}"#)
         #expect(command.steps.map(\.kind) == [.command(command: "gh repo list", timeoutSeconds: 600)])

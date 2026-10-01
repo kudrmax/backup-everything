@@ -27,6 +27,8 @@ final class AppModel {
     /// How much space the copies take in each destination; measured in the background while no backups run.
     /// For a disconnected disk, the size from the last time it was connected.
     private(set) var destinationUsage: [UUID: Int64] = AppModel.rememberedUsage()
+    /// Whether copies in each destination can share unchanged files, as of the last time it was connected.
+    private(set) var destinationSharing: [UUID: Bool] = AppModel.rememberedSharing()
     private(set) var waitingPackages: [UUID: Int64] = [:]
     private(set) var freeSpace: Int64?
     @ObservationIgnored private var lastSpaceCheck = Date.distantPast
@@ -420,11 +422,15 @@ final class AppModel {
         let work = workDirectory
         Task {
             var usage = destinationUsage.filter { id, _ in destinations.contains { $0.id == id } }
+            var sharing = destinationSharing.filter { id, _ in destinations.contains { $0.id == id } }
             for destination in destinations {
                 let store = stores.store(for: destination)
+                if let canShare = await store.canShareUnchangedFiles() { sharing[destination.id] = canShare }
                 guard await store.isAvailable(), let bytes = try? await store.usedBytes() else { continue }
                 usage[destination.id] = bytes
             }
+            destinationSharing = sharing
+            UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: sharing.map { ($0.key.uuidString, $0.value) }), forKey: Self.sharingKey)
             let measured = await Task.detached { () -> ([UUID: Int64], Int64?) in
                 var waiting: [UUID: Int64] = [:]
                 let names = (try? FileManager.default.contentsOfDirectory(atPath: pending.path)) ?? []
@@ -443,6 +449,12 @@ final class AppModel {
     }
 
     private static let usageKey = "destinationUsage"
+    private static let sharingKey = "destinationSharing"
+
+    private static func rememberedSharing() -> [UUID: Bool] {
+        let stored = UserDefaults.standard.dictionary(forKey: sharingKey) as? [String: Bool] ?? [:]
+        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
+    }
 
     private static func rememberedUsage() -> [UUID: Int64] {
         let stored = UserDefaults.standard.dictionary(forKey: usageKey) as? [String: Int64] ?? [:]

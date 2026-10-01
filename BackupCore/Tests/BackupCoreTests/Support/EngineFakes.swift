@@ -29,6 +29,7 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
     var writeError: Error?
     var deleteError: Error?
     private(set) var log: [String] = []
+    private(set) var reusedStoredFiles: [Bool] = []
 
     func isAvailable() async -> Bool { available }
 
@@ -38,13 +39,16 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         log.append("removeIncomplete")
     }
 
-    func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String) async throws {
+    func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws {
         if let writeError { throw writeError }
         log.append("write:\(snapshotName)")
+        reusedStoredFiles.append(reusingStoredFiles)
         snapshots.append(Snapshot(name: snapshotName, date: manifest.collectedAt))
     }
 
     func usedBytes() async throws -> Int64 { 0 }
+
+    func canShareUnchangedFiles() async -> Bool? { true }
 
     func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
         throw DestinationError.unavailable

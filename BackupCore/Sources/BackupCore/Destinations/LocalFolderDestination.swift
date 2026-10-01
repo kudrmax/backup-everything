@@ -30,7 +30,7 @@ public struct LocalFolderDestination: DestinationStore {
         }
     }
 
-    public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String) async throws {
+    public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws {
         guard await isAvailable() else { throw DestinationError.unavailable }
         let fileManager = FileManager.default
         let sourceDirectory = directory(sourceSlug)
@@ -39,7 +39,7 @@ public struct LocalFolderDestination: DestinationStore {
             if !fileManager.fileExists(atPath: sourceDirectory.path) {
                 try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: false)
             }
-            let sharesData = cloning.isSupported(at: root)
+            let sharesData = reusingStoredFiles && cloning.isSupported(at: root)
             let index = sharesData ? StoredContentIndex(snapshots: storedManifests(sourceSlug)) : .empty
             try fileManager.createDirectory(at: snapshotDirectory, withIntermediateDirectories: false)
             var manifest = manifest
@@ -68,6 +68,11 @@ public struct LocalFolderDestination: DestinationStore {
     public func usedBytes() async throws -> Int64 {
         guard await isAvailable() else { throw DestinationError.unavailable }
         return try DestinationUsage().bytes(under: root)
+    }
+
+    public func canShareUnchangedFiles() async -> Bool? {
+        guard await isAvailable() else { return nil }
+        return cloning.isSupported(at: root)
     }
 
     private func directory(_ sourceSlug: String) -> URL {

@@ -70,7 +70,7 @@ struct RcloneDestinationTests {
         let payload = Payload(root: temp.path("vault"), excludes: [".trash"], collectedAt: date)
         let manifest = SnapshotManifest(sourceId: UUID(), sourceName: "Obsidian", collectedAt: date, fileCount: 2, totalBytes: 14)
 
-        try await destination(runner).write(payload, manifest: manifest, sourceSlug: "obsidian", snapshotName: name)
+        try await destination(runner).write(payload, manifest: manifest, sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
 
         #expect(listedFiles.get() == "a.md\nsub/b.md")
         #expect(runner.calls.count == 2)
@@ -86,7 +86,7 @@ struct RcloneDestinationTests {
         let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 1, stderr: "quota exceeded") }
         let manifest = SnapshotManifest(sourceId: UUID(), sourceName: "Finance", collectedAt: date, fileCount: 1, totalBytes: 7)
         await #expect(throws: DestinationError.commandFailed("quota exceeded")) {
-            try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest, sourceSlug: "finance", snapshotName: name)
+            try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest, sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         }
         #expect(runner.calls.map(\.arguments) == [["copy", file.path, "gdrive:backups/finance/\(name)"]])
     }
