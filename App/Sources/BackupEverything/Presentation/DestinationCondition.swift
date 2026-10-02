@@ -27,4 +27,13 @@ enum DestinationCondition: Equatable {
     }
 
     var isConnected: Bool { self == .available }
+
+    var mark: String {
+        switch self {
+        case .available: "checkmark.circle.fill"
+        case .offline: "minus.circle.fill"
+        case .needsConnection: "clock.fill"
+        case .unreachable: "exclamationmark.circle.fill"
+        }
+    }
 }

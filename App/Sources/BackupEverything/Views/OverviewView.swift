@@ -201,19 +201,14 @@ struct SourceRow: View {
 
     @ViewBuilder
     private func stateIcon(_ status: SourceStatus, _ stage: SourceStage?) -> some View {
-        if let stage {
-            if stage == .queued {
-                Image(systemName: "hourglass").foregroundStyle(.secondary)
-            } else {
-                ProgressView().controlSize(.small)
-            }
-        } else if !source.enabled {
-            Image(systemName: "pause.circle").foregroundStyle(.secondary)
-        } else if status == .waiting || status == .waitingForDevice {
-            Image(systemName: "clock").foregroundStyle(.secondary)
-        } else {
-            Image(systemName: StatusStyle.symbol(status.severity))
-                .foregroundStyle(StatusStyle.color(status.severity))
+        switch SourceMark.of(stage: stage, isEnabled: source.enabled, status: status) {
+        case .working:
+            ProgressView().controlSize(.small)
+        case let .symbol(name):
+            Image(systemName: name).foregroundStyle(.secondary)
+        case let .severity(severity):
+            Image(systemName: StatusStyle.symbol(severity))
+                .foregroundStyle(StatusStyle.color(severity))
         }
     }
 
@@ -254,11 +249,13 @@ struct SourceRow: View {
     }
 
     private func stageText(_ stage: SourceStage) -> String {
-        let text = Texts.stage(stage, destinationName: deliveringName(stage))
-        let running = model.runStatus(of: source).map { "\(text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) · \($0)" } ?? text
-        guard stage == .collecting, let step = model.runStep(of: source), step.index < source.steps.count else { return running }
-        let label = ChainPosition.label(index: step.index, count: step.count)
-        return "\(label) · \(ChainPosition.running(source.steps[step.index], status: model.runStatus(of: source)))"
+        RunProgressText.note(
+            stage,
+            of: source,
+            destinationName: deliveringName(stage),
+            status: model.runStatus(of: source),
+            step: model.runStep(of: source)
+        )
     }
 
     @ViewBuilder
@@ -291,8 +288,7 @@ struct SourceRow: View {
     }
 
     private func canPickUp(_ status: SourceStatus) -> Bool {
-        guard case let .filesFound(_, _, downloading) = status else { return false }
-        return !downloading && model.stage(of: source) == nil
+        status.offersPickUp && model.stage(of: source) == nil
     }
 
     private var hoverActions: some View {
@@ -303,7 +299,7 @@ struct SourceRow: View {
                     Task { await model.cancelWaiting(source) }
                 }
             } else if ChainPosition.canRunNow(source, chain: chain) {
-                action(runTitle(chain), symbol: "play.fill") {
+                action(ChainPosition.runTitle(source, chain: chain), symbol: "play.fill") {
                     Task { await model.runNow(source) }
                 }
                 .disabled(destinations.isEmpty)
@@ -326,18 +322,6 @@ struct SourceRow: View {
         .buttonStyle(.borderlessPointing)
     }
 
-    private func runTitle(_ chain: ChainState?) -> String {
-        if chain?.failure != nil { return "Retry step" }
-        if chain == nil, let first = source.steps.first {
-            switch first.kind {
-            case .file: return "Run: wait for the export file"
-            case .device: return "Run: wait for the device"
-            case .folder, .command: break
-            }
-        }
-        return "Run"
-    }
-
     @ViewBuilder
     private var copyAction: some View {
         let places = SourceLinks.copies(of: source, config: model.config, state: model.state)
@@ -346,11 +330,11 @@ struct SourceRow: View {
                 if let folder = place.folder { model.reveal(folder) }
             }
             .disabled(place.folder == nil)
-            .hoverTip(place.unavailableReason.map { "Open copy: \($0.prefix(1).lowercased() + $0.dropFirst())" } ?? "Show copy in Finder")
+            .hoverTip(place.tip)
         } else if places.count > 1 {
             Menu {
                 ForEach(places) { place in
-                    Button(place.unavailableReason.map { "\(place.destination.name) — \($0.prefix(1).lowercased() + $0.dropFirst())" } ?? place.destination.name) {
+                    Button(place.menuTitle) {
                         if let folder = place.folder { model.reveal(folder) }
                     }
                     .disabled(place.folder == nil)
@@ -379,19 +363,7 @@ struct SourceRow: View {
     }
 
     private var timeDetails: String {
-        var lines = ["Last backup: \(model.lastBackup(of: source).map(Texts.dateTime) ?? "never")"]
-        if source.enabled {
-            if let due = model.nextDue(of: source) {
-                let prefix = source.steps.first?.needsHuman == true ? "Reminder" : "Next"
-                lines.append("\(prefix): \(due <= Date() ? "due now" : Texts.dateTime(due))")
-            } else {
-                lines.append("Next: manual only")
-            }
-        }
-        if let size = model.lastSize(of: source) {
-            lines.append("Copy size: \(Texts.bytes(size))")
-        }
-        return lines.joined(separator: "\n")
+        RunProgressText.times(source, lastBackup: model.lastBackup(of: source), nextDue: model.nextDue(of: source), size: model.lastSize(of: source))
     }
 }
 
@@ -438,31 +410,20 @@ struct DestinationBadge: View {
     }
 
     private var mark: String? {
-        switch state {
-        case .delivered: "checkmark.circle.fill"
-        case .failed: "xmark.circle.fill"
-        case .waiting: "clock.fill"
-        case .none: nil
-        }
+        state.mark
     }
 
     private var details: String {
-        if isDelivering { return "\(destination.name)\nwriting…" }
-        let last = model.lastDelivery(of: source, to: destination)
-        switch state {
-        case .delivered:
-            return "\(destination.name)\ndelivered \(last.map { Texts.relative($0.date) } ?? "")"
-        case .failed:
-            let message = last.map { Texts.outcome($0.outcome) } ?? "error"
-            return "\(destination.name)\n\(message)\nretrying later"
-        case .waiting:
-            let line = ConnectReminder.waitingLine(
+        DeliveryText.details(
+            destinationName: destination.name,
+            isWriting: isDelivering,
+            state: state,
+            last: model.lastDelivery(of: source, to: destination)
+        ) {
+            ConnectReminder.waitingLine(
                 elsewhere: model.isCoveredElsewhere(source, for: destination),
                 otherDestinations: model.otherCopies(of: source, besides: destination).map(\.name)
             )
-            return "\(destination.name)\nwaiting to be connected\n\(line)"
-        case .none:
-            return "\(destination.name)\nno copies yet"
         }
     }
 }
@@ -492,17 +453,11 @@ struct DestinationStrip: View {
     }
 
     private func title(of destination: Destination, condition: DestinationCondition) -> String {
-        let used = model.destinationUsage[destination.id].map(Texts.bytes)
-        return ([destination.name, used, condition.problem].compactMap { $0 }).joined(separator: " · ")
-    }
-
-    private func folder(of destination: Destination) -> URL? {
-        guard case let .localFolder(path) = destination.kind else { return nil }
-        return AppPaths.expand(path)
+        DestinationLink.title(of: destination, used: model.destinationUsage[destination.id], condition: condition)
     }
 
     private func open(_ destination: Destination, isConnected: Bool) {
-        if let folder = folder(of: destination), isConnected {
+        if let folder = DestinationLink.finderFolder(of: destination, isConnected: isConnected) {
             model.reveal(folder)
         } else {
             openSettings(destination)
@@ -510,8 +465,7 @@ struct DestinationStrip: View {
     }
 
     private func action(for destination: Destination, isConnected: Bool) -> String {
-        guard folder(of: destination) != nil, isConnected else { return "Click to open settings" }
-        return "Click to show in Finder"
+        DestinationLink.actionTip(for: destination, isConnected: isConnected)
     }
 
     private func style(_ condition: DestinationCondition) -> AnyShapeStyle {
@@ -520,25 +474,6 @@ struct DestinationStrip: View {
         case .offline: AnyShapeStyle(.tertiary)
         case .needsConnection, .unreachable: AnyShapeStyle(.orange)
         }
-    }
-}
-
-@MainActor
-enum DestinationDetails {
-    static func text(of destination: Destination, model: AppModel) -> String {
-        var lines = [model.condition(of: destination).isConnected ? "Available" : "Not connected now"]
-        let waiting = model.waitingSources(for: destination)
-        if let caughtUp = model.lastCaughtUp(destination) {
-            lines.append("Got everything: \(Texts.relative(caughtUp))")
-        }
-        lines.append(waiting.isEmpty ? "Nothing waiting for delivery" : "Waiting for delivery: \(waiting.map(\.name).joined(separator: ", "))")
-        let unique = waiting.filter { !model.isCoveredElsewhere($0, for: destination) }
-        if !unique.isEmpty {
-            lines.append("Nowhere else: \(unique.map(\.name).joined(separator: ", ")) — connect the disk")
-        } else if let deadline = model.connectDeadline(of: destination), deadline > Date() {
-            lines.append("Copies are on other disks — reminder \(Texts.until(deadline))")
-        }
-        return lines.joined(separator: "\n")
     }
 }
 
@@ -576,7 +511,7 @@ struct WorkingSpaceLine: View {
     var body: some View {
         let need = model.workingSpace
         if need.bytes > 0 {
-            let isShort = model.freeSpace.map { $0 < need.bytes } ?? false
+            let isShort = WorkingSpace.isShort(need: need, free: model.freeSpace)
             Label(WorkingSpace.line(need: need, free: model.freeSpace), systemImage: isShort ? "exclamationmark.triangle.fill" : "internaldrive")
                 .font(.callout)
                 .foregroundStyle(isShort ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))

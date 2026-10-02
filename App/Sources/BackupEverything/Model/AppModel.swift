@@ -26,9 +26,9 @@ final class AppModel {
     private(set) var unavailableDestinations: Set<UUID> = []
     /// How much space the copies take in each destination; measured in the background while no backups run.
     /// For a disconnected disk, the size from the last time it was connected.
-    private(set) var destinationUsage: [UUID: Int64] = AppModel.rememberedUsage()
+    private(set) var destinationUsage: [UUID: Int64]
     /// Whether copies in each destination can share unchanged files, as of the last time it was connected.
-    private(set) var destinationSharing: [UUID: Bool] = AppModel.rememberedSharing()
+    private(set) var destinationSharing: [UUID: Bool]
     private(set) var waitingPackages: [UUID: Int64] = [:]
     private(set) var freeSpace: Int64?
     @ObservationIgnored private var lastSpaceCheck = Date.distantPast
@@ -50,16 +50,31 @@ final class AppModel {
     @ObservationIgnored private let workDirectory: URL
     @ObservationIgnored private let coordinator: BackupCoordinator
     @ObservationIgnored private let stores: DefaultDestinationStoreFactory
-    @ObservationIgnored private let runner = SystemProcessRunner()
-    @ObservationIgnored private let rclone = RcloneLocator()
+    @ObservationIgnored private let runner: any ProcessRunner
+    @ObservationIgnored private let rclone: RcloneLocator
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let finder: any FileRevealing
     @ObservationIgnored private let editor = ConfigEditor()
     @ObservationIgnored private let planner: SchedulePlanner
     @ObservationIgnored private let retention = RetentionPolicy()
     @ObservationIgnored private let activityEvents: AsyncStream<ActivityEvent>
     @ObservationIgnored private let activityFeed: AsyncStream<ActivityEvent>.Continuation
 
-    init(dataDirectory: URL, workDirectory: URL) {
+    init(
+        dataDirectory: URL,
+        workDirectory: URL,
+        runner: any ProcessRunner = SystemProcessRunner(),
+        rclone: RcloneLocator = RcloneLocator(),
+        defaults: UserDefaults = .standard,
+        finder: any FileRevealing = WorkspaceFinder()
+    ) {
         store = Store(dataDirectory: dataDirectory)
+        self.runner = runner
+        self.rclone = rclone
+        self.defaults = defaults
+        self.finder = finder
+        destinationUsage = Self.rememberedUsage(in: defaults)
+        destinationSharing = Self.rememberedSharing(in: defaults)
         icons = IconStore(directory: store.iconsDirectory)
         self.workDirectory = workDirectory
         let (events, feed) = AsyncStream.makeStream(of: ActivityEvent.self)
@@ -68,6 +83,8 @@ final class AppModel {
         coordinator = CoreAssembly.makeCoordinator(
             dataDirectory: dataDirectory,
             workDirectory: workDirectory,
+            runner: runner,
+            rclone: rclone,
             progress: { feed.yield(.progress($0)) }
         )
         stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: SnapshotNaming())
@@ -346,6 +363,20 @@ final class AppModel {
         return snapshots.sorted { $0.date > $1.date }
     }
 
+    func sources(backingUpTo destination: Destination) -> [Source] {
+        config.sources.filter { $0.destinationIds.contains(destination.id) }
+    }
+
+    /// Copies of each source in the destination, newest first; `nil` when the destination can’t be reached.
+    func copies(in destination: Destination) async -> [UUID: [Snapshot]]? {
+        guard await isAvailable(destination) else { return nil }
+        var loaded: [UUID: [Snapshot]] = [:]
+        for source in sources(backingUpTo: destination) {
+            loaded[source.id] = await snapshots(of: source, in: destination)
+        }
+        return loaded
+    }
+
     func retentionPreview(for source: Source) async -> [RetentionPreview] {
         var previews: [RetentionPreview] = []
         for destination in source.destinationIds.compactMap(config.destination) {
@@ -367,9 +398,9 @@ final class AppModel {
             return
         }
         if isDirectory.boolValue {
-            NSWorkspace.shared.open(url)
+            finder.open(url)
         } else {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+            finder.select(url)
         }
     }
 
@@ -430,7 +461,7 @@ final class AppModel {
                 usage[destination.id] = bytes
             }
             destinationSharing = sharing
-            UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: sharing.map { ($0.key.uuidString, $0.value) }), forKey: Self.sharingKey)
+            defaults.set(Dictionary(uniqueKeysWithValues: sharing.map { ($0.key.uuidString, $0.value) }), forKey: Self.sharingKey)
             let measured = await Task.detached { () -> ([UUID: Int64], Int64?) in
                 var waiting: [UUID: Int64] = [:]
                 let names = (try? FileManager.default.contentsOfDirectory(atPath: pending.path)) ?? []
@@ -442,7 +473,7 @@ final class AppModel {
                 return (waiting, free)
             }.value
             destinationUsage = usage
-            UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: usage.map { ($0.key.uuidString, $0.value) }), forKey: Self.usageKey)
+            defaults.set(Dictionary(uniqueKeysWithValues: usage.map { ($0.key.uuidString, $0.value) }), forKey: Self.usageKey)
             waitingPackages = measured.0
             freeSpace = measured.1
         }
@@ -451,13 +482,13 @@ final class AppModel {
     private static let usageKey = "destinationUsage"
     private static let sharingKey = "destinationSharing"
 
-    private static func rememberedSharing() -> [UUID: Bool] {
-        let stored = UserDefaults.standard.dictionary(forKey: sharingKey) as? [String: Bool] ?? [:]
+    private static func rememberedSharing(in defaults: UserDefaults) -> [UUID: Bool] {
+        let stored = defaults.dictionary(forKey: sharingKey) as? [String: Bool] ?? [:]
         return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
     }
 
-    private static func rememberedUsage() -> [UUID: Int64] {
-        let stored = UserDefaults.standard.dictionary(forKey: usageKey) as? [String: Int64] ?? [:]
+    private static func rememberedUsage(in defaults: UserDefaults) -> [UUID: Int64] {
+        let stored = defaults.dictionary(forKey: usageKey) as? [String: Int64] ?? [:]
         return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
     }
 

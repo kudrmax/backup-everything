@@ -6,14 +6,14 @@ struct StepsEditor: View {
     let currentIndex: Int?
 
     var body: some View {
-        SettingsSection(title: steps.count > 1 ? "What to do · steps run in order" : "What to do") {
+        SettingsSection(title: StepList.title(count: steps.count)) {
             ForEach($steps) { $step in
                 let index = steps.firstIndex { $0.id == step.id } ?? 0
                 StepCard(
                     step: $step,
-                    number: steps.count > 1 ? index + 1 : nil,
+                    number: StepList.number(of: index, count: steps.count),
                     isCurrent: index == currentIndex,
-                    followedByFolder: steps[(index + 1)...].contains { $0.kindChoice == .folder },
+                    followedByFolder: StepList.isFollowedByFolder(steps, at: index),
                     canMoveUp: index > 0,
                     canMoveDown: index < steps.count - 1,
                     move: { steps.swapAt(index, index + $0) },
@@ -116,7 +116,7 @@ private struct StepCard: View {
         SettingsRow(title: "Folder or file") {
             PathField(path: $step.folderPath, allowsFiles: true)
         }
-        DisclosureRow(title: "Don’t copy", summary: step.excludes.isEmpty ? "nothing" : step.excludes.joined(separator: ", ")) {
+        DisclosureRow(title: "Don’t copy", summary: step.excludesSummary) {
             CodeEditor(text: $step.excludesText, minHeight: 60)
             Text("One mask per line, e.g. *.tmp")
                 .font(.callout)

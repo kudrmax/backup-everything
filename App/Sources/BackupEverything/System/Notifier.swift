@@ -3,42 +3,54 @@ import Foundation
 import UserNotifications
 
 @MainActor
-final class Notifier {
-    private var isAvailable: Bool { Bundle.main.bundleIdentifier != nil }
+protocol NotificationPosting {
+    func requestAuthorization() async
+    func post(title: String, body: String)
+}
+
+struct UserNotificationCenter: NotificationPosting {
+    func requestAuthorization() async {
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+    }
+
+    func post(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+}
+
+@MainActor
+protocol Notifying {
+    func requestAuthorization()
+    func post(_ notices: [Notice])
+}
+
+/// Notifications need an app bundle: a bare binary (tests, `swift run`) has none, and then nothing is shown.
+@MainActor
+final class Notifier: Notifying {
+    private let isAvailable: Bool
+    private let center: any NotificationPosting
+
+    init(isAvailable: Bool = Bundle.main.bundleIdentifier != nil, center: any NotificationPosting = UserNotificationCenter()) {
+        self.isAvailable = isAvailable
+        self.center = center
+    }
 
     func requestAuthorization() {
         guard isAvailable else { return }
-        Task {
-            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        Task { [center] in
+            await center.requestAuthorization()
         }
     }
 
     func post(_ notices: [Notice]) {
         guard isAvailable else { return }
         for notice in notices {
-            let content = UNMutableNotificationContent()
-            (content.title, content.body) = Self.text(for: notice)
-            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            UNUserNotificationCenter.current().add(request)
-        }
-    }
-
-    private static func text(for notice: Notice) -> (String, String) {
-        switch notice {
-        case let .deviceDue(_, sourceName):
-            ("Time to connect the device", "Connect “\(sourceName)” with a cable and the backup starts on its own.")
-        case let .deviceCanBeUnplugged(_, sourceName):
-            ("Safe to disconnect", "The backup of “\(sourceName)” is done, you can disconnect the device.")
-        case let .manualExportDue(_, sourceName):
-            ("Time to export", "\(sourceName): open Backup Everything for instructions.")
-        case let .connectDestination(_, destinationName, onlyCopyOf):
-            ConnectReminder.notice(destinationName: destinationName, onlyCopyOf: onlyCopyOf)
-        case let .runFailed(_, sourceName, message):
-            ("Backup failed", "\(sourceName): \(message)")
-        case let .destinationCaughtUp(_, destinationName):
-            ("Safe to disconnect the disk", "“\(destinationName)” has received all pending backups.")
-        case let .copiesMissing(_, sourceName, destinationName):
-            ("Copy missing", "The latest copy of “\(sourceName)” was not found on “\(destinationName)”. Making a new one.")
+            let text = NoticeText.of(notice)
+            center.post(title: text.title, body: text.body)
         }
     }
 }

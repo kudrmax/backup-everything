@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var launchesAtLogin = LoginItem.isEnabled
+    private let loginItem = LoginItem()
+    @State private var launchesAtLogin = LoginItem().isEnabled
     @State private var loginProblem: String?
 
     var body: some View {
@@ -29,9 +30,9 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .onChange(of: launchesAtLogin) { _, enabled in
-            guard enabled != LoginItem.isEnabled else { return }
-            loginProblem = LoginItem.setEnabled(enabled)
-            launchesAtLogin = LoginItem.isEnabled
+            guard let result = loginItem.apply(enabled) else { return }
+            loginProblem = result.problem
+            launchesAtLogin = result.isEnabled
         }
     }
 }

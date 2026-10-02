@@ -59,6 +59,12 @@ enum SourceStatus: Equatable {
         }
     }
 
+    /// Files found that are fully downloaded wait for the “Pick up” button.
+    var offersPickUp: Bool {
+        guard case let .filesFound(_, _, downloading) = self else { return false }
+        return !downloading
+    }
+
     var errorMessage: String? {
         guard case let .failed(message) = self else { return nil }
         return message

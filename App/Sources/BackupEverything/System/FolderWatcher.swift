@@ -1,7 +1,12 @@
 import Foundation
 
 @MainActor
-final class FolderWatcher {
+protocol FolderWatching: AnyObject {
+    func stop()
+}
+
+@MainActor
+final class FolderWatcher: FolderWatching {
     private let source: DispatchSourceFileSystemObject
 
     init?(url: URL, onChange: @escaping @MainActor () -> Void) {

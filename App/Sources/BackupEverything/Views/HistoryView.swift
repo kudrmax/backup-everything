@@ -22,7 +22,7 @@ struct HistoryView: View {
     }
 
     private var runs: [RunRecord] {
-        onlyProblems ? model.runs.filter { $0.firstFailure != nil } : model.runs
+        RunHistory.runs(model.runs, onlyProblems: onlyProblems)
     }
 }
 
@@ -32,13 +32,13 @@ struct RunRow: View {
     var body: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 6) {
-                if let snapshotName = run.snapshotName {
-                    detail("Copy", "\(snapshotName), \(Texts.files(run.fileCount ?? 0)), \(Texts.bytes(run.totalBytes ?? 0))")
+                if let copy = RunHistory.copyLine(run) {
+                    detail("Copy", copy)
                 }
                 ForEach(run.deliveries, id: \.destinationId) { delivery in
                     detail(delivery.destinationName, Texts.outcome(delivery.outcome))
                 }
-                if let failure = run.collectError ?? run.firstFailure {
+                if let failure = RunHistory.failure(run) {
                     HStack(alignment: .top) {
                         Text(failure)
                             .font(.callout.monospaced())
@@ -76,8 +76,7 @@ struct RunRow: View {
     }
 
     private var severity: OverallStatus {
-        if run.firstFailure != nil { return .error }
-        return run.deliveries.allSatisfy(\.outcome.isDelivered) ? .ok : .attention
+        RunHistory.severity(run)
     }
 
     private func detail(_ title: String, _ value: String) -> some View {

@@ -2,17 +2,39 @@ import Foundation
 import ServiceManagement
 
 @MainActor
-enum LoginItem {
-    static var isEnabled: Bool {
-        SMAppService.mainApp.status == .enabled
+protocol LoginService {
+    var status: SMAppService.Status { get }
+    func register() throws
+    func unregister() throws
+}
+
+extension SMAppService: LoginService {}
+
+@MainActor
+struct LoginItem {
+    private let service: any LoginService
+
+    init(service: any LoginService = SMAppService.mainApp) {
+        self.service = service
     }
 
-    static func setEnabled(_ enabled: Bool) -> String? {
+    var isEnabled: Bool {
+        service.status == .enabled
+    }
+
+    /// Follows the switch when it disagrees with the system: the position the system ended up in and why it failed, if it did.
+    func apply(_ enabled: Bool) -> (isEnabled: Bool, problem: String?)? {
+        guard enabled != isEnabled else { return nil }
+        let problem = setEnabled(enabled)
+        return (isEnabled, problem)
+    }
+
+    private func setEnabled(_ enabled: Bool) -> String? {
         do {
             if enabled {
-                try SMAppService.mainApp.register()
+                try service.register()
             } else {
-                try SMAppService.mainApp.unregister()
+                try service.unregister()
             }
             return nil
         } catch {

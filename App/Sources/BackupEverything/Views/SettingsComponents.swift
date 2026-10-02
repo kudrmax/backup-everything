@@ -74,10 +74,8 @@ struct EditorLayout<Item: Identifiable, Label: View, AddMenu: View, Detail: View
         .padding(.vertical, 5)
     }
 
-    /// The item takes the place of the one it was dropped on: from below it goes above it, from above it goes below it.
     private func lineEdge(for id: UUID) -> Alignment {
-        guard let dragged, let from = ids.firstIndex(of: dragged), let to = ids.firstIndex(of: id) else { return .top }
-        return from < to ? .bottom : .top
+        ListOrder.dropsBelow(dragged, onto: id, in: ids) ? .bottom : .top
     }
 
     private func dropLine(visible: Bool) -> some View {
@@ -354,26 +352,8 @@ struct TrailingFlow: Layout {
         }
     }
 
-    private struct Line {
-        var indices: [Int] = []
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-    }
-
-    private func lines(of subviews: Subviews, width: CGFloat) -> [Line] {
-        var lines = [Line()]
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            let gap = lines[lines.count - 1].indices.isEmpty ? 0 : spacing
-            if lines[lines.count - 1].width + gap + size.width > width, !lines[lines.count - 1].indices.isEmpty {
-                lines.append(Line())
-            }
-            let lead = lines[lines.count - 1].indices.isEmpty ? 0 : spacing
-            lines[lines.count - 1].indices.append(index)
-            lines[lines.count - 1].width += lead + size.width
-            lines[lines.count - 1].height = max(lines[lines.count - 1].height, size.height)
-        }
-        return lines
+    private func lines(of subviews: Subviews, width: CGFloat) -> [FlowLine] {
+        FlowLine.lines(sizes: subviews.map { $0.sizeThatFits(.unspecified) }, width: width, spacing: spacing)
     }
 }
 
@@ -436,11 +416,6 @@ struct DestinationIcon: View {
     }
 
     private func mark(_ condition: DestinationCondition) -> String? {
-        switch condition {
-        case .available: "checkmark.circle.fill"
-        case .offline: "minus.circle.fill"
-        case .needsConnection: "clock.fill"
-        case .unreachable: "exclamationmark.circle.fill"
-        }
+        condition.mark
     }
 }

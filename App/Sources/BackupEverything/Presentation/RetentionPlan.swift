@@ -6,6 +6,16 @@ struct RetentionStage: Equatable, Identifiable {
         case week
         case month
         case year
+
+        /// The most copies of this kind the editor allows.
+        var maximum: Int {
+            switch self {
+            case .day: 365
+            case .week: 104
+            case .month: 120
+            case .year: 50
+            }
+        }
     }
 
     let unit: Unit
@@ -45,6 +55,10 @@ enum RetentionPlan {
             (.day, rules.daily), (.week, rules.weekly), (.month, rules.monthly), (.year, rules.yearly),
         ]
         return counts.map { RetentionStage(unit: $0.0, count: $0.1) }
+    }
+
+    static func footnote(_ rules: RetentionRules) -> String {
+        stages(rules).contains(where: \.isKept) ? footnote : newestOnly
     }
 
     static func summary(_ rules: RetentionRules) -> String {

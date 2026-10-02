@@ -71,9 +71,7 @@ final class TooltipController {
         hosting.frame = NSRect(origin: .zero, size: size)
         panel.contentView = hosting
         let screen = NSScreen.screens.first { $0.frame.intersects(anchor) }?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
-        var origin = NSPoint(x: anchor.midX - size.width / 2, y: anchor.minY - Self.gap - size.height)
-        if origin.y < screen.minY { origin.y = anchor.maxY + Self.gap }
-        origin.x = min(max(origin.x, screen.minX + 4), screen.maxX - size.width - 4)
+        let origin = TooltipPlacement.origin(size: size, below: anchor, on: screen, gap: Self.gap)
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
         lastShownAt = Date()
