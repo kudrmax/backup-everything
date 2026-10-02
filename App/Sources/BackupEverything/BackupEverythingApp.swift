@@ -24,6 +24,6 @@ struct BackupEverythingApp: App {
     }
 
     private var showsWindowAtLaunch: Bool {
-        model.isFirstLaunch || CommandLine.arguments.contains("--show-window")
+        !AppServices.shared.isSecondInstance && (model.isFirstLaunch || CommandLine.arguments.contains("--show-window"))
     }
 }

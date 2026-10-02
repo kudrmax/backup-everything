@@ -221,4 +221,119 @@ struct AppModelEditTests {
         await fixture.model.delete(source)
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.store.iconsDirectory.path).isEmpty)
     }
+
+    @Test func failedSaveKeepsTheEditsWaitingToBeSaved() async throws {
+        let fixture = try ModelFixture()
+        let saved = try #require(fixture.model.config.sources.first)
+        var session = EditorSession<SourceDraft>()
+        _ = session.selectionChanged(to: saved.id, in: fixture.model.config.sources)
+        session.draft?.schedule = .monthly
+        let edited = try #require(session.draft?.build())
+        try Data("{ damaged".utf8).write(to: fixture.store.configURL)
+
+        let result = await fixture.model.save(edited)
+        if let result { session.saved(result) }
+
+        #expect(result == nil)
+        #expect(fixture.model.problem != nil)
+        #expect(fixture.model.config.source(saved.id)?.schedule == saved.schedule)
+        #expect(session.draft?.hasChanges == true)
+    }
+
+    @Test func failedAddKeepsTheNewSourceOfferedForAdding() async throws {
+        let fixture = try ModelFixture()
+        var session = EditorSession<SourceDraft>()
+        var new = fixture.model.newSource(from: nil)
+        new.name = "Notes"
+        new.steps = [.folder("~/Notes")]
+        session.start(SourceDraft(new))
+        try Data("{ damaged".utf8).write(to: fixture.store.configURL)
+
+        if let saved = await fixture.model.save(new) { session.saved(saved) }
+
+        #expect(fixture.model.config.source(new.id) == nil)
+        #expect(session.isNew)
+    }
+
+    @Test func failedDestinationSaveAndDeletesAreReported() async throws {
+        let fixture = try ModelFixture()
+        let disk = try fixture.disk()
+        let source = try #require(fixture.model.config.sources.first)
+        #expect(await fixture.model.save(disk) == disk)
+        try Data("{ damaged".utf8).write(to: fixture.store.configURL)
+
+        var renamed = disk
+        renamed.name = "SSD"
+        #expect(await fixture.model.save(renamed) == nil)
+        #expect(await fixture.model.delete(disk) == false)
+        #expect(await fixture.model.delete(source) == false)
+        #expect(fixture.model.problem != nil)
+    }
+
+    @Test func settingsThatCannotBeWrittenAreReportedEvenThoughTheyCanBeRead() async throws {
+        let fixture = try ModelFixture()
+        let source = try #require(fixture.model.config.sources.first)
+        let data = fixture.store.dataDirectory.path
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: data)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: data) }
+
+        var edited = source
+        edited.schedule = .monthly
+        #expect(await fixture.model.save(edited) == nil)
+        #expect(fixture.model.problem != nil)
+        #expect(fixture.model.config.source(source.id)?.schedule == source.schedule)
+    }
+
+    @Test func savedSourceComesBackAsWrittenWithItsFolder() async throws {
+        let fixture = try ModelFixture()
+        var source = fixture.model.newSource(from: nil)
+        source.name = "Photos"
+        source.steps = [.folder("~/Photos")]
+        #expect(source.slug != "photos")
+
+        let saved = try #require(await fixture.model.save(source))
+        #expect(saved.slug == "photos")
+        #expect(saved == fixture.model.config.source(source.id))
+    }
+
+    @Test func copiesOfAJustCreatedSourceAreLookedUpInItsOwnFolder() async throws {
+        let fixture = try ModelFixture()
+        let disk = try fixture.disk()
+        guard case let .localFolder(path) = disk.kind else { return }
+        try fixture.temp.file("_snapshot.json", in: URL(fileURLWithPath: path).appendingPathComponent("photos/2026-09-28_100000"), contents: "{}")
+        await fixture.model.save(disk)
+
+        var source = fixture.model.newSource(from: nil)
+        source.name = "Photos"
+        source.destinationIds = [disk.id]
+        await fixture.model.save(source)
+
+        let previews = await fixture.model.retentionPreview(for: source)
+        #expect(previews.first?.kept.map(\.name) == ["2026-09-28_100000"])
+    }
+
+    @Test func savingWhileTheSettingsFileIsDamagedKeepsTheIcons() async throws {
+        let fixture = try ModelFixture()
+        let icon = try #require(fixture.model.importIcon(from: try fixture.picture()))
+        var source = fixture.source("Notes", steps: [.folder("~/Notes")])
+        source.icon = icon
+        await fixture.model.save(source)
+        try Data("{ damaged".utf8).write(to: fixture.store.configURL)
+
+        await fixture.model.save(fixture.model.newSource(from: nil))
+        await fixture.model.delete(source)
+
+        #expect(try String(contentsOf: fixture.store.configURL, encoding: .utf8) == "{ damaged")
+        #expect(FileManager.default.fileExists(atPath: fixture.store.iconsDirectory.appendingPathComponent(icon).path))
+    }
+
+    @Test func iconsAreKeptWhenTheSettingsCannotBeReadAtLaunch() throws {
+        let fixture = try ModelFixture(prepare: false)
+        try FileManager.default.createDirectory(at: fixture.store.dataDirectory, withIntermediateDirectories: true)
+        try Data("{ damaged".utf8).write(to: fixture.store.configURL)
+        let icon = try fixture.temp.file("obsidian.png", in: fixture.store.iconsDirectory, contents: "png")
+        fixture.model.prepare()
+        #expect(fixture.model.problem != nil)
+        #expect(FileManager.default.fileExists(atPath: icon.path))
+    }
 }

@@ -45,14 +45,13 @@ struct DestinationsView: View {
 
     private func save(_ destination: Destination) {
         Task {
-            await model.save(destination)
-            session.saved(destination)
+            if let saved = await model.save(destination) { session.saved(saved) }
         }
     }
 
     private func delete(_ destination: Destination) {
         Task {
-            await model.delete(destination)
+            guard await model.delete(destination) else { return }
             session.showFirst(of: model.config.destinations)
         }
     }

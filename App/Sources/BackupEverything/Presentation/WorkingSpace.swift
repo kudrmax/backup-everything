@@ -13,10 +13,11 @@ enum WorkingSpace {
 
     static func need(sources: [Source], lastSizes: [UUID: Int64], waiting: [UUID: Int64]) -> Need {
         let staged = sources.filter { $0.enabled && $0.singleFolder == nil }
-        let largest = staged.max { (lastSizes[$0.id] ?? 0) < (lastSizes[$1.id] ?? 0) }
-        let largestBytes = largest.flatMap { lastSizes[$0.id] } ?? 0
+        let candidate = staged.max { (lastSizes[$0.id] ?? 0) < (lastSizes[$1.id] ?? 0) }
+        let largestBytes = candidate.flatMap { lastSizes[$0.id] } ?? 0
+        let largest = largestBytes > 0 ? candidate : nil
         let waitingBytes = waiting.filter { $0.key != largest?.id }.values.reduce(0, +)
-        return Need(bytes: largestBytes + waitingBytes, largest: largestBytes > 0 ? largest : nil, waitingBytes: waitingBytes)
+        return Need(bytes: largestBytes + waitingBytes, largest: largest, waitingBytes: waitingBytes)
     }
 
     static func isShort(need: Need, free: Int64?) -> Bool {

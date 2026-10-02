@@ -71,6 +71,8 @@ struct StepDraft: Identifiable, Equatable {
     var includeInCopy = true
     var removeOriginal = true
     var devicePath = ""
+    /// The timeout as saved: the field shows whole minutes, but seconds stay as they were until the minutes are changed.
+    private var savedTimeoutSeconds: Int?
 
     init(new kindChoice: StepKindChoice) {
         id = UUID()
@@ -89,7 +91,8 @@ struct StepDraft: Identifiable, Equatable {
         case let .command(command, timeoutSeconds):
             kindChoice = .command
             self.command = command
-            timeoutMinutes = max(1, timeoutSeconds / 60)
+            timeoutMinutes = Self.minutes(of: timeoutSeconds)
+            savedTimeoutSeconds = timeoutSeconds
         case let .file(instructions, watchPath, filePattern, fileMode, includeInCopy, removeOriginal):
             kindChoice = .file
             self.instructions = instructions
@@ -130,7 +133,7 @@ struct StepDraft: Identifiable, Equatable {
         case .folder:
             .folder(path: trimmed(folderPath), excludes: excludes)
         case .command:
-            .command(command: command, timeoutSeconds: max(1, timeoutMinutes) * 60)
+            .command(command: command, timeoutSeconds: timeoutSeconds)
         case .file:
             .file(
                 instructions: instructions,
@@ -144,6 +147,15 @@ struct StepDraft: Identifiable, Equatable {
             .device(instructions: instructions, path: trimmed(devicePath))
         }
         return SourceStep(id: id, name: trimmed(name), kind: kind)
+    }
+
+    private var timeoutSeconds: Int {
+        if let savedTimeoutSeconds, Self.minutes(of: savedTimeoutSeconds) == timeoutMinutes { return savedTimeoutSeconds }
+        return max(1, timeoutMinutes) * 60
+    }
+
+    private static func minutes(of seconds: Int) -> Int {
+        max(1, seconds / 60)
     }
 
     private func trimmed(_ text: String) -> String {

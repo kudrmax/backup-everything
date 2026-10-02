@@ -23,7 +23,7 @@ final class AppServices {
     let model: AppModel
     private let driver: any BackgroundDriving
     private let notifier: any Notifying
-    private let isSecondInstance: () -> Bool
+    let isSecondInstance: Bool
     private let quit: () -> Void
 
     private convenience init() {
@@ -37,6 +37,7 @@ final class AppServices {
         )
     }
 
+    /// A second copy prepares nothing: preparing clears the temporary folder of a backup the first copy may be running.
     init(
         model: AppModel,
         driver: any BackgroundDriving,
@@ -47,13 +48,14 @@ final class AppServices {
         self.model = model
         self.driver = driver
         self.notifier = notifier
-        self.isSecondInstance = isSecondInstance
         self.quit = quit
+        self.isSecondInstance = isSecondInstance()
+        guard !self.isSecondInstance else { return }
         model.prepare()
     }
 
     func start() {
-        guard !isSecondInstance() else {
+        guard !isSecondInstance else {
             quit()
             return
         }

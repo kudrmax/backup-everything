@@ -21,7 +21,7 @@ public struct IconStore: Sendable {
     public func removeUnused(keeping used: Set<String>) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         for name in names where !used.contains(name) {
-            try? FileManager.default.removeItem(at: url(for: name))
+            try? FileManager.default.trashItem(at: url(for: name), resultingItemURL: nil)
         }
     }
 }

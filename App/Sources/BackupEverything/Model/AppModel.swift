@@ -108,7 +108,7 @@ final class AppModel {
             config = try store.loadConfig()
             state = try store.loadState()
             templates = store.loadTemplates()
-            dropUnusedIcons()
+            dropUnusedIcons(in: config)
         } catch {
             problem = error.localizedDescription
         }
@@ -194,14 +194,19 @@ final class AppModel {
         )
     }
 
-    func save(_ source: Source) async {
-        await edit { self.editor.save(source, in: &$0) }
-        dropUnusedIcons()
+    /// The source as written to the settings, or nil if they could not be written.
+    @discardableResult
+    func save(_ source: Source) async -> Source? {
+        let saved = await edit { self.editor.save(source, in: &$0) }
+        saved.map(dropUnusedIcons(in:))
+        return saved?.source(source.id)
     }
 
-    func delete(_ source: Source) async {
-        await edit { self.editor.removeSource(source.id, from: &$0) }
-        dropUnusedIcons()
+    @discardableResult
+    func delete(_ source: Source) async -> Bool {
+        let saved = await edit { self.editor.removeSource(source.id, from: &$0) }
+        saved.map(dropUnusedIcons(in:))
+        return saved != nil
     }
 
     func orderSources(_ ids: [UUID]) async {
@@ -229,16 +234,19 @@ final class AppModel {
         return image
     }
 
-    private func dropUnusedIcons() {
-        icons.removeUnused(keeping: Set(config.sources.compactMap(\.icon)))
+    private func dropUnusedIcons(in saved: Config) {
+        icons.removeUnused(keeping: Set(saved.sources.compactMap(\.icon)))
     }
 
-    func save(_ destination: Destination) async {
-        await edit { self.editor.save(destination, in: &$0) }
+    /// The destination as written to the settings, or nil if they could not be written.
+    @discardableResult
+    func save(_ destination: Destination) async -> Destination? {
+        await edit { self.editor.save(destination, in: &$0) }?.destination(destination.id)
     }
 
-    func delete(_ destination: Destination) async {
-        await edit { self.editor.removeDestination(destination.id, from: &$0) }
+    @discardableResult
+    func delete(_ destination: Destination) async -> Bool {
+        await edit { self.editor.removeDestination(destination.id, from: &$0) } != nil
     }
 
     func maskConflicts(for source: Source) -> [Source] {
@@ -253,9 +261,13 @@ final class AppModel {
         SourceStatus.of(source, report: report, lastRun: lastBackup(of: source))
     }
 
+    /// When the newest copy delivered to at least one destination was collected.
+    /// Settings from before `lastSuccess` was kept fall back to the history.
     func lastBackup(of source: Source) -> Date? {
-        let sourceState = state.sourceState(source.id)
-        return sourceState.lastSuccess ?? sourceState.lastRun
+        state.sourceState(source.id).lastSuccess ?? runs
+            .filter { $0.sourceId == source.id && $0.deliveries.contains(where: \.outcome.isDelivered) }
+            .map { $0.collectedAt ?? $0.startedAt }
+            .max()
     }
 
     func nextDue(of source: Source) -> Date? {
@@ -377,7 +389,10 @@ final class AppModel {
         return loaded
     }
 
-    func retentionPreview(for source: Source) async -> [RetentionPreview] {
+    /// The rules come from the edited source, the folder of its copies from the saved one.
+    func retentionPreview(for edited: Source) async -> [RetentionPreview] {
+        var source = edited
+        source.slug = config.source(edited.id)?.slug ?? edited.slug
         var previews: [RetentionPreview] = []
         for destination in source.destinationIds.compactMap(config.destination) {
             let all = await snapshots(of: source, in: destination)
@@ -532,16 +547,22 @@ final class AppModel {
         }
     }
 
-    private func edit(_ change: (inout Config) -> Void) async {
+    /// The settings as written, or nil if they could not be read or written.
+    private func edit(_ change: (inout Config) -> Void) async -> Config? {
+        var written: Config?
+        var failure: String?
         do {
             var updated = try store.loadConfig()
             change(&updated)
             try store.saveConfig(updated)
+            written = try store.loadConfig()
         } catch {
-            problem = error.localizedDescription
+            failure = error.localizedDescription
         }
         await refresh()
+        if let failure { problem = failure }
         onChange()
         onConfigEdited()
+        return written
     }
 }

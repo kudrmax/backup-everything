@@ -53,14 +53,13 @@ struct SourcesView: View {
 
     private func save(_ source: Source) {
         Task {
-            await model.save(source)
-            session.saved(source)
+            if let saved = await model.save(source) { session.saved(saved) }
         }
     }
 
     private func delete(_ source: Source) {
         Task {
-            await model.delete(source)
+            guard await model.delete(source) else { return }
             session.showFirst(of: model.config.sources)
         }
     }

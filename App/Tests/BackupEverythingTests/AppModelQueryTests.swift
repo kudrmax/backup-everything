@@ -81,16 +81,52 @@ struct AppModelQueryTests {
         #expect(fixture.model.nextDue(of: notes) == retry)
     }
 
-    @Test func lastBackupFallsBackToTheLastRun() async throws {
+    @Test func runThatDeliveredNothingIsNotALastBackup() async throws {
+        let fixture = try ModelFixture()
+        let disk = try fixture.disk(connected: false)
+        let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [disk])
+        var state = AppState()
+        state.updateSource(notes.id) { $0.lastRun = Date.wholeSeconds(-3600) }
+        try await fixture.use(Config(sources: [notes], destinations: [disk]), state: state)
+        #expect(fixture.model.lastBackup(of: notes) == nil)
+        #expect(fixture.model.latestBackup == nil)
+        #expect(fixture.model.lastSize(of: notes) == nil)
+        #expect(fixture.model.lastDelivery(of: notes, to: disk) == nil)
+    }
+
+    @Test func lastBackupIsTheNewestDeliveredCopy() async throws {
         let fixture = try ModelFixture()
         let notes = fixture.source("Notes", steps: [.folder("~/Notes")])
-        let ran = Date.wholeSeconds(-60)
+        let delivered = Date.wholeSeconds(-7200)
         var state = AppState()
-        state.updateSource(notes.id) { $0.lastRun = ran }
+        state.updateSource(notes.id) {
+            $0.lastSuccess = delivered
+            $0.lastRun = Date.wholeSeconds(-60)
+        }
         try await fixture.use(Config(sources: [notes]), state: state)
-        #expect(fixture.model.lastBackup(of: notes) == ran)
-        #expect(fixture.model.lastSize(of: notes) == nil)
-        #expect(fixture.model.lastDelivery(of: notes, to: try fixture.disk()) == nil)
+        #expect(fixture.model.lastBackup(of: notes) == delivered)
+        #expect(fixture.model.latestBackup == delivered)
+    }
+
+    /// State written before the newest delivered copy was remembered has only the last run; the history tells which runs delivered.
+    @Test func lastBackupOfOldSettingsComesFromDeliveredRunsInTheHistory() async throws {
+        let fixture = try ModelFixture()
+        let disk = try fixture.disk()
+        let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [disk])
+        let collected = Date.wholeSeconds(-7200)
+        let record = { (started: Date, collected: Date?, outcome: DeliveryOutcome) in
+            RunRecord(
+                sourceId: notes.id, sourceName: "Notes", trigger: .scheduled, startedAt: started, finishedAt: started,
+                collectedAt: collected, deliveries: [Delivery(destinationId: disk.id, destinationName: "HDD", outcome: outcome)]
+            )
+        }
+        try fixture.store.appendRun(record(Date.wholeSeconds(-9000), nil, .delivered(pruned: 0, warning: nil)))
+        try fixture.store.appendRun(record(Date.wholeSeconds(-7300), collected, .delivered(pruned: 0, warning: nil)))
+        try fixture.store.appendRun(record(Date.wholeSeconds(-60), Date.wholeSeconds(-60), .unavailable))
+        var state = AppState()
+        state.updateSource(notes.id) { $0.lastRun = Date.wholeSeconds(-60) }
+        try await fixture.use(Config(sources: [notes], destinations: [disk]), state: state)
+        #expect(fixture.model.lastBackup(of: notes) == collected)
     }
 
     @Test func missedCopiesAreTrackedPerDisk() async throws {

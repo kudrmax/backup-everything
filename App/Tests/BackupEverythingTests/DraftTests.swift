@@ -152,4 +152,21 @@ struct DraftTests {
         #expect(draft.build().description == "Notes")
         #expect(draft.build().icon == nil)
     }
+
+    @Test func commandWithATimeoutInSecondsIsNotChangedJustByOpeningIt() {
+        let original = source([.command("pg_dump db", timeoutSeconds: 90)])
+        var draft = SourceDraft(original)
+        #expect(draft.steps[0].timeoutMinutes == 1)
+        #expect(!draft.hasChanges)
+        draft.name = "Dump"
+        #expect(draft.build().steps == original.steps)
+    }
+
+    @Test func changedTimeoutIsSavedInWholeMinutes() {
+        var draft = SourceDraft(source([.command("pg_dump db", timeoutSeconds: 90)]))
+        draft.steps[0].timeoutMinutes = 5
+        #expect(draft.build().steps[0].kind == .command(command: "pg_dump db", timeoutSeconds: 300))
+        draft.steps[0].timeoutMinutes = 1
+        #expect(draft.build().steps[0].kind == .command(command: "pg_dump db", timeoutSeconds: 90))
+    }
 }

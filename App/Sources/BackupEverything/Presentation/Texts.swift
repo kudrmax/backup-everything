@@ -32,15 +32,20 @@ enum Texts {
         let units = ["B", "KB", "MB", "GB", "TB"]
         var value = Double(count)
         var unit = 0
-        while value >= 1000, unit < units.count - 1 {
+        while shown(value) >= 1000, unit < units.count - 1 {
             value /= 1000
             unit += 1
         }
-        let rounded = (value * 10).rounded() / 10
+        let rounded = shown(value)
         let number = rounded >= 10 || rounded == rounded.rounded()
             ? String(format: "%.0f", rounded)
             : String(format: "%.1f", rounded)
         return "\(number) \(units[unit])"
+    }
+
+    /// Whole numbers from 10 up, one decimal below.
+    private static func shown(_ value: Double) -> Double {
+        value >= 10 ? value.rounded() : (value * 10).rounded() / 10
     }
 
     static func age(_ date: Date?, now: Date = Date()) -> String {

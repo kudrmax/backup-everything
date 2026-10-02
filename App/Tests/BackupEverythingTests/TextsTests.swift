@@ -83,4 +83,19 @@ struct TextsTests {
         #expect(Texts.relative(now.addingTimeInterval(-7200), to: now) == "2 hours ago")
         #expect(Texts.relative(now.addingTimeInterval(86_400), to: now) == "in 1 day")
     }
+
+    @Test(arguments: [
+        (Int64(0), "0 B"),
+        (999, "999 B"),
+        (1_500, "1.5 KB"),
+        (15_400, "15 KB"),
+        (999_499, "999 KB"),
+        (999_950, "1 MB"),
+        (999_999_999, "1 GB"),
+        (2_450_000_000, "2.5 GB"),
+        (5_000_000_000_000_000, "5000 TB"),
+    ])
+    func sizeIsRoundedBeforeItsUnitIsChosen(bytes: Int64, text: String) {
+        #expect(Texts.bytes(bytes) == text)
+    }
 }

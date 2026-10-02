@@ -31,4 +31,12 @@ struct WorkingSpaceTests {
         let need = WorkingSpace.need(sources: [pocketBook], lastSizes: [pocketBook.id: 2_400], waiting: [pocketBook.id: 2_400])
         #expect(need.bytes == 2_400)
     }
+
+    @Test func packageWaitingForADiskCountsEvenWithoutAKnownSizeOfItsSource() {
+        let pocketBook = source("PocketBook", [.device(""), .folder("/Volumes/PB")])
+        let need = WorkingSpace.need(sources: [pocketBook], lastSizes: [:], waiting: [pocketBook.id: 2_400])
+        #expect(need.bytes == 2_400)
+        #expect(need.largest == nil)
+        #expect(need.waitingBytes == 2_400)
+    }
 }

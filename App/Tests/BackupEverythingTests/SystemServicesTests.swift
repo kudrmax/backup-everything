@@ -249,6 +249,20 @@ struct AppServicesTests {
         #expect(notifier.authorizationRequests == 0)
     }
 
+    /// The first copy may be running a backup: its temporary folder, settings and icons stay as they are.
+    @Test func secondCopyTouchesNothingOfTheRunningOne() throws {
+        let temp = try TemporaryFolder()
+        let defaults = TestDefaults()
+        let staged = try temp.file("export.txt", in: CoreAssembly.stagingDirectory(in: temp.url.appendingPathComponent("work")))
+        let icon = try temp.file("unused.png", in: temp.url.appendingPathComponent("data/icons"))
+        let (services, _, _, _) = services(secondInstance: true, temp: temp, defaults: defaults)
+        #expect(services.isSecondInstance)
+        services.start()
+        #expect(FileManager.default.fileExists(atPath: staged.path))
+        #expect(FileManager.default.fileExists(atPath: icon.path))
+        #expect(!FileManager.default.fileExists(atPath: temp.url.appendingPathComponent("data/config.json").path))
+    }
+
     @Test func secondInstanceIsAnotherRunningAppWithTheSameIdentifier() {
         #expect(!RunningCopies.isSecondInstance(bundleIdentifier: nil) { _ in 5 })
         #expect(!RunningCopies.isSecondInstance(bundleIdentifier: "local.backup-everything") { _ in 1 })
