@@ -325,12 +325,16 @@ final class AppModel {
         return nil
     }
 
+    private var activeState: AppState {
+        state.pausingDisabledSources(of: config)
+    }
+
     func lastSize(of source: Source) -> Int64? {
         runs.first { $0.sourceId == source.id && $0.totalBytes != nil }?.totalBytes
     }
 
     func isWaiting(_ source: Source, for destination: Destination) -> Bool {
-        state.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
+        activeState.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
     }
 
     /// The missed backup exists on another disk of the source.
@@ -347,11 +351,11 @@ final class AppModel {
 
     /// When a “from time to time” disk will be asked to connect; `nil` means nothing is owed to it.
     func connectDeadline(of destination: Destination) -> Date? {
-        planner.connectDeadline(for: destination, state: state)
+        planner.connectDeadline(for: destination, state: activeState)
     }
 
     func waitingSources(for destination: Destination) -> [Source] {
-        state.debts(forDestination: destination.id).compactMap { config.source($0.sourceId) }
+        activeState.debts(forDestination: destination.id).compactMap { config.source($0.sourceId) }
     }
 
     func condition(of destination: Destination) -> DestinationCondition {
@@ -371,7 +375,7 @@ final class AppModel {
     }
 
     func snapshots(of source: Source, in destination: Destination) async -> [Snapshot] {
-        let snapshots = (try? await stores.store(for: destination).listSnapshots(sourceSlug: source.slug)) ?? []
+        let snapshots = (try? await stores.store(for: destination).copies(of: source)) ?? []
         return snapshots.sorted { $0.date > $1.date }
     }
 

@@ -33,6 +33,21 @@ struct AppModelRunTests {
         #expect(model.nextDue(of: notes).map { $0 > Date() } == true)
     }
 
+    @Test func copiesOfAnotherSourceInTheSameFolderAreNotShown() async throws {
+        let fixture = try ModelFixture()
+        let disk = try fixture.disk()
+        let notes = try fixture.folderSource(to: [disk])
+        try await fixture.use(Config(sources: [notes], destinations: [disk]))
+        await fixture.model.runNow(notes)
+
+        var namesake = try fixture.folderSource("Notes again", to: [disk])
+        namesake.slug = notes.slug
+        try await fixture.use(Config(sources: [namesake], destinations: [disk]))
+
+        #expect(await fixture.model.snapshots(of: namesake, in: disk).isEmpty)
+        #expect(await fixture.model.copies(in: disk)?[namesake.id]?.isEmpty ?? true)
+    }
+
     @Test func copyCanBeListedOpenedAndMeasured() async throws {
         let fixture = try ModelFixture()
         let disk = try fixture.disk()
