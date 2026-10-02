@@ -121,6 +121,10 @@ struct StepDraft: Identifiable, Equatable {
         excludesText.split(separator: "\n").map { trimmed(String($0)) }.filter { !$0.isEmpty }
     }
 
+    var excludesSummary: String {
+        excludes.isEmpty ? "nothing" : excludes.joined(separator: ", ")
+    }
+
     func build() -> SourceStep {
         let kind: StepKind = switch kindChoice {
         case .folder:
@@ -144,6 +148,22 @@ struct StepDraft: Identifiable, Equatable {
 
     private func trimmed(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+enum StepList {
+    static func title(count: Int) -> String {
+        count > 1 ? "What to do · steps run in order" : "What to do"
+    }
+
+    /// Steps are numbered only when there is more than one.
+    static func number(of index: Int, count: Int) -> Int? {
+        count > 1 ? index + 1 : nil
+    }
+
+    /// A device step without its own path follows the folder of a later step.
+    static func isFollowedByFolder(_ steps: [StepDraft], at index: Int) -> Bool {
+        steps[(index + 1)...].contains { $0.kindChoice == .folder }
     }
 }
 
@@ -175,13 +195,18 @@ struct SourceDraft {
         steps = source.steps.map(StepDraft.init)
     }
 
+    /// An empty source takes the steps of the chosen way to start.
+    init(_ source: Source, startingWith start: SourceStart?) {
+        self.init(source)
+        if let start { steps = start.steps }
+    }
+
     var id: UUID { base.id }
 
     var problem: String? {
         if steps.isEmpty { return "Add at least one step." }
         for (index, step) in steps.enumerated() {
-            let followedByFolder = steps[(index + 1)...].contains { $0.kindChoice == .folder }
-            if let problem = step.problem(followedByFolder: followedByFolder) {
+            if let problem = step.problem(followedByFolder: StepList.isFollowedByFolder(steps, at: index)) {
                 return steps.count == 1 ? problem.prefix(1).uppercased() + problem.dropFirst() : "Step \(index + 1): \(problem)"
             }
         }
@@ -192,6 +217,23 @@ struct SourceDraft {
 
     var symbol: String {
         steps.count == 1 ? steps[0].kindChoice.symbol : "list.number"
+    }
+
+    var watchesFiles: Bool {
+        steps.contains { $0.kindChoice == .file }
+    }
+
+    var instructionsSummary: String {
+        let firstLine = instructions.split(separator: "\n").first.map(String.init) ?? ""
+        return firstLine.isEmpty ? "none" : firstLine
+    }
+
+    mutating func setDestination(_ id: UUID, included: Bool) {
+        if included {
+            destinationIds.insert(id)
+        } else {
+            destinationIds.remove(id)
+        }
     }
 
     func build() -> Source {

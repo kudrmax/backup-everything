@@ -7,6 +7,18 @@ struct CopyPlace: Equatable, Identifiable {
     let unavailableReason: String?
 
     var id: UUID { destination.id }
+
+    var tip: String {
+        unavailableReason.map { "Open copy: \(Self.lowercasedFirst($0))" } ?? "Show copy in Finder"
+    }
+
+    var menuTitle: String {
+        unavailableReason.map { "\(destination.name) — \(Self.lowercasedFirst($0))" } ?? destination.name
+    }
+
+    private static func lowercasedFirst(_ text: String) -> String {
+        text.prefix(1).lowercased() + text.dropFirst()
+    }
 }
 
 enum SourceLinks {

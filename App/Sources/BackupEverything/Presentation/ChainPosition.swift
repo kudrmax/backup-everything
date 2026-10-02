@@ -28,6 +28,18 @@ enum ChainPosition {
         }
     }
 
+    static func runTitle(_ source: Source, chain: ChainState?) -> String {
+        if chain?.failure != nil { return "Retry step" }
+        if chain == nil, let first = source.steps.first {
+            switch first.kind {
+            case .file: return "Run: wait for the export file"
+            case .device: return "Run: wait for the device"
+            case .folder, .command: break
+            }
+        }
+        return "Run"
+    }
+
     static func canRunNow(_ source: Source, chain: ChainState?) -> Bool {
         let steps = source.steps
         guard let chain else { return true }

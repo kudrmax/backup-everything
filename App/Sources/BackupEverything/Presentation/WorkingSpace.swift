@@ -19,6 +19,10 @@ enum WorkingSpace {
         return Need(bytes: largestBytes + waitingBytes, largest: largestBytes > 0 ? largest : nil, waitingBytes: waitingBytes)
     }
 
+    static func isShort(need: Need, free: Int64?) -> Bool {
+        free.map { $0 < need.bytes } ?? false
+    }
+
     static func line(need: Need, free: Int64?) -> String {
         let free = free.map { " · \(Texts.bytes($0)) free" } ?? ""
         return "Backups need about \(Texts.bytes(need.bytes)) of free space on the laptop\(free)"

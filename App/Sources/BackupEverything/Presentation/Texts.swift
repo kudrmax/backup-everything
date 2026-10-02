@@ -146,6 +146,11 @@ enum Texts {
         }
     }
 
+    static func maskOverlap(_ conflicts: [Source]) -> String? {
+        guard !conflicts.isEmpty else { return nil }
+        return "The mask overlaps with the source “\(conflicts.map(\.name).joined(separator: "”, “"))” in the same folder."
+    }
+
     static func outcome(_ outcome: DeliveryOutcome) -> String {
         switch outcome {
         case let .delivered(pruned, warning):

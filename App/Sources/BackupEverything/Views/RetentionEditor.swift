@@ -12,7 +12,7 @@ struct RetentionEditor: View {
                     GridRow {
                         Text(stage.lead)
                         Text("for the last")
-                        Stepper(value: count(of: stage.unit), in: 0...range(of: stage.unit)) {
+                        Stepper(value: count(of: stage.unit), in: 0...stage.unit.maximum) {
                             Text("\(stage.count)").monospacedDigit()
                         }
                         .gridColumnAlignment(.trailing)
@@ -23,7 +23,7 @@ struct RetentionEditor: View {
                     .opacity(stage.isKept ? 1 : 0.45)
                 }
             }
-            Text(keepsHistory ? RetentionPlan.footnote : RetentionPlan.newestOnly)
+            Text(RetentionPlan.footnote(rules))
                 .foregroundStyle(.secondary)
             if let showCopies {
                 Button("Show copies by date…", action: showCopies)
@@ -32,25 +32,12 @@ struct RetentionEditor: View {
         }
     }
 
-    private var keepsHistory: Bool {
-        RetentionPlan.stages(rules).contains(where: \.isKept)
-    }
-
     private func count(of unit: RetentionStage.Unit) -> Binding<Int> {
         switch unit {
         case .day: $rules.daily
         case .week: $rules.weekly
         case .month: $rules.monthly
         case .year: $rules.yearly
-        }
-    }
-
-    private func range(of unit: RetentionStage.Unit) -> Int {
-        switch unit {
-        case .day: 365
-        case .week: 104
-        case .month: 120
-        case .year: 50
         }
     }
 }

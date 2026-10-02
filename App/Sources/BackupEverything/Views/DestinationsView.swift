@@ -4,13 +4,11 @@ import SwiftUI
 
 struct DestinationsView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: UUID?
     @AppStorage("selectedDestination") private var storedSelection = ""
-    @State private var draft: DestinationDraft?
-    @State private var isNew = false
+    @State private var session = EditorSession<DestinationDraft>()
 
     var body: some View {
-        EditorLayout(items: model.config.destinations, selection: $selection) { destination in
+        EditorLayout(items: model.config.destinations, selection: $session.selection) { destination in
             HStack(spacing: 11) {
                 DestinationIcon(destination: destination).frame(width: 18)
                 Text(destination.name)
@@ -19,10 +17,10 @@ struct DestinationsView: View {
             Button("Folder or external disk") { start(.localFolder(path: "")) }
             Button("Cloud (rclone)") { start(.rclone(remote: "", path: "backups")) }
         } detail: {
-            if let draft {
+            if let draft = session.draft {
                 DestinationEditor(
-                    draft: Binding(get: { self.draft ?? draft }, set: { self.draft = $0 }),
-                    isNew: isNew,
+                    draft: Binding(get: { session.draft ?? draft }, set: { session.draft = $0 }),
+                    isNew: session.isNew,
                     onSave: save,
                     onDelete: delete,
                     onCancel: cancel
@@ -34,51 +32,33 @@ struct DestinationsView: View {
         }
         .navigationTitle("Destinations")
         .onAppear {
-            let stored = UUID(uuidString: storedSelection).flatMap { model.config.destination($0) }
-            selection = (stored ?? model.config.destinations.first)?.id
+            session.appear(remembered: UUID(uuidString: storedSelection), in: model.config.destinations)
         }
-        .onChange(of: selection) { _, id in
-            guard let id, let destination = model.config.destination(id) else { return }
-            storedSelection = id.uuidString
-            draft = DestinationDraft(destination)
-            isNew = false
+        .onChange(of: session.selection) { _, id in
+            if let id = session.selectionChanged(to: id, in: model.config.destinations) { storedSelection = id.uuidString }
         }
     }
 
     private func start(_ kind: DestinationKind) {
-        selection = nil
-        draft = DestinationDraft(Destination(name: "", kind: kind))
-        isNew = true
+        session.start(DestinationDraft(Destination(name: "", kind: kind)))
     }
 
     private func save(_ destination: Destination) {
         Task {
             await model.save(destination)
-            isNew = false
-            draft = DestinationDraft(destination)
-            selection = destination.id
+            session.saved(destination)
         }
     }
 
     private func delete(_ destination: Destination) {
         Task {
             await model.delete(destination)
-            showFirst()
+            session.showFirst(of: model.config.destinations)
         }
     }
 
     private func cancel() {
-        if !isNew, let id = draft?.id, let saved = model.config.destination(id) {
-            draft = DestinationDraft(saved)
-        } else {
-            showFirst()
-        }
-    }
-
-    private func showFirst() {
-        isNew = false
-        draft = model.config.destinations.first.map(DestinationDraft.init)
-        selection = draft?.id
+        session.cancel(in: model.config.destinations)
     }
 }
 
@@ -180,12 +160,7 @@ struct DestinationEditor: View {
     }
 
     private func attention(for destination: Destination) -> String? {
-        let waiting = model.waitingSources(for: destination).map(\.name)
-        let parts = [
-            model.condition(of: destination).problem,
-            waiting.isEmpty ? nil : "waiting: \(waiting.joined(separator: ", "))",
-        ].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        DestinationAttention.text(problem: model.condition(of: destination).problem, waiting: model.waitingSources(for: destination).map(\.name))
     }
 
     private var localRows: some View {
@@ -286,7 +261,7 @@ struct DestinationCopies: View {
     }
 
     private var sources: [Source] {
-        model.config.sources.filter { $0.destinationIds.contains(destination.id) }
+        model.sources(backingUpTo: destination)
     }
 
     private func note(_ text: String) -> some View {
@@ -294,17 +269,8 @@ struct DestinationCopies: View {
     }
 
     private func load() async {
-        guard await model.isAvailable(destination) else {
-            snapshots = nil
-            usedBytes = nil
-            return
-        }
-        var loaded: [UUID: [Snapshot]] = [:]
-        for source in sources {
-            loaded[source.id] = await model.snapshots(of: source, in: destination).sorted { $0.date > $1.date }
-        }
-        snapshots = loaded
-        usedBytes = await model.usedBytes(destination)
+        snapshots = await model.copies(in: destination)
+        usedBytes = snapshots == nil ? nil : await model.usedBytes(destination)
     }
 }
 
