@@ -210,7 +210,7 @@ final class AppModel {
     }
 
     func orderSources(_ ids: [UUID]) async {
-        await edit { self.editor.orderSources(ids, in: &$0) }
+        _ = await edit { self.editor.orderSources(ids, in: &$0) }
     }
 
     func importIcon(from file: URL) -> String? {
