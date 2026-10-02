@@ -21,6 +21,7 @@ public enum CoreAssembly {
         time: any TimeSource = SystemTimeSource(),
         rclone: RcloneLocator = RcloneLocator(),
         quit: any QuitSignal = ProcessGroups.shared,
+        trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
         progress: @escaping ProgressHandler = { _ in }
     ) -> BackupCoordinator {
         var calendar = Calendar(identifier: .iso8601)
@@ -32,6 +33,7 @@ public enum CoreAssembly {
             inbox: inbox,
             runner: runner,
             time: time,
+            trash: trash,
             progress: progress
         )
         let stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: naming)
@@ -41,6 +43,7 @@ public enum CoreAssembly {
                 stagingRoot: stagingDirectory(in: workDirectory),
                 inbox: inbox,
                 quit: quit,
+                trash: trash,
                 progress: progress
             ),
             stores: stores,

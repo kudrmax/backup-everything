@@ -481,6 +481,30 @@ struct StepChainRunnerTests {
         #expect(try String(contentsOf: temp.path("Downloads/export-1 2.csv"), encoding: .utf8) == "unrelated")
     }
 
+    @Test(arguments: [
+        ("photo.jpg", "photo 2.jpg"),
+        ("archive.tar.gz", "archive 2.tar.gz"),
+        ("my.notes.txt", "my.notes 2.txt"),
+        (".env", ".env 2"),
+        (".config.json", ".config 2.json"),
+        ("Makefile", "Makefile 2"),
+    ])
+    func freeNameKeepsTheExtension(_ name: String, _ free: String) throws {
+        defer { temp.remove() }
+        let taken = try temp.file("Downloads/\(name)")
+        #expect(FilePickup.freePath(for: taken.path) == temp.path("Downloads/\(free)").path)
+    }
+
+    /// A link that points nowhere still holds its name.
+    @Test func freeNameSkipsALinkThatPointsNowhere() throws {
+        defer { temp.remove() }
+        let taken = temp.path("Downloads/export.csv")
+        try FileManager.default.createSymbolicLink(atPath: taken.path, withDestinationPath: "/nonexistent/export.csv")
+        try FileManager.default.createSymbolicLink(atPath: temp.path("Downloads/export 2.csv").path, withDestinationPath: "/nonexistent/other")
+        #expect(FilePickup.freePath(for: taken.path) == temp.path("Downloads/export 3.csv").path)
+        #expect(FilePickup.freePath(for: temp.path("Downloads/free.csv").path) == temp.path("Downloads/free.csv").path)
+    }
+
     /// The folder the file came from is gone: the file stays where the step put it, and the step says so.
     @Test func movedFileThatCannotGoBackFailsTheStepAndStaysInTheWorkFolder() async throws {
         defer { temp.remove() }
@@ -701,7 +725,7 @@ struct StepChainRunnerTests {
         let payload = try await pending.collect(at: start)
         #expect(payload.root == package.directory)
 
-        try pending.finish(payload, deliveredEverywhere: true)
+        try pending.finish(payload, delivered: .everywhere)
 
         #expect(temp.names(in: "pending").isEmpty)
         #expect(temp.names(in: "trash").count == (trashAfterDelivery ? 3 : 0))
@@ -770,6 +794,50 @@ struct StepChainRunnerTests {
             return
         }
         #expect(temp.names(in: chainFolder(source, "output")) == ["locked.jpg", "protected", "readonly", "z-unreadable.jpg"])
+    }
+
+    /// [device, folder A, folder B]: the device is unplugged while B copies. When it is back, A runs again into an output
+    /// that no longer holds its earlier copy (which went to the Trash), instead of failing on it forever.
+    @Test func everyStepAfterAnUnpluggedDeviceStartsAgainFromACleanPlace() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        try temp.directory("device")
+        try temp.file("cardA/a.jpg", "a")
+        try temp.file("cardB/b.jpg", "b")
+        try temp.file("cardB/z.jpg", "z")
+        chmod(temp.path("cardB/z.jpg").path, 0)
+        let source = Fixtures.source(
+            name: "Cam",
+            steps: [.device(temp.path("device").path), .folder(temp.path("cardA").path), .folder(temp.path("cardB").path)],
+            schedule: .monthly,
+            createdAt: created
+        )
+        let runner = runner()
+        guard case let .moved(atA?) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll),
+              case let .moved(atB?) = await runner.advance(source, chain: atA, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the chain did not reach the second folder")
+            return
+        }
+        try FileManager.default.removeItem(at: temp.path("device"))
+        guard case let .moved(waiting?) = await runner.advance(source, chain: atB, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the chain did not go back to the device")
+            return
+        }
+        #expect(waiting.stepIndex == 0)
+        #expect(waiting.outputAtStepEntry == [])
+
+        chmod(temp.path("cardB/z.jpg").path, 0o644)
+        try temp.directory("device")
+        var chain: ChainState? = waiting
+        for _ in 0..<3 {
+            guard case let .moved(next) = await runner.advance(source, chain: chain, lastPickup: nil, permissions: allowAll) else {
+                Issue.record("a step failed after the device came back")
+                return
+            }
+            chain = next
+        }
+        #expect(chain?.stepIndex == 3)
+        #expect(temp.names(in: chainFolder(source, "output")) == ["a.jpg", "b.jpg", "z.jpg"])
+        #expect(temp.names(in: "trash") == ["a.jpg", "b.jpg"])
     }
 
     /// A command may move originals into its output before it fails: they go to the Trash, not away for good.

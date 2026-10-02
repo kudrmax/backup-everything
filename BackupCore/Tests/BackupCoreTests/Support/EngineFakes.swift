@@ -4,7 +4,7 @@ import Foundation
 final class FakeSourceProvider: SourceProvider, @unchecked Sendable {
     var result: Result<Payload, Error>
     private(set) var collectCount = 0
-    private(set) var finished: [Bool] = []
+    private(set) var finished: [PayloadDelivery] = []
     var finishError: Error?
 
     init(result: Result<Payload, Error>) {
@@ -19,8 +19,8 @@ final class FakeSourceProvider: SourceProvider, @unchecked Sendable {
         return try result.get()
     }
 
-    func finish(_ payload: Payload, deliveredEverywhere: Bool) throws {
-        finished.append(deliveredEverywhere)
+    func finish(_ payload: Payload, delivered: PayloadDelivery) throws {
+        finished.append(delivered)
         if let finishError { throw finishError }
     }
 }
@@ -56,7 +56,10 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         log.append("removeIncomplete")
     }
 
-    func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws {
+    /// What the destination says the copy holds.
+    var written: PayloadStats?
+
+    func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws -> PayloadStats? {
         if let writeError { throw writeError }
         log.append("write:\(snapshotName)")
         reusedStoredFiles.append(reusingStoredFiles)
@@ -64,6 +67,7 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         writtenPayloads.append(payload)
         snapshots.append(Snapshot(name: snapshotName, date: manifest.collectedAt))
         owners[snapshotName] = manifest.sourceId
+        return written
     }
 
     func usedBytes() async throws -> Int64 { 0 }

@@ -8,6 +8,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case folderInTheWay(String)
     case invalidFolderName(String)
     case copyMismatch(path: String, expected: Int64, actual: Int64)
+    /// Copies whose deletion stopped halfway (`<name>.deleting`) and still could not be deleted, with the reasons.
+    case unfinishedDeletions([String])
 
     public var errorDescription: String? {
         switch self {
@@ -25,6 +27,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "The folder for copies of this source is named “\(name)”, which is not a single folder name. Nothing was read, written or deleted. Fix “slug” of the source in config.json."
         case let .copyMismatch(path, expected, actual):
             "The copy of “\(path)” came out \(actual) bytes long instead of \(expected). The copy was stopped so as not to keep a broken file."
+        case let .unfinishedDeletions(problems):
+            "Could not finish deleting old copies: \(problems.joined(separator: " "))"
         }
     }
 }
@@ -36,9 +40,12 @@ public protocol DestinationStore: Sendable {
     /// The source that wrote each copy in the folder of the slug, by copy name, as its manifest says. A copy whose manifest cannot be read is absent.
     func owners(sourceSlug: String) async throws -> [String: UUID]
     /// Cleans up copies this app began and did not finish (marked `_unfinished`, no manifest). Anything else is left alone.
+    /// When only finishing earlier deletions fails, the error is `DestinationError.unfinishedDeletions`.
     func removeIncomplete(sourceSlug: String) async throws
     /// `reusingStoredFiles`: content already present in earlier copies of the source may be cloned instead of written again.
-    func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws
+    /// Returns what the copy holds, when the destination knows it: files may vanish from a live source while it is copied.
+    @discardableResult
+    func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws -> PayloadStats?
     func delete(_ snapshot: Snapshot, sourceSlug: String) async throws
     /// A folder on this computer with the copy contents (including `_snapshot.json`). A cloud destination downloads it into `scratch`.
     func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL

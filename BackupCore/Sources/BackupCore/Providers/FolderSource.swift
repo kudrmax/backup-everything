@@ -17,5 +17,5 @@ public struct FolderSource: SourceProvider {
         return Payload(root: root, excludes: excludes, collectedAt: date)
     }
 
-    public func finish(_ payload: Payload, deliveredEverywhere: Bool) {}
+    public func finish(_ payload: Payload, delivered: PayloadDelivery) {}
 }

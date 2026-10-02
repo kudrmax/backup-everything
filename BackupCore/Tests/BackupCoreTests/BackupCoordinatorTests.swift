@@ -49,7 +49,13 @@ struct BackupCoordinatorTests {
         )
         let stores = DefaultDestinationStoreFactory(runner: runner, rclone: RcloneLocator(candidates: []), naming: Fixtures.naming)
         let engine = BackupEngine(
-            providers: DefaultSourceProviderFactory(runner: runner, stagingRoot: temp.path("work/staging"), inbox: inbox, quit: quit),
+            providers: DefaultSourceProviderFactory(
+                runner: runner,
+                stagingRoot: temp.path("work/staging"),
+                inbox: inbox,
+                quit: quit,
+                trash: { url in try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)")) }
+            ),
             stores: stores,
             retention: RetentionPolicy(timeZone: Fixtures.utc),
             naming: Fixtures.naming,
@@ -1129,7 +1135,8 @@ struct BackupCoordinatorTests {
             timeZone: Fixtures.utc,
             runner: runner,
             time: time,
-            quit: groups
+            quit: groups,
+            trash: { [temp] url in try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)")) }
         )
     }
 

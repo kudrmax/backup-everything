@@ -3,7 +3,8 @@ import Foundation
 /// Recreates payload entries in a folder under their exact names. Folders get the dates, permissions and extended attributes
 /// of the originals after their contents are in place, deepest first: a read-only folder can still be filled, and filling
 /// a folder does not move its date. An original that vanished after the payload was listed is left out, as if it had
-/// vanished a moment earlier; when the payload itself is gone (its disk was ejected), copying stops with the error.
+/// vanished a moment earlier; when the payload itself or a disk mounted inside it is gone (ejected), copying stops with an error
+/// that says so.
 struct PayloadCopier {
     private let files = ExactNameFiles()
     private let metadata = FileMetadata()
@@ -16,8 +17,11 @@ struct PayloadCopier {
             do {
                 try action()
             } catch {
-                guard listing.origin.hasVanished(entry.url) else { throw error }
-                vanished.append(entry)
+                switch listing.origin.loss(of: entry.url, wasOn: entry.device) {
+                case .vanished: vanished.append(entry)
+                case let .gone(loss): throw loss
+                case nil: throw error
+                }
             }
         }
         for entry in listing.entries {

@@ -34,7 +34,7 @@ struct SourceProviderTests {
         let payload = try await source.collect(at: date)
         #expect(try FileManager.default.contentsOfDirectory(atPath: payload.root.path).sorted() == ["collection.anki2", "notes.csv"])
         #expect(events.get() == [.step(sourceId: sourceId, index: 0, count: 2), .step(sourceId: sourceId, index: 1, count: 2)])
-        try source.finish(payload, deliveredEverywhere: true)
+        try source.finish(payload, delivered: .everywhere)
         #expect(temp.names(in: "staging").isEmpty)
     }
 
@@ -50,6 +50,71 @@ struct SourceProviderTests {
             try await source.collect(at: date)
         }
         #expect(temp.names(in: "staging").isEmpty)
+    }
+
+    // MARK: What a run leaves in staging
+
+    private func trashingSource(_ command: String) throws -> StepsSource {
+        let trash = try temp.directory("Trash")
+        return StepsSource(
+            sourceId: UUID(),
+            steps: [.command(command, timeoutSeconds: 30)],
+            stagingRoot: temp.path("staging"),
+            runner: SystemProcessRunner(groups: ProcessGroups()),
+            trash: { url in try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent(url.lastPathComponent)) }
+        )
+    }
+
+    /// A command may move a person's original into its output before it fails: it goes to the Trash, not away for good.
+    @Test func whatAFailedCommandMovedIntoItsOutputGoesToTheTrash() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let original = try temp.file("Documents/original.md", "the only copy")
+        let source = try trashingSource(#"mv "\#(original.path)" "$BACKUP_OUTPUT_DIR/" && chflags uchg "$BACKUP_OUTPUT_DIR/original.md" && exit 3"#)
+
+        await #expect(throws: (any Error).self) { try await source.collect(at: date) }
+
+        #expect(try String(contentsOf: temp.path("Trash/original.md"), encoding: .utf8) == "the only copy")
+        #expect(temp.names(in: "staging").isEmpty)
+    }
+
+    /// A result delivered nowhere may be the only copy of what the command moved there.
+    @Test func resultDeliveredNowhereGoesToTheTrash() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let source = try trashingSource(#"echo data > "$BACKUP_OUTPUT_DIR/dump.sql""#)
+
+        try source.finish(try await source.collect(at: date), delivered: .nowhere)
+
+        #expect(temp.names(in: "Trash") == ["dump.sql"])
+        #expect(temp.names(in: "staging").isEmpty)
+    }
+
+    @Test(arguments: [PayloadDelivery.everywhere, .partly])
+    func resultDeliveredSomewhereIsDeleted(_ delivered: PayloadDelivery) async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let source = try trashingSource(#"echo data > "$BACKUP_OUTPUT_DIR/dump.sql""#)
+
+        try source.finish(try await source.collect(at: date), delivered: delivered)
+
+        #expect(temp.names(in: "Trash").isEmpty)
+        #expect(temp.names(in: "staging").isEmpty)
+    }
+
+    @Test func failedRunWhoseOutputCannotBeTrashedSaysSoAndKeepsIt() async throws {
+        defer { temp.remove() }
+        let source = StepsSource(
+            sourceId: UUID(),
+            steps: [.command(#"echo data > "$BACKUP_OUTPUT_DIR/dump.sql"; exit 3"#, timeoutSeconds: 30)],
+            stagingRoot: temp.path("staging"),
+            runner: SystemProcessRunner(groups: ProcessGroups()),
+            trash: { _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+
+        let error = await #expect(throws: SourceError.self) { try await source.collect(at: date) }
+
+        guard case let .leftoversRemain(reason, cleanup)? = error else { return }
+        #expect(reason.hasPrefix("Command exited with code 3."))
+        #expect(cleanup == CocoaError(.fileWriteNoPermission).localizedDescription)
+        #expect(temp.names(in: "staging").count == 1)
     }
 
     @Test func folderSourceReturnsFolderItself() async throws {
@@ -74,7 +139,7 @@ struct SourceProviderTests {
         #expect(try String(contentsOf: payload.root.appendingPathComponent("out.txt"), encoding: .utf8) == "hello\n")
         #expect(payload.details?.hasSuffix("done") == true)
 
-        try source.finish(payload, deliveredEverywhere: true)
+        try source.finish(payload, delivered: .everywhere)
         #expect(temp.names(in: "staging").isEmpty)
     }
 
@@ -106,7 +171,7 @@ struct SourceProviderTests {
         let source = commandSource("gh repo list", timeoutSeconds: 30, runner: runner)
         let statuses = LockedBox<[String]>([])
         let payload = try await source.collect(at: date) { status in statuses.set(statuses.get() + [status]) }
-        try source.finish(payload, deliveredEverywhere: true)
+        try source.finish(payload, delivered: .everywhere)
         #expect(statuses.get() == ["1 of 2 · first", "2 of 2 · second"])
     }
 

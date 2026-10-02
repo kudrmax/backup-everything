@@ -70,7 +70,7 @@ public struct BackupEngine: Sendable {
             guard stats.fileCount > 0 else { throw SourceError.emptyResult }
         } catch {
             record.collectError = error.localizedDescription
-            if let problem = release(payload, of: provider, deliveredEverywhere: false) {
+            if let problem = release(payload, of: provider, delivered: .nowhere) {
                 record.collectError = "\(error.localizedDescription) \(problem)"
             }
             record.finishedAt = time.now
@@ -93,17 +93,19 @@ public struct BackupEngine: Sendable {
         // A pickup delivers what its own steps have just gathered, even though it waits in `pending`.
         record.deliversAnOlderCopy = trigger == .catchUp && payload.madeEarlier
 
+        var written: PayloadStats?
         for destination in destinations {
             let outcome: DeliveryOutcome
             if let store = reachable[destination.id] {
                 progress(.delivering(sourceId: source.id, destinationId: destination.id))
-                outcome = await deliver(payload, manifest: manifest, snapshotName: snapshotName, source: source, to: store)
+                outcome = await deliver(payload, manifest: manifest, snapshotName: snapshotName, source: source, to: store, written: &written)
             } else {
                 outcome = .unavailable
             }
             record.deliveries.append(Delivery(destinationId: destination.id, destinationName: destination.name, outcome: outcome))
         }
-        if let problem = release(payload, of: provider, deliveredEverywhere: record.deliveries.allSatisfy(\.outcome.isDelivered)) {
+        record.count(written)
+        if let problem = release(payload, of: provider, delivered: record.payloadDelivery) {
             record.deliveries = record.deliveries.map { delivery in
                 var delivery = delivery
                 delivery.outcome = delivery.outcome.adding(problem)
@@ -143,17 +145,19 @@ public struct BackupEngine: Sendable {
             record.totalBytes = stats.totalBytes
             record.details = "Copied from “\(origin.name)”"
             record.copiedFrom = origin.name
+            var written: PayloadStats?
             for destination in destinations {
                 let store = stores.store(for: destination)
                 let outcome: DeliveryOutcome
                 if await store.isAvailable() {
                     progress(.delivering(sourceId: source.id, destinationId: destination.id))
-                    outcome = await deliver(payload, manifest: manifest, snapshotName: snapshot.name, source: source, to: store)
+                    outcome = await deliver(payload, manifest: manifest, snapshotName: snapshot.name, source: source, to: store, written: &written)
                 } else {
                     outcome = .unavailable
                 }
                 record.deliveries.append(Delivery(destinationId: destination.id, destinationName: destination.name, outcome: outcome))
             }
+            record.count(written)
         } catch {
             let message = "Could not take the copy from “\(origin.name)”: \(error.localizedDescription)"
             record.deliveries = destinations.map { Delivery(destinationId: $0.id, destinationName: $0.name, outcome: .failed(message: message)) }
@@ -163,37 +167,45 @@ public struct BackupEngine: Sendable {
         return record
     }
 
+    /// `written`: what the first copy written in this run holds, once a destination that knows it has written one.
     private func deliver(
         _ payload: Payload,
         manifest: SnapshotManifest,
         snapshotName: String,
         source: Source,
-        to store: any DestinationStore
+        to store: any DestinationStore,
+        written: inout PayloadStats?
     ) async -> DeliveryOutcome {
         do {
             let existing = try await store.copies(of: source)
             if !existing.contains(where: { $0.name == snapshotName }) {
-                try await store.write(
+                let stats = try await store.write(
                     payload,
                     manifest: manifest,
                     sourceSlug: source.slug,
                     snapshotName: snapshotName,
                     reusingStoredFiles: source.savesSpace
                 )
+                written = written ?? stats
             }
         } catch {
             return .failed(message: error.localizedDescription)
         }
+        var problems: [String] = []
         let doomed: [Snapshot]
         do {
-            try await store.removeIncomplete(sourceSlug: source.slug)
+            do {
+                try await store.removeIncomplete(sourceSlug: source.slug)
+            } catch let error as DestinationError {
+                guard case .unfinishedDeletions = error else { throw error }
+                problems.append(error.localizedDescription)
+            }
             let snapshots = try await store.copies(of: source)
             doomed = retention.snapshotsToDelete(snapshots, rules: source.retention).filter { $0.name != snapshotName }
         } catch {
-            return .delivered(pruned: 0, warning: cleanupWarning([error.localizedDescription]))
+            return .delivered(pruned: 0, warning: cleanupWarning(problems + [error.localizedDescription]))
         }
         var pruned = 0
-        var problems: [String] = []
         for snapshot in doomed {
             do {
                 try await store.delete(snapshot, sourceSlug: source.slug)
@@ -206,9 +218,9 @@ public struct BackupEngine: Sendable {
     }
 
     /// What went wrong while the provider cleared its work folder; nil when it did.
-    private func release(_ payload: Payload, of provider: any SourceProvider, deliveredEverywhere: Bool) -> String? {
+    private func release(_ payload: Payload, of provider: any SourceProvider, delivered: PayloadDelivery) -> String? {
         do {
-            try provider.finish(payload, deliveredEverywhere: deliveredEverywhere)
+            try provider.finish(payload, delivered: delivered)
             return nil
         } catch {
             return "Could not clear the work folder: \(error.localizedDescription)"
@@ -217,5 +229,19 @@ public struct BackupEngine: Sendable {
 
     private func cleanupWarning(_ problems: [String]) -> String {
         "Could not clean up old copies: \(problems.joined(separator: " "))"
+    }
+}
+
+private extension RunRecord {
+    /// A copy holds what was actually written: files may vanish from a live source while it is copied.
+    mutating func count(_ written: PayloadStats?) {
+        guard let written else { return }
+        fileCount = written.fileCount
+        totalBytes = written.totalBytes
+    }
+
+    var payloadDelivery: PayloadDelivery {
+        if deliveries.allSatisfy(\.outcome.isDelivered) { return .everywhere }
+        return deliveries.contains(where: \.outcome.isDelivered) ? .partly : .nowhere
     }
 }

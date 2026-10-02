@@ -69,7 +69,8 @@ public struct RcloneDestination: DestinationStore {
         }
     }
 
-    public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws {
+    @discardableResult
+    public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws -> PayloadStats? {
         let destination = try target(sourceSlug, snapshotName)
         let fileManager = FileManager.default
         let scratch = fileManager.temporaryDirectory.appendingPathComponent("rclone-\(UUID().uuidString)", isDirectory: true)
@@ -94,6 +95,7 @@ public struct RcloneDestination: DestinationStore {
         try JSONCoding.encoder().encode(manifest).write(to: manifestURL)
         try check(try await rclone(["copyto", manifestURL.path, "\(destination)/\(SnapshotManifest.fileName)"]))
         try check(try await rclone(["deletefile", "\(destination)/\(SnapshotManifest.unfinishedMarker)"]))
+        return nil
     }
 
     /// Spec 4.3: an unfinished attempt under the same name is purged, any other folder there stops the write untouched.

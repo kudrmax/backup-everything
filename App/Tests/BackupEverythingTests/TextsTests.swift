@@ -70,6 +70,9 @@ struct TextsTests {
             .manualExportDue(sourceId: UUID()),
         ])
         #expect(SourceStatus.of(obsidian, report: report, lastRun: now) == .failed("quota"))
+        let warned = StatusReport(items: [.manualExportDue(sourceId: obsidian.id), .deliveryWarning(sourceId: obsidian.id, message: "left")])
+        #expect(SourceStatus.of(obsidian, report: warned, lastRun: now) == .warning("left"))
+        #expect(Texts.headline(warned) == "Needs your action")
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastRun: now) == .ok)
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastRun: nil) == .neverRun)
         var disabled = obsidian

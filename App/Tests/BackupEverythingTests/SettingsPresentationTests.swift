@@ -126,12 +126,12 @@ struct SettingsPresentationTests {
 
     @Test func statusTextsForTheTip() {
         let statuses: [SourceStatus] = [
-            .disabled, .failed("boom"), .overdue, .noDestinations,
+            .disabled, .failed("boom"), .overdue, .noDestinations, .warning("Could not clean up old copies: busy"),
             .filesFound(count: 2, bytes: 1_500, downloading: false), .filesFound(count: 1, bytes: 10, downloading: true),
             .exportDue, .waiting, .deviceDue, .waitingForDevice, .neverRun, .ok,
         ]
         #expect(statuses.map(\.text) == [
-            "Disabled", "Error: boom", "Backup is long overdue", "No destination chosen",
+            "Disabled", "Error: boom", "Backup is long overdue", "No destination chosen", "Delivered, but: Could not clean up old copies: busy",
             "Files found: 2, 1.5 KB", "Files found: 1, 10 B. Downloading",
             "Time to export", "Waiting for a file: download it and the backup starts on its own", "Time to connect the device",
             "Waiting for the device: connect it and the backup starts on its own", "Never run", "OK",

@@ -410,6 +410,28 @@ struct LocalFolderDestinationTests {
         #expect(temp.names(in: "Trash").isEmpty)
     }
 
+    /// A deletion that cannot be finished is reported every time, not once: the copy keeps taking space.
+    @Test func deletionThatStillCannotBeFinishedIsReportedAfterTheRest() async throws {
+        let personal = try temp.file("Documents/contract.pdf", "signed")
+        defer {
+            try? Permissions.dropAccessList(personal)
+            cleanUp()
+        }
+        try Permissions.denyDeleting(personal)
+        let stuck = try temp.directory("disk/obsidian/2026-09-26_100000.deleting")
+        #expect(Darwin.link(personal.path, stuck.appendingPathComponent("contract.pdf").path) == 0)
+        try temp.file("disk/obsidian/2026-09-27_100000.deleting/old.md")
+
+        let error = await #expect(throws: DestinationError.self) {
+            try await destination.removeIncomplete(sourceSlug: "obsidian")
+        }
+
+        guard case let .unfinishedDeletions(problems)? = error else { return }
+        #expect(problems.count == 1)
+        #expect(problems.first?.contains("2026-09-26_100000.deleting/contract.pdf” is another name (a hard link)") == true)
+        #expect(temp.names(in: "disk/obsidian") == ["2026-09-26_100000.deleting"])
+    }
+
     @Test func copyIsDeletedAgainAfterItWasRestoredUnderTheSameName() async throws {
         defer { cleanUp() }
         try temp.file("vault/a.md", "alpha")

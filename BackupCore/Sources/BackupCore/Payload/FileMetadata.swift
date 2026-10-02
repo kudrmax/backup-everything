@@ -5,7 +5,8 @@ import Foundation
 /// access list and extended attributes (tags, labels). Its own data is never touched. APFS keeps a compressed file's data
 /// in the `com.apple.decmpfs` attribute and the resource fork, marked by the `UF_COMPRESSED` flag: these stay as they are,
 /// since dropping any of them empties the file. So does `com.apple.provenance`, which only the system manages.
-/// What the target's file system cannot keep (exFAT and FAT have no access lists and only some flags) is left out.
+/// What the target's file system cannot keep (exFAT and FAT have no access lists and only some flags) is left out, and
+/// flags only the system may change (`SF_ARCHIVED` on SMB shares) stay as the target has them.
 struct FileMetadata {
     private static let personalFlags = UInt32(UF_NODUMP | UF_IMMUTABLE | UF_APPEND | UF_OPAQUE | UF_HIDDEN)
     private static let compressedFlag = UInt32(UF_COMPRESSED)
@@ -15,8 +16,9 @@ struct FileMetadata {
         let sourceInfo = try status(of: source)
         let targetInfo = try status(of: target)
         let keptCompression = targetInfo.st_flags & Self.compressedFlag
-        if targetInfo.st_flags != keptCompression {
-            try check(lchflags(target, keptCompression))
+        let kept = targetInfo.st_flags & (Self.compressedFlag | ~UInt32(UF_SETTABLE))
+        if targetInfo.st_flags != kept {
+            try check(lchflags(target, kept))
         }
         // Attributes of a read-only file cannot be changed: it is opened to its owner until its own permissions come last.
         if targetInfo.st_mode & S_IWUSR == 0 {
@@ -26,13 +28,17 @@ struct FileMetadata {
         try copyAccessList(from: source, to: target)
         try check(lchmod(target, sourceInfo.st_mode & 0o7777))
         try unlessUnsupported { try copyDates(sourceInfo, to: target) }
-        try setFlags((sourceInfo.st_flags & Self.personalFlags) | keptCompression, on: target, having: keptCompression)
+        try setFlags((sourceInfo.st_flags & Self.personalFlags) | keptCompression, on: target, having: kept)
     }
 
     /// Gives a copied file the flags its copy left out: a file system that keeps only some of them refuses the whole set.
     func copyFlags(from source: String, to target: String) throws {
         let current = try status(of: target).st_flags
         try setFlags((try status(of: source).st_flags & Self.personalFlags) | (current & Self.compressedFlag), on: target, having: current)
+    }
+
+    private func setFlags(_ flags: UInt32, on target: String, having current: UInt32) throws {
+        try FileFlags(current: current) { lchflags(target, $0) == 0 ? 0 : errno }.set(flags)
     }
 
     /// A compressed target keeps its data in its resource fork, so the source's resource fork cannot be given to it.
@@ -94,31 +100,13 @@ struct FileMetadata {
         try check(setattrlist(target, &request, &dates, size, UInt32(FSOPT_NOFOLLOW)))
     }
 
-    /// A file system that keeps only some of the flags refuses the whole set: then each flag it keeps is set on its own.
-    private func setFlags(_ flags: UInt32, on target: String, having current: UInt32) throws {
-        guard flags != current, lchflags(target, flags) != 0 else { return }
-        guard Self.isUnsupported(errno, rejectedFlag: true) else { throw currentError() }
-        var applied = current & flags
-        for bit in (0..<32).map({ UInt32(1) << $0 }) where flags & ~applied & bit != 0 {
-            if lchflags(target, applied | bit) == 0 {
-                applied |= bit
-            } else if !Self.isUnsupported(errno, rejectedFlag: true) {
-                throw currentError()
-            }
-        }
-    }
-
     /// What the target's file system does not support is left out; any other failure is an error.
     private func unlessUnsupported(_ action: () throws -> Void) throws {
         do {
             try action()
-        } catch let error as POSIXError where Self.isUnsupported(error.code.rawValue, rejectedFlag: false) {
+        } catch let error as POSIXError where error.code == .ENOTSUP || error.code == .EOPNOTSUPP {
             return
         }
-    }
-
-    private static func isUnsupported(_ code: Int32, rejectedFlag: Bool) -> Bool {
-        code == ENOTSUP || code == EOPNOTSUPP || (rejectedFlag && code == EINVAL)
     }
 
     private func status(of path: String) throws -> stat {

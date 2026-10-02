@@ -49,7 +49,7 @@ struct BackupEngineTests {
         #expect(record.collectError == nil)
         #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .delivered(pruned: 0, warning: nil)])
         #expect(diskStore.log == ["write:\(name)", "removeIncomplete"])
-        #expect(provider.finished == [true])
+        #expect(provider.finished == [.everywhere])
     }
 
     /// Whether a run delivers a copy made before it is a fact of the run, not a guess from the copy's date.
@@ -83,7 +83,7 @@ struct BackupEngineTests {
         let record = await run()
         #expect(record.deliveries.map(\.outcome) == [.unavailable, .delivered(pruned: 0, warning: nil)])
         #expect(diskStore.log.isEmpty)
-        #expect(provider.finished == [false])
+        #expect(provider.finished == [.partly])
     }
 
     @Test func nothingIsCollectedWhenNoDestinationIsReachable() async {
@@ -114,7 +114,7 @@ struct BackupEngineTests {
         #expect(record.collectError == SourceError.emptyResult.localizedDescription)
         #expect(cloudStore.snapshots.count == 3)
         #expect(cloudStore.log.isEmpty)
-        #expect(provider.finished == [false])
+        #expect(provider.finished == [.nowhere])
     }
 
     @Test func workFolderThatCannotBeClearedIsReportedWithTheDeliveries() async {
@@ -154,7 +154,7 @@ struct BackupEngineTests {
         let record = await run()
         #expect(record.collectError == SourceError.pathMissing(temp.path("vanished").path).localizedDescription)
         #expect(record.deliveries.isEmpty)
-        #expect(provider.finished == [false])
+        #expect(provider.finished == [.nowhere])
     }
 
     @Test func writeFailureIsIsolatedAndSkipsPruning() async {
@@ -166,7 +166,7 @@ struct BackupEngineTests {
         #expect(record.firstFailure == "disk disconnected")
         #expect(diskStore.snapshots.count == 3)
         #expect(!diskStore.log.contains("removeIncomplete"))
-        #expect(provider.finished == [false])
+        #expect(provider.finished == [.partly])
     }
 
     @Test func prunesByRetentionOnlyAfterSuccessfulWrite() async {
@@ -339,7 +339,7 @@ struct BackupEngineTests {
         let record = await run()
         #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .failed(message: "disk disconnected")])
         #expect(cloudStore.log.isEmpty)
-        #expect(provider.finished == [false])
+        #expect(provider.finished == [.partly])
     }
 
     @Test func failedCleanupOfUnfinishedCopiesPrunesNothing() async {
@@ -349,7 +349,38 @@ struct BackupEngineTests {
         let record = await run()
         #expect(record.deliveries[1].outcome == .delivered(pruned: 0, warning: "Could not clean up old copies: disk disconnected"))
         #expect(cloudStore.snapshots.count == 4)
-        #expect(provider.finished == [true])
+        #expect(provider.finished == [.everywhere])
+    }
+
+    /// A copy whose deletion stopped halfway and still cannot be finished does not keep other old copies.
+    @Test func unfinishedDeletionThatStillFailsWarnsAndPrunesTheRest() async {
+        defer { temp.remove() }
+        cloudStore.snapshots = ["2026-09-25 10:00:00", "2026-09-26 10:00:00", "2026-09-27 10:00:00"].map(Fixtures.snapshot)
+        cloudStore.removeIncompleteError = DestinationError.unfinishedDeletions(["“old.deleting”: denied"])
+        let record = await run()
+        #expect(record.deliveries[1].outcome == .delivered(
+            pruned: 2,
+            warning: "Could not clean up old copies: Could not finish deleting old copies: “old.deleting”: denied"
+        ))
+    }
+
+    /// Files may vanish from a live source while it is copied: the run counts what the copy holds.
+    @Test func runCountsWhatTheFirstCopyHolds() async {
+        defer { temp.remove() }
+        cloudStore.written = PayloadStats(fileCount: 0, totalBytes: 1)
+        diskStore.written = PayloadStats(fileCount: 7, totalBytes: 70)
+        let record = await run()
+        #expect(record.fileCount == 7)
+        #expect(record.totalBytes == 70)
+    }
+
+    @Test func catchUpCountsWhatTheCopyHolds() async throws {
+        defer { temp.remove() }
+        diskStore.materialized = try materializedCopy()
+        cloudStore.written = PayloadStats(fileCount: 1, totalBytes: 4)
+        let record = await engine(fakeStores).copy(Snapshot(name: name, date: now), of: source, from: disk, to: [cloud])
+        #expect(record.fileCount == 1)
+        #expect(record.totalBytes == 4)
     }
 
     private struct TrashingLocalStores: DestinationStoreFactory {
@@ -428,7 +459,7 @@ struct BackupEngineTests {
         #expect(record.collectError == SourceError.reservedName("_snapshot.json").localizedDescription)
         #expect(record.deliveries.isEmpty)
         #expect(diskStore.log.isEmpty)
-        #expect(provider.finished == [false])
+        #expect(provider.finished == [.nowhere])
     }
 
     @Test func catchUpCopyKeepsTheSourcesFilesNamedLikeTheAppsOwnOnes() async throws {

@@ -13,6 +13,7 @@ public struct DefaultSourceProviderFactory: SourceProviderFactory {
     private let stagingRoot: URL
     private let inbox: ManualExportInbox
     private let quit: any QuitSignal
+    private let trash: ManualExportInbox.Trash
     private let progress: ProgressHandler
 
     public init(
@@ -20,12 +21,14 @@ public struct DefaultSourceProviderFactory: SourceProviderFactory {
         stagingRoot: URL,
         inbox: ManualExportInbox,
         quit: any QuitSignal = ProcessGroups.shared,
+        trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
         progress: @escaping ProgressHandler = { _ in }
     ) {
         self.runner = runner
         self.stagingRoot = stagingRoot
         self.inbox = inbox
         self.quit = quit
+        self.trash = trash
         self.progress = progress
     }
 
@@ -36,7 +39,7 @@ public struct DefaultSourceProviderFactory: SourceProviderFactory {
         if let folder = source.singleFolder {
             return FolderSource(path: folder.path, excludes: folder.excludes)
         }
-        return StepsSource(sourceId: source.id, steps: source.steps, stagingRoot: stagingRoot, runner: runner, progress: progress)
+        return StepsSource(sourceId: source.id, steps: source.steps, stagingRoot: stagingRoot, runner: runner, trash: trash, progress: progress)
     }
 }
 

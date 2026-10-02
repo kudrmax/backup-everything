@@ -27,7 +27,7 @@ struct CoordinatorDestinationTests {
         coordinator = BackupCoordinator(
             store: store,
             engine: BackupEngine(
-                providers: DefaultSourceProviderFactory(runner: runner, stagingRoot: temp.path("work/staging"), inbox: inbox),
+                providers: DefaultSourceProviderFactory(runner: runner, stagingRoot: temp.path("work/staging"), inbox: inbox, trash: trash),
                 stores: stores,
                 retention: RetentionPolicy(timeZone: Fixtures.utc),
                 naming: Fixtures.naming,

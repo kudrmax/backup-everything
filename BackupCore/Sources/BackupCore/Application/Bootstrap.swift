@@ -6,10 +6,16 @@ public struct Bootstrap: Sendable {
 
     private let store: Store
     private let workDirectory: URL
+    private let trash: ManualExportInbox.Trash
 
-    public init(store: Store, workDirectory: URL) {
+    public init(
+        store: Store,
+        workDirectory: URL,
+        trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    ) {
         self.store = store
         self.workDirectory = workDirectory
+        self.trash = { url in try FolderRemoval().trash(url, using: trash) }
     }
 
     public func prepare(now: Date) throws {
@@ -17,7 +23,9 @@ public struct Bootstrap: Sendable {
         try fileManager.createDirectory(at: store.dataDirectory, withIntermediateDirectories: true)
         let staging = CoreAssembly.stagingDirectory(in: workDirectory)
         StepProcessRecord.stopLeftovers(under: staging)
-        try? FolderRemoval().remove(staging.path)
+        for run in (try? fileManager.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil)) ?? [] {
+            try? WorkFolders(root: run).discard(using: trash)
+        }
         try fileManager.createDirectory(at: workDirectory, withIntermediateDirectories: true)
         try store.installBundledTemplates()
         guard !store.hasConfig else { return }

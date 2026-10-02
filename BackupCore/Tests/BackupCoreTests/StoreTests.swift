@@ -176,6 +176,7 @@ struct StoreTests {
         let state = try store.loadState()
         #expect(state.sourceState(sourceId).lastRun == Fixtures.date("2026-09-28 10:00:00"))
         #expect(state.lastDelivered.isEmpty)
+        #expect(state.deliveryWarnings.isEmpty)
         #expect(temp.names(in: "data") == ["state.json"])
     }
 

@@ -80,7 +80,7 @@ struct CoreSupportTests {
         #expect(stepsProvider is StepsSource)
         let payload = try await stepsProvider.collect(at: date) { _ in }
         #expect(try FileManager.default.contentsOfDirectory(atPath: payload.root.path) == ["a.md"])
-        try stepsProvider.finish(payload, deliveredEverywhere: true)
+        try stepsProvider.finish(payload, delivered: .everywhere)
         #expect(temp.names(in: "staging").isEmpty)
     }
 

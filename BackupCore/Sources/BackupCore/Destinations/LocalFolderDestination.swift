@@ -46,17 +46,24 @@ public struct LocalFolderDestination: DestinationStore {
         return owners
     }
 
-    /// Also finishes deleting copies whose deletion stopped halfway. That failure was reported when it happened.
+    /// Also finishes deleting copies whose deletion stopped halfway; what still cannot be deleted is reported after the rest is done.
     public func removeIncomplete(sourceSlug: String) async throws {
         for directory in try snapshotDirectories(sourceSlug) where isUnfinished(directory.url) {
             try trash(directory.url)
         }
+        var problems: [String] = []
         for leftover in try interruptedRemovals(sourceSlug) {
-            try? removal.remove(leftover.path)
+            do {
+                try removal.remove(leftover.path)
+            } catch {
+                problems.append("“\(leftover.path)”: \(error.localizedDescription)")
+            }
         }
+        if !problems.isEmpty { throw DestinationError.unfinishedDeletions(problems) }
     }
 
-    public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws {
+    @discardableResult
+    public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws -> PayloadStats? {
         guard await isAvailable() else { throw DestinationError.unavailable }
         let fileManager = FileManager.default
         let sourceDirectory = try directory(sourceSlug)
@@ -77,6 +84,7 @@ public struct LocalFolderDestination: DestinationStore {
             let markerURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker)
             try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
             let contents = try SnapshotWriter(cloning: cloning).write(listing, into: snapshotDirectory, reusing: index)
+            guard contents.itemCount > 0 else { throw SourceError.vanishedWhileCopied }
             var manifest = manifest
             manifest.fileCount = contents.itemCount
             manifest.totalBytes = contents.totalBytes
@@ -85,6 +93,7 @@ public struct LocalFolderDestination: DestinationStore {
             let manifestURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.fileName)
             try JSONCoding.encoder(pretty: false).encode(manifest).write(to: manifestURL, options: .atomic)
             try fileManager.removeItem(at: markerURL)
+            return PayloadStats(fileCount: contents.itemCount, totalBytes: contents.totalBytes)
         } catch let error as CocoaError where error.code == .fileWriteOutOfSpace {
             throw DestinationError.outOfSpace
         } catch let error as POSIXError where error.code == .ENOSPC {

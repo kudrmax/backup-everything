@@ -41,6 +41,16 @@ struct FolderRemovalTests {
         #expect(try permissions(personal) == 0o400)
     }
 
+    /// Only what is removed is opened: a folder it lies in is not changed.
+    @Test func itemInAFolderThatCannotBeChangedIsNotRemoved() throws {
+        defer { Permissions.removeTree(temp.url) }
+        let item = try temp.file("closed/item.md")
+        #expect(chmod(temp.path("closed").path, 0o555) == 0)
+
+        #expect(throws: POSIXError(.EACCES)) { try FolderRemoval().remove(item.path) }
+        #expect(temp.exists("closed/item.md"))
+    }
+
     @Test func linkedFileProtectedByAnAccessListIsNotUnprotected() throws {
         let personal = try temp.file("Documents/contract.pdf", "signed")
         defer {

@@ -54,6 +54,21 @@ struct StatusReporterTests {
         #expect(result.overall == .error)
     }
 
+    /// A copy that was delivered but left old copies behind needs a look, not a retry: it is not an error.
+    @Test func warningAfterDeliveryNeedsAttention() {
+        let source = Fixtures.source(destinations: [cloud, disk])
+        var state = fresh(source)
+        let warning = "Could not clean up old copies: busy"
+        state.deliveryWarnings = [
+            AppState.deliveryKey(sourceId: source.id, destinationId: cloud.id): warning,
+            AppState.deliveryKey(sourceId: source.id, destinationId: disk.id): warning,
+            AppState.deliveryKey(sourceId: source.id, destinationId: UUID()): "removed destination",
+        ]
+        let result = report([source], state)
+        #expect(result.items == [.deliveryWarning(sourceId: source.id, message: warning)])
+        #expect(result.overall == .attention)
+    }
+
     @Test func longOverdueSourceIsError() {
         let source = Fixtures.source(destinations: [cloud])
         var state = AppState()

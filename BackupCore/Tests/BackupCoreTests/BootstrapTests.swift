@@ -7,7 +7,10 @@ struct BootstrapTests {
         let temp = try TempDirectory()
         defer { temp.remove() }
         let store = Store(dataDirectory: temp.path("data"))
-        let bootstrap = Bootstrap(store: store, workDirectory: temp.path("work"))
+        let trash = try temp.directory("Trash")
+        let bootstrap = Bootstrap(store: store, workDirectory: temp.path("work")) { url in
+            try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent(url.lastPathComponent))
+        }
         let now = Fixtures.date("2026-09-28 10:00:00")
         try temp.file("work/staging/leftover/output/file.txt")
 
@@ -18,7 +21,8 @@ struct BootstrapTests {
         #expect(config.sources[0].singleFolder?.path == temp.path("data").path)
         #expect(config.sources[0].slug == "backup-everything-settings")
         #expect(store.loadTemplates().count == BundledTemplates.all.count)
-        #expect(!temp.exists("work/staging"))
+        #expect(temp.names(in: "work/staging").isEmpty)
+        #expect(temp.names(in: "Trash") == ["file.txt"])
     }
 
     @Test func laterLaunchesKeepUserConfig() throws {
@@ -84,7 +88,28 @@ struct BootstrapTests {
 
         #expect(!orphan.isRunning)
         _ = try await finished.value
-        #expect(!temp.exists("work/staging"))
+        #expect(temp.names(in: "work/staging").isEmpty)
+    }
+
+    /// What a run left in `staging` may be a person's original that a command moved there: it goes to the Trash.
+    @Test func launchSendsWhatARunLeftInStagingToTheTrash() throws {
+        let temp = try TempDirectory()
+        defer {
+            Permissions.unlockTree(temp.url)
+            temp.remove()
+        }
+        let trash = try temp.directory("Trash")
+        let moved = try temp.file("work/staging/run/output/original.md", "the only copy")
+        try Permissions.lock(moved)
+        try temp.file("work/staging/run/scratch/draft.tmp")
+
+        try Bootstrap(store: Store(dataDirectory: temp.path("data")), workDirectory: temp.path("work")) { url in
+            try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent(url.lastPathComponent))
+        }.prepare(now: Fixtures.date("2026-09-28 10:00:00"))
+
+        #expect(try String(contentsOf: temp.path("Trash/original.md"), encoding: .utf8) == "the only copy")
+        #expect(temp.names(in: "Trash") == ["original.md"])
+        #expect(temp.names(in: "work/staging").isEmpty)
     }
 
     @Test func commandOfASourceWithoutManualStepsIsRecordedWhileItRuns() async throws {

@@ -88,6 +88,7 @@ public struct StepChainRunner: Sendable {
                 guard let path = source.devicePath(at: next.stepIndex), exists(path) else { return .stay }
                 // A copy from the device cut short by unplugging may have left what it could not trash: not the start of the next step.
                 outputAtNextStep = next.outputAtStepEntry
+                next.outputAtDeviceStep = next.outputAtStepEntry
             case .folder, .command:
                 try folders.prepare()
                 let process = StepProcessRecord(folders: folders)
@@ -113,7 +114,8 @@ public struct StepChainRunner: Sendable {
                         next.stepIndex = device
                         next.stepId = steps[device].id
                         next.stepEnteredAt = time.now
-                        next.outputAtStepEntry = before.sorted()
+                        // The steps between the device and this one run again too: what they made goes as well.
+                        next.outputAtStepEntry = next.outputAtDeviceStep ?? before.sorted()
                         return .moved(next)
                     }
                     throw failure
@@ -147,17 +149,9 @@ public struct StepChainRunner: Sendable {
     }
 
     public func discard(sourceId: UUID) throws {
-        let fileManager = FileManager.default
         let folders = folders(sourceId)
         StepProcessRecord(folders: folders).stopLeftover()
-        for directory in [folders.input, folders.output] {
-            for item in (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] {
-                try trash(item)
-            }
-        }
-        if fileManager.fileExists(atPath: folders.root.path) {
-            try FolderRemoval().remove(folders.root.path)
-        }
+        try folders.discard(using: trash)
     }
 
     private func exists(_ path: String) -> Bool {

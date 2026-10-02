@@ -47,6 +47,8 @@ struct OverviewTextsTests {
         #expect(SourceStatus.failed("disk dropped off").note == "disk dropped off")
         #expect(SourceStatus.failed("Command exited with code 1. fatal: early EOF").errorMessage == "Command exited with code 1. fatal: early EOF")
         #expect(SourceStatus.overdue.errorMessage == nil)
+        #expect(SourceStatus.warning("Could not clean up old copies: “a.deleting”: busy").note == "Could not clean up old copies")
+        #expect(SourceStatus.warning("x").severity == .attention)
         #expect(SourceStatus.failed("Source path not found: /Users/max/Obsidian").note == "Source path not found")
         #expect(SourceStatus.failed("Command exited with code 1. gh: run gh auth login").note == "gh: run gh auth login")
         #expect(SourceStatus.failed("Command exited with code 1. downloaded 0 of 1\nArchives not downloaded: a.zip. Request the export again.\n").note == "Archives not downloaded: a.zip. Request the export again.")
@@ -85,6 +87,7 @@ struct OverviewTextsTests {
         let disk = UUID()
         let report = StatusReport(items: [
             .runFailed(sourceId: running, message: "network"),
+            .deliveryWarning(sourceId: running, message: "Could not clean up old copies: busy"),
             .severelyOverdue(sourceId: running),
             .runFailed(sourceId: idle, message: "disk"),
             .connectDestination(destinationId: disk),

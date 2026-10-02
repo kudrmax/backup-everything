@@ -41,7 +41,7 @@ struct VanishingSourceTests {
     @Test func payloadFolderRenamedHalfwayStopsTheCopy() throws {
         defer { temp.remove() }
         let payload = try vault(in: temp.url)
-        #expect(throws: POSIXError(.ENOENT)) {
+        #expect(throws: SourceError.sourceDisappeared(temp.path("vault").path)) {
             try copy(payload) { try FileManager.default.moveItem(at: temp.path("vault"), to: temp.path("renamed")) }
         }
         #expect(copiedFiles().count == 1)
@@ -50,7 +50,7 @@ struct VanishingSourceTests {
     @Test func payloadFolderReplacedHalfwayStopsTheCopy() throws {
         defer { temp.remove() }
         let payload = try vault(in: temp.url)
-        #expect(throws: POSIXError(.ENOENT)) {
+        #expect(throws: SourceError.sourceDisappeared(temp.path("vault").path)) {
             try copy(payload) {
                 try FileManager.default.moveItem(at: temp.path("vault"), to: temp.path("renamed"))
                 try temp.directory("vault")
@@ -62,10 +62,37 @@ struct VanishingSourceTests {
         defer { temp.remove() }
         let disk = try DiskImage(.apfs)
         let payload = try vault(in: disk.root)
-        #expect(throws: (any Error).self) {
+        #expect(throws: SourceError.sourceDisappeared(disk.root.appendingPathComponent("vault").path)) {
             try copy(payload) { disk.detach() }
         }
         #expect(copiedFiles().count == 1)
+    }
+
+    /// The folder a disk was mounted at stays behind, empty, on the disk of the source: its files did not vanish.
+    @Test func diskMountedInsideTheSourceEjectedHalfwayStopsTheCopy() throws {
+        defer { temp.remove() }
+        try temp.file("vault/top.txt", "top")
+        let disk = try DiskImage(.apfs, at: try temp.directory("vault/inner"))
+        for index in 0..<3 {
+            try Data("inner \(index)".utf8).write(to: disk.root.appendingPathComponent("f\(index).txt"))
+        }
+        #expect(throws: SourceError.diskDisappeared(temp.path("vault/inner").path)) {
+            try copy(Payload(root: temp.path("vault"), collectedAt: date)) { disk.detach() }
+        }
+    }
+
+    @Test func itemsThatVanishedFromADiskMountedInsideTheSourceAreLeftOut() throws {
+        defer { temp.remove() }
+        try temp.file("vault/top.txt", "top")
+        let disk = try DiskImage(.apfs, at: try temp.directory("vault/inner"))
+        for index in 0..<3 {
+            try FileManager.default.createDirectory(at: disk.root.appendingPathComponent("d\(index)"), withIntermediateDirectories: true)
+            try Data("inner \(index)".utf8).write(to: disk.root.appendingPathComponent("d\(index)/f.txt"))
+        }
+        let vanished = try copy(Payload(root: temp.path("vault"), collectedAt: date)) {
+            try? FileManager.default.removeItem(at: disk.root.appendingPathComponent("d1"))
+        }
+        #expect(vanished.map(\.relativePath) == ["inner/d1/f.txt", "inner/d1"])
     }
 
     @Test func fileThatVanishedFromAnIntactSourceIsReported() throws {
@@ -84,12 +111,21 @@ struct VanishingSourceTests {
         try temp.file("vault/sub/a.md")
         let origin = try PayloadOrigin(temp.path("vault"))
         try FileManager.default.moveItem(at: temp.path("vault"), to: temp.path("renamed"))
-        #expect(throws: SourceError.unreadable(temp.path("vault/sub").path)) {
+        #expect(throws: SourceError.sourceDisappeared(temp.path("vault").path)) {
             try PayloadWalker().names(in: temp.path("vault/sub"), origin: origin)
         }
-        #expect(throws: SourceError.unreadable(temp.path("vault/sub/a.md").path)) {
+        #expect(throws: SourceError.sourceDisappeared(temp.path("vault").path)) {
             try PayloadWalker().entry(at: temp.path("vault/sub/a.md"), relativePath: "sub/a.md", origin: origin)
         }
+    }
+
+    @Test func lossOfTheSourceIsToldInPlainWords() {
+        #expect(SourceError.sourceDisappeared("/Volumes/Card/DCIM").localizedDescription
+            == "The source “/Volumes/Card/DCIM” disappeared during the backup (disk disconnected?). The copy was not finished.")
+        #expect(SourceError.diskDisappeared("/Users/max/Photos/Card").localizedDescription
+            == "The disk mounted at “/Users/max/Photos/Card” inside the source disappeared during the backup (disk disconnected?). The copy was not finished.")
+        #expect(SourceError.vanishedWhileCopied.localizedDescription
+            == "Every file of the source disappeared while it was being copied. An empty copy is not created.")
     }
 
     @Test func listingOfAMissingSourceIsAnError() {
@@ -115,8 +151,9 @@ struct VanishingSourceTests {
         let gone = temp.path("vault/d1/f1.txt")
         let destination = try destination { try? FileManager.default.removeItem(at: gone) }
 
-        try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+        let written = try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
 
+        #expect(written == PayloadStats(fileCount: 4, totalBytes: 24))
         let stored = try JSONCoding.decoder().decode(
             SnapshotManifest.self,
             from: Data(contentsOf: temp.path("disk/obsidian/\(name)/\(SnapshotManifest.fileName)"))
@@ -124,6 +161,21 @@ struct VanishingSourceTests {
         #expect(stored.fileCount == 4)
         #expect(stored.totalBytes == 24)
         #expect(stored.files?.map(\.path) == ["d0/f0.txt", "d2/f2.txt", "d3/f3.txt", "d4/f4.txt"])
+    }
+
+    @Test func copyOfASourceWhoseFilesAllVanishedIsNotFinished() async throws {
+        defer { temp.remove() }
+        let payload = try vault(in: temp.url)
+        let destination = try destination { [temp] in
+            for index in 0..<5 { try? FileManager.default.removeItem(at: temp.path("vault/d\(index)")) }
+        }
+
+        await #expect(throws: SourceError.vanishedWhileCopied) {
+            try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+        }
+
+        #expect(temp.exists("disk/obsidian/\(name)/\(SnapshotManifest.unfinishedMarker)"))
+        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
     }
 
     @Test func copyOfASourceEjectedHalfwayStaysUnfinished() async throws {

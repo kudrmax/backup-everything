@@ -12,6 +12,9 @@ public enum SourceError: Error, Equatable, LocalizedError {
     case unreadable(String)
     case reservedName(String)
     case leftoversRemain(reason: String, cleanup: String)
+    case sourceDisappeared(String)
+    case vanishedWhileCopied
+    case diskDisappeared(String)
 
     public var errorDescription: String? {
         switch self {
@@ -35,6 +38,12 @@ public enum SourceError: Error, Equatable, LocalizedError {
             "“\(name)” at the top of the source has the name Backup Everything gives its own file in every copy. Rename it, move it into a subfolder or add it to the exclusions."
         case let .leftoversRemain(reason, cleanup):
             "\(reason) What the step had added could not be moved to the Trash: \(cleanup)"
+        case .vanishedWhileCopied:
+            "Every file of the source disappeared while it was being copied. An empty copy is not created."
+        case let .sourceDisappeared(path):
+            "The source “\(path)” disappeared during the backup (disk disconnected?). The copy was not finished."
+        case let .diskDisappeared(path):
+            "The disk mounted at “\(path)” inside the source disappeared during the backup (disk disconnected?). The copy was not finished."
         case let .stepFailed(index, count, name, reason):
             "Step \(index + 1) of \(count) “\(name)”. \(reason)"
         }

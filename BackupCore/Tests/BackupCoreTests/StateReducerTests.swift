@@ -168,10 +168,13 @@ struct StateReducerTests {
         ]
         state.updateSource(UUID()) { $0.lastRun = started }
         state.updateSource(source.id) { $0.lastRun = started }
+        let kept = AppState.deliveryKey(sourceId: source.id, destinationId: keptDestination.id)
+        state.deliveryWarnings = [kept: "old", AppState.deliveryKey(sourceId: source.id, destinationId: removedFromSource.id): "old"]
 
         reducer.dropOrphans(config: config, state: &state)
         #expect(state.debts == [Debt(sourceId: source.id, destinationId: keptDestination.id, since: started)])
         #expect(Array(state.sources.keys) == [source.id.uuidString])
+        #expect(state.deliveryWarnings == [kept: "old"])
     }
 
     @Test func collectFailurePostponesRetryOfTheSourceDebts() {
@@ -179,6 +182,17 @@ struct StateReducerTests {
         state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: started)]
         reducer.apply(record([], trigger: .catchUp, collectError: "auth required"), to: &state, config: config)
         #expect(state.debts == [Debt(sourceId: sourceId, destinationId: disk, since: started, lastAttempt: finished)])
+    }
+
+    /// A cleanup that failed after delivery stays visible until a later delivery to that destination goes without it.
+    @Test func remembersWhatWentWrongAfterEachDelivery() {
+        var state = AppState()
+        reducer.apply(record([(disk, .delivered(pruned: 0, warning: "Could not clean up old copies: busy")), (cloud, .delivered(pruned: 0, warning: nil))]), to: &state, config: config)
+        reducer.apply(record([(disk, .unavailable), (cloud, .failed(message: "quota"))]), to: &state, config: config)
+        #expect(state.deliveryWarnings == [AppState.deliveryKey(sourceId: sourceId, destinationId: disk): "Could not clean up old copies: busy"])
+
+        reducer.apply(record([(disk, .delivered(pruned: 1, warning: nil))]), to: &state, config: config)
+        #expect(state.deliveryWarnings.isEmpty)
     }
 
     @Test func remembersWhichCopyReachedEachDestination() {

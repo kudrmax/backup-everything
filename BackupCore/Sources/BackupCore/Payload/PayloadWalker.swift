@@ -19,13 +19,14 @@ public struct PayloadWalker: Sendable {
             throw SourceError.pathMissing(payload.root.path)
         }
         let root = try isSymbolicLink(payload.root) ? payload.root.resolvingSymlinksInPath() : payload.root
-        let origin = try PayloadOrigin(root)
+        var origin = try PayloadOrigin(root)
         guard isDirectory(payload) else {
-            let size = (try attributes(of: root)[.size] as? NSNumber)?.int64Value ?? 0
-            return PayloadListing(origin: origin, entries: [PayloadEntry(url: root, relativePath: payload.root.lastPathComponent, kind: .file, size: size)])
+            let attributes = try attributes(of: root)
+            let entry = PayloadEntry(url: root, relativePath: payload.root.lastPathComponent, kind: .file, size: size(in: attributes), device: device(in: attributes))
+            return PayloadListing(origin: origin, entries: [entry])
         }
         var entries: [PayloadEntry] = []
-        try collect(root, prefix: "", filter: Filter(payload), origin: origin, into: &entries)
+        try collect(root, prefix: "", filter: Filter(payload), origin: &origin, into: &entries)
         return PayloadListing(origin: origin, entries: entries.sorted { $0.relativePath < $1.relativePath })
     }
 
@@ -51,7 +52,7 @@ public struct PayloadWalker: Sendable {
 
     /// Returns false when the folder vanished before it was listed.
     @discardableResult
-    private func collect(_ directory: URL, prefix: String, filter: Filter, origin: PayloadOrigin, into entries: inout [PayloadEntry]) throws -> Bool {
+    private func collect(_ directory: URL, prefix: String, filter: Filter, origin: inout PayloadOrigin, into entries: inout [PayloadEntry]) throws -> Bool {
         guard let names = try names(in: directory, origin: origin) else { return false }
         for name in names {
             let relativePath = prefix.isEmpty ? name : prefix + "/" + name
@@ -61,8 +62,9 @@ public struct PayloadWalker: Sendable {
                 entries.append(entry)
                 continue
             }
+            origin.record(folder: entry.url, device: entry.device)
             var inner: [PayloadEntry] = []
-            guard try collect(entry.url, prefix: relativePath, filter: filter, origin: origin, into: &inner) else { continue }
+            guard try collect(entry.url, prefix: relativePath, filter: filter, origin: &origin, into: &inner) else { continue }
             entries.append(entry)
             entries += inner
         }
@@ -74,8 +76,7 @@ public struct PayloadWalker: Sendable {
         do {
             return try FileManager.default.contentsOfDirectory(atPath: directory.path)
         } catch {
-            if origin.hasVanished(directory) { return nil }
-            throw SourceError.unreadable(directory.path)
+            return try unlessVanished(directory, origin: origin)
         }
     }
 
@@ -85,8 +86,7 @@ public struct PayloadWalker: Sendable {
         do {
             attributes = try self.attributes(of: url)
         } catch {
-            if origin.hasVanished(url) { return nil }
-            throw SourceError.unreadable(url.path)
+            return try unlessVanished(url, origin: origin)
         }
         let kind: PayloadEntry.Kind
         switch attributes[.type] as? FileAttributeType {
@@ -95,8 +95,24 @@ public struct PayloadWalker: Sendable {
         case FileAttributeType.typeRegular: kind = .file
         default: return nil
         }
-        let size = kind == .file ? (attributes[.size] as? NSNumber)?.int64Value ?? 0 : 0
-        return PayloadEntry(url: url, relativePath: relativePath, kind: kind, size: size)
+        return PayloadEntry(url: url, relativePath: relativePath, kind: kind, size: kind == .file ? size(in: attributes) : 0, device: device(in: attributes))
+    }
+
+    /// Nothing for an item that vanished; an error when it cannot be read or its disk is gone.
+    private func unlessVanished<Item>(_ url: URL, origin: PayloadOrigin) throws -> Item? {
+        switch origin.loss(of: url) {
+        case .vanished: return nil
+        case let .gone(error): throw error
+        case nil: throw SourceError.unreadable(url.path)
+        }
+    }
+
+    private func size(in attributes: [FileAttributeKey: Any]) -> Int64 {
+        (attributes[.size] as? NSNumber)?.int64Value ?? 0
+    }
+
+    private func device(in attributes: [FileAttributeKey: Any]) -> dev_t {
+        (attributes[.systemNumber] as? NSNumber)?.int32Value ?? 0
     }
 
     private func isSymbolicLink(_ url: URL) throws -> Bool {

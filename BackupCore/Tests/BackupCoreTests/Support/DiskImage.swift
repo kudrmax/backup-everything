@@ -12,10 +12,11 @@ final class DiskImage: @unchecked Sendable {
     private let folder: TempDirectory
     private var device: String?
 
-    init(_ format: Format) throws {
+    /// `mountpoint`: an existing empty folder to mount the disk at, for a disk inside another folder.
+    init(_ format: Format, at mountpoint: URL? = nil) throws {
         folder = try TempDirectory()
         let image = folder.path("disk.sparseimage")
-        root = try folder.directory("volume")
+        root = try mountpoint ?? folder.directory("volume")
         try Self.hdiutil(["create", "-quiet", "-type", "SPARSE", "-size", "64m", "-fs", format.rawValue, "-volname", "TEST", "-layout", "NONE", image.path])
         let output = try Self.hdiutil(["attach", "-nobrowse", "-noverify", "-mountpoint", root.path, image.path])
         device = output.split(separator: "\n").compactMap { $0.split(separator: " ").first.map(String.init) }.last { $0.hasPrefix("/dev/disk") }

@@ -103,6 +103,63 @@ struct ForeignFileSystemTests {
         #expect(!FileManager.default.fileExists(atPath: staging.path))
     }
 
+    // MARK: Names with letters beyond ASCII
+
+    /// Precomposed names, as people type them: “й” and “é” as one character each.
+    private static let precomposedNames = ["\u{0439}\u{00E9}.md", "Caf\u{00E9}/r\u{00E9}sum\u{00E9}.txt", "\u{0451}\u{0436}/\u{0439}/\u{0444}\u{0430}\u{0439}\u{043B}.txt"]
+
+    private func createExactly(_ relativePath: String, in base: URL) throws {
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        try ExactNameFiles().createDirectories((relativePath as NSString).deletingLastPathComponent, in: base.path)
+        let descriptor = open(base.path + "/" + relativePath, O_CREAT | O_WRONLY, 0o644)
+        #expect(descriptor >= 0)
+        #expect(write(descriptor, "data", 4) == 4)
+        close(descriptor)
+    }
+
+    /// exFAT lists names decomposed, yet deletes a name only in the form it was stored in.
+    @Test func copiesWithNonASCIINamesAreDeletedFromExFAT() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let disk = try DiskImage(.exFAT)
+        let destination = LocalFolderDestination(root: disk.root, naming: Fixtures.naming)
+        let slug = "\u{0437}\u{0430}\u{043C}\u{0435}\u{0442}\u{043A}\u{0438}-\u{0439}"
+        let vault = try temp.directory("vault")
+        for name in Self.precomposedNames { try createExactly(name, in: vault) }
+        try Permissions.lock(vault.appendingPathComponent(Self.precomposedNames[0]))
+        let payload = Payload(root: vault, collectedAt: first)
+
+        try await destination.write(payload, manifest: manifest(first), sourceSlug: slug, snapshotName: name(first), reusingStoredFiles: true)
+        try await destination.write(payload, manifest: manifest(second), sourceSlug: slug, snapshotName: name(second), reusingStoredFiles: true)
+        #expect(try await destination.listSnapshots(sourceSlug: slug).map(\.name) == [name(first), name(second)])
+        try await destination.delete(Snapshot(name: name(first), date: first), sourceSlug: slug)
+
+        #expect(try await destination.listSnapshots(sourceSlug: slug).map(\.name) == [name(second)])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: disk.root.appendingPathComponent(slug).path) == [name(second)])
+    }
+
+    @Test func workFolderWithNonASCIINamesIsRemovedFromExFAT() throws {
+        let disk = try DiskImage(.exFAT)
+        let staging = disk.root.appendingPathComponent("staging")
+        for name in Self.precomposedNames { try createExactly(name, in: staging) }
+
+        try FolderRemoval().remove(staging.path)
+
+        #expect(!FileManager.default.fileExists(atPath: staging.path))
+    }
+
+    @Test func interruptedDeletionWithNonASCIINamesIsFinishedOnExFAT() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let disk = try DiskImage(.exFAT)
+        let destination = LocalFolderDestination(root: disk.root, naming: Fixtures.naming)
+        try await destination.write(try vault(), manifest: manifest(second), sourceSlug: "obsidian", snapshotName: name(second), reusingStoredFiles: true)
+        let leftover = disk.root.appendingPathComponent("obsidian/\(name(first)).deleting")
+        for name in Self.precomposedNames { try createExactly(name, in: leftover) }
+
+        try await destination.removeIncomplete(sourceSlug: "obsidian")
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: disk.root.appendingPathComponent("obsidian").path) == [name(second)])
+    }
+
     // MARK: Metadata on a target that is read-only
 
     @Test func readOnlyTargetTakesExtendedAttributes() throws {

@@ -12,6 +12,8 @@ public enum OverallStatus: Int, Sendable, Comparable {
 
 public enum AttentionItem: Sendable, Equatable {
     case runFailed(sourceId: UUID, message: String)
+    /// The copy was delivered, but something after it went wrong and stays so: old copies were not cleaned up.
+    case deliveryWarning(sourceId: UUID, message: String)
     case severelyOverdue(sourceId: UUID)
     case manualExportDue(sourceId: UUID)
     case filesAwaitingPickup(sourceId: UUID, fileCount: Int, totalBytes: Int64, downloadInProgress: Bool)
@@ -70,6 +72,10 @@ public struct StatusReporter: Sendable {
             let heldBack = scan.flatMap { $0.downloadInProgress && !$0.files.isEmpty ? $0 : nil }
             if let message = (heldBack == nil ? sourceState.chain?.failure : nil) ?? sourceState.lastError {
                 items.append(.runFailed(sourceId: source.id, message: message))
+            }
+            let warnings = state.deliveryWarnings(of: source)
+            if !warnings.isEmpty {
+                items.append(.deliveryWarning(sourceId: source.id, message: warnings.joined(separator: " ")))
             }
             if planner.isSeverelyOverdue(source, state: sourceState, now: now) {
                 items.append(.severelyOverdue(sourceId: source.id))

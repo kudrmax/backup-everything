@@ -16,6 +16,9 @@ public struct ChainState: Codable, Sendable, Equatable {
     public var retryAfter: Date?
     /// The result folder when the current step began; `nil` in state saved by older versions, which did not record it.
     public var outputAtStepEntry: [String]?
+    /// The result folder when the last device step passed: if the device is unplugged mid-copy, every step after it runs
+    /// again from there. `nil` before any device step and in state saved by older versions.
+    public var outputAtDeviceStep: [String]?
 
     public init(
         stepIndex: Int,
@@ -25,7 +28,8 @@ public struct ChainState: Codable, Sendable, Equatable {
         failure: String? = nil,
         startedBy: RunStart? = nil,
         retryAfter: Date? = nil,
-        outputAtStepEntry: [String]? = []
+        outputAtStepEntry: [String]? = [],
+        outputAtDeviceStep: [String]? = nil
     ) {
         self.stepIndex = stepIndex
         self.stepId = stepId
@@ -35,6 +39,7 @@ public struct ChainState: Codable, Sendable, Equatable {
         self.startedBy = startedBy
         self.retryAfter = retryAfter
         self.outputAtStepEntry = outputAtStepEntry
+        self.outputAtDeviceStep = outputAtDeviceStep
     }
 }
 
@@ -115,6 +120,8 @@ public struct AppState: Codable, Sendable, Equatable {
     public var debts: [Debt]
     public var lastReminders: [String: Date]
     public var lastDelivered: [String: String]
+    /// What went wrong after the last copy was delivered (old copies not cleaned up), by `deliveryKey`; absent when nothing did.
+    public var deliveryWarnings: [String: String]
 
     public init() {
         self.schemaVersion = Self.currentSchemaVersion
@@ -123,6 +130,7 @@ public struct AppState: Codable, Sendable, Equatable {
         self.debts = []
         self.lastReminders = [:]
         self.lastDelivered = [:]
+        self.deliveryWarnings = [:]
     }
 
     public init(from decoder: any Decoder) throws {
@@ -133,6 +141,7 @@ public struct AppState: Codable, Sendable, Equatable {
         debts = try container.decodeIfPresent([Debt].self, forKey: .debts) ?? []
         lastReminders = try container.decodeIfPresent([String: Date].self, forKey: .lastReminders) ?? [:]
         lastDelivered = try container.decodeIfPresent([String: String].self, forKey: .lastDelivered) ?? [:]
+        deliveryWarnings = try container.decodeIfPresent([String: String].self, forKey: .deliveryWarnings) ?? [:]
     }
 
     public static func deliveryKey(sourceId: UUID, destinationId: UUID) -> String {
@@ -141,6 +150,17 @@ public struct AppState: Codable, Sendable, Equatable {
 
     public func lastDeliveredSnapshot(sourceId: UUID, destinationId: UUID) -> String? {
         lastDelivered[Self.deliveryKey(sourceId: sourceId, destinationId: destinationId)]
+    }
+
+    /// What went wrong after the last copies of the source were delivered to its destinations.
+    public func deliveryWarnings(of source: Source) -> [String] {
+        var warnings: [String] = []
+        for destinationId in source.destinationIds {
+            guard let warning = deliveryWarnings[Self.deliveryKey(sourceId: source.id, destinationId: destinationId)],
+                  !warnings.contains(warning) else { continue }
+            warnings.append(warning)
+        }
+        return warnings
     }
 
     public func hasDebt(sourceId: UUID, destinationId: UUID) -> Bool {

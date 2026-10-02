@@ -59,13 +59,18 @@ final class ModelFixture {
     init(runner: any ProcessRunner = SystemProcessRunner(), rclone: RcloneLocator = RcloneLocator(candidates: []), prepare: Bool = true) throws {
         temp = try TemporaryFolder()
         store = Store(dataDirectory: temp.url.appendingPathComponent("data", isDirectory: true))
+        let trash = temp.url.appendingPathComponent("Trash", isDirectory: true)
         model = AppModel(
             dataDirectory: store.dataDirectory,
             workDirectory: temp.url.appendingPathComponent("work", isDirectory: true),
             runner: runner,
             rclone: rclone,
             defaults: defaults.defaults,
-            finder: finder
+            finder: finder,
+            trash: { [trash] url in
+                try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+                try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)"))
+            }
         )
         model.onNotices = { [weak self] in self?.notices += $0 }
         model.onChange = { [weak self] in self?.changes += 1 }

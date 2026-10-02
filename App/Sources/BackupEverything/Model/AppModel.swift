@@ -54,6 +54,7 @@ final class AppModel {
     @ObservationIgnored private let rclone: RcloneLocator
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let finder: any FileRevealing
+    @ObservationIgnored private let trash: ManualExportInbox.Trash
     @ObservationIgnored private let editor = ConfigEditor()
     @ObservationIgnored private let planner: SchedulePlanner
     @ObservationIgnored private let retention = RetentionPolicy()
@@ -66,13 +67,15 @@ final class AppModel {
         runner: any ProcessRunner = SystemProcessRunner(),
         rclone: RcloneLocator = RcloneLocator(),
         defaults: UserDefaults = .standard,
-        finder: any FileRevealing = WorkspaceFinder()
+        finder: any FileRevealing = WorkspaceFinder(),
+        trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     ) {
         store = Store(dataDirectory: dataDirectory)
         self.runner = runner
         self.rclone = rclone
         self.defaults = defaults
         self.finder = finder
+        self.trash = trash
         destinationUsage = Self.rememberedUsage(in: defaults)
         destinationSharing = Self.rememberedSharing(in: defaults)
         icons = IconStore(directory: store.iconsDirectory)
@@ -85,6 +88,7 @@ final class AppModel {
             workDirectory: workDirectory,
             runner: runner,
             rclone: rclone,
+            trash: trash,
             progress: { feed.yield(.progress($0)) }
         )
         stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: SnapshotNaming())
@@ -104,7 +108,7 @@ final class AppModel {
 
     func prepare() {
         do {
-            try Bootstrap(store: store, workDirectory: workDirectory).prepare(now: Date())
+            try Bootstrap(store: store, workDirectory: workDirectory, trash: trash).prepare(now: Date())
             config = try store.loadConfig()
             state = try store.loadState()
             templates = store.loadTemplates()

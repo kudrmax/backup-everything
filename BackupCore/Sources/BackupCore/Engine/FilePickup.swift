@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Takes the files of a “Get a file from you” step into the run: all of them or none. What it takes is written down first,
@@ -64,7 +65,7 @@ struct FilePickup: Sendable {
         let fileManager = FileManager.default
         for entry in record.entries.reversed() where fileManager.fileExists(atPath: entry.taken) {
             if entry.moved {
-                try fileManager.moveItem(atPath: entry.taken, toPath: freePath(for: entry.original))
+                try fileManager.moveItem(atPath: entry.taken, toPath: Self.freePath(for: entry.original))
             } else {
                 try trash(URL(fileURLWithPath: entry.taken))
             }
@@ -72,18 +73,31 @@ struct FilePickup: Sendable {
         forget()
     }
 
-    private func freePath(for path: String) -> String {
-        let original = path as NSString
-        let folder = original.deletingLastPathComponent as NSString
-        let base = (original.lastPathComponent as NSString).deletingPathExtension
-        let suffix = original.pathExtension.isEmpty ? "" : "." + original.pathExtension
+    /// The path, or the first “name N.ext” next to it that nothing holds; a link that points nowhere holds its name too.
+    static func freePath(for path: String) -> String {
+        let folder = (path as NSString).deletingLastPathComponent as NSString
+        let (stem, suffix) = nameParts((path as NSString).lastPathComponent)
         var candidate = path
         var number = 2
-        while FileManager.default.fileExists(atPath: candidate) {
-            candidate = folder.appendingPathComponent("\(base) \(number)\(suffix)")
+        var info = stat()
+        while lstat(candidate, &info) == 0 {
+            candidate = folder.appendingPathComponent("\(stem) \(number)\(suffix)")
             number += 1
         }
         return candidate
+    }
+
+    /// “archive.tar.gz” is “archive” and “.tar.gz”; leading dots belong to the name: “.env” has no extension.
+    private static func nameParts(_ name: String) -> (stem: String, suffix: String) {
+        let body = name.drop { $0 == "." }
+        guard let dot = body.lastIndex(of: "."), body.index(after: dot) != body.endIndex else { return (name, "") }
+        var stem = String(name[..<dot])
+        var suffix = String(name[dot...])
+        if stem.hasSuffix(".tar"), stem.dropLast(4).contains(where: { $0 != "." }) {
+            stem.removeLast(4)
+            suffix = ".tar" + suffix
+        }
+        return (stem, suffix)
     }
 
     private func forget() {

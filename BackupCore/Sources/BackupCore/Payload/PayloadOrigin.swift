@@ -1,14 +1,24 @@
 import Darwin
 import Foundation
 
-/// The folder (or single file) a payload is read from, as it was when the listing began. Items inside it may vanish while
-/// they are read: live folders and caches change. But when the folder itself is gone or is not the same one any more —
-/// the disk was ejected, the folder renamed or replaced — nothing vanished: the payload can no longer be read, and every
-/// item still to be copied would be missing from the copy.
+/// How an item that cannot be read any more went missing.
+enum PayloadLoss: Equatable {
+    /// The item is gone while the payload around it is in place: live folders and caches change.
+    case vanished
+    /// The payload folder is gone or is not the same one (its disk was ejected, it was renamed or replaced), or a disk
+    /// mounted inside it was ejected: what is still to be read cannot be, and the copy stops with this error.
+    case gone(SourceError)
+}
+
+/// The folder (or single file) a payload is read from, as it was when the listing began, and the disk every listed folder
+/// was on. Items inside it may vanish while they are read: live folders and caches change. But when the folder itself is
+/// gone or is not the same one any more — the disk was ejected, the folder renamed or replaced — or a disk mounted inside
+/// it was ejected, nothing vanished: that part can no longer be read, and every item still to be copied would be missing.
 struct PayloadOrigin: Sendable {
     let path: String
     private let device: dev_t
     private let inode: ino_t
+    private var folders: [String: dev_t] = [:]
 
     init(_ root: URL) throws {
         var info = stat()
@@ -18,16 +28,28 @@ struct PayloadOrigin: Sendable {
         inode = info.st_ino
     }
 
-    /// The item is gone, and so may be its folders, while the payload around it is still in place on the same disk.
-    func hasVanished(_ url: URL) -> Bool {
+    mutating func record(folder: URL, device: dev_t) {
+        folders[folder.path] = device
+    }
+
+    /// Why the item is missing; nil when it is not, or when what is wrong with it is not that it is gone. `device` is the
+    /// disk the item was on when it was listed; without it, the disk recorded for the item or for its folder is taken.
+    func loss(of url: URL, wasOn device: dev_t? = nil) -> PayloadLoss? {
         var info = stat()
-        guard lstat(url.path, &info) != 0, errno == ENOENT, isInPlace else { return false }
+        guard lstat(url.path, &info) != 0, errno == ENOENT else { return nil }
+        guard isInPlace else { return .gone(.sourceDisappeared(path)) }
         var folder = (url.path as NSString).deletingLastPathComponent
         while lstat(folder, &info) != 0 {
-            guard errno == ENOENT, folder.count > path.count else { return false }
+            guard errno == ENOENT, folder.count > path.count else { return nil }
             folder = (folder as NSString).deletingLastPathComponent
         }
-        return info.st_dev == device
+        guard let itemDevice = device ?? recordedDevice(url.path) ?? recordedDevice((url.path as NSString).deletingLastPathComponent),
+              let folderDevice = recordedDevice(folder) else { return nil }
+        return info.st_dev == itemDevice && info.st_dev == folderDevice ? .vanished : .gone(.diskDisappeared(folder))
+    }
+
+    private func recordedDevice(_ folder: String) -> dev_t? {
+        folder == path ? device : folders[folder]
     }
 
     private var isInPlace: Bool {

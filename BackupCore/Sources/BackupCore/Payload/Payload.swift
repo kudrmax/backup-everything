@@ -39,6 +39,8 @@ public struct PayloadEntry: Sendable, Equatable {
     public let relativePath: String
     public let kind: Kind
     public let size: Int64
+    /// The disk the item was on when it was listed.
+    let device: dev_t
 }
 
 public struct PayloadStats: Sendable, Equatable {

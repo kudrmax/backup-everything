@@ -6,6 +6,7 @@ enum SourceStatus: Equatable {
     case failed(String)
     case overdue
     case noDestinations
+    case warning(String)
     case filesFound(count: Int, bytes: Int64, downloading: Bool)
     case exportDue
     case deviceDue
@@ -22,6 +23,7 @@ enum SourceStatus: Equatable {
             case let .runFailed(id, message) where id == source.id: found.append(.failed(message))
             case let .severelyOverdue(id) where id == source.id: found.append(.overdue)
             case let .noDestinations(id) where id == source.id: found.append(.noDestinations)
+            case let .deliveryWarning(id, message) where id == source.id: found.append(.warning(message))
             case let .filesAwaitingPickup(id, count, bytes, downloading) where id == source.id:
                 found.append(.filesFound(count: count, bytes: bytes, downloading: downloading))
             case let .manualExportDue(id) where id == source.id: found.append(.exportDue)
@@ -37,7 +39,7 @@ enum SourceStatus: Equatable {
     var severity: OverallStatus {
         switch self {
         case .failed, .overdue: .error
-        case .noDestinations, .filesFound, .exportDue, .deviceDue: .attention
+        case .noDestinations, .warning, .filesFound, .exportDue, .deviceDue: .attention
         case .waiting, .waitingForDevice, .disabled, .neverRun, .ok: .ok
         }
     }
@@ -48,6 +50,7 @@ enum SourceStatus: Equatable {
         case let .failed(message): "Error: \(message)"
         case .overdue: "Backup is long overdue"
         case .noDestinations: "No destination chosen"
+        case let .warning(message): "Delivered, but: \(message)"
         case let .filesFound(count, bytes, downloading):
             "Files found: \(count), \(Texts.bytes(bytes))" + (downloading ? ". Downloading" : "")
         case .exportDue: "Time to export"
@@ -77,6 +80,7 @@ enum SourceStatus: Equatable {
         case let .failed(message): Texts.errorHeadline(message)
         case .overdue: "no backup for a long time"
         case .noDestinations: "no destination chosen"
+        case let .warning(message): Texts.errorHeadline(message)
         case let .filesFound(count, bytes, downloading):
             "\(Texts.files(count)) · \(Texts.bytes(bytes))" + (downloading ? " · downloading" : "")
         case .exportDue: "time to export"
@@ -92,6 +96,7 @@ enum SourceStatus: Equatable {
         case .overdue: 1
         case .noDestinations: 2
         case .filesFound: 3
+        case .warning: 4
         case .exportDue, .deviceDue: 5
         case .waiting, .waitingForDevice: 6
         case .disabled, .neverRun, .ok: 7

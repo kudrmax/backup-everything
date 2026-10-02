@@ -22,8 +22,8 @@ public struct PendingSource: SourceProvider {
         return Payload(root: package.directory, collectedAt: package.collectedAt, madeEarlier: true)
     }
 
-    public func finish(_ payload: Payload, deliveredEverywhere: Bool) throws {
-        guard deliveredEverywhere, !quit.isQuitting else { return }
+    public func finish(_ payload: Payload, delivered: PayloadDelivery) throws {
+        guard delivered == .everywhere, !quit.isQuitting else { return }
         try inbox.removePackage(for: sourceId, toTrash: trashAfterDelivery)
     }
 }
