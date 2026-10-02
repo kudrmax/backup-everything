@@ -26,6 +26,16 @@ public struct SnapshotManifest: Codable, Sendable, Equatable {
     /// Unchanged files of the copy are clones of files from earlier copies of this source.
     public var sharesData: Bool?
 
+    private struct Owner: Decodable {
+        let sourceId: UUID
+    }
+
+    /// The source named in the manifest of the copy in `directory`; `nil` when there is no readable manifest.
+    static func owner(of directory: URL) -> UUID? {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent(fileName)) else { return nil }
+        return (try? JSONCoding.decoder().decode(Owner.self, from: data))?.sourceId
+    }
+
     public init(
         sourceId: UUID,
         sourceName: String,
@@ -59,7 +69,12 @@ public struct SnapshotFile: Codable, Sendable, Equatable {
     }
 }
 
+/// Copies are named by local time, `2026-09-28_143000`. When clocks go back, an hour repeats; names in it carry the UTC offset,
+/// `2026-10-25_023000+0200` and `2026-10-25_023000+0100`, so that two copies never share a name and each reads back as its own moment.
 public struct SnapshotNaming: Sendable {
+    private static let localFormat = "yyyy-MM-dd_HHmmss"
+    private static let offsetFormat = "yyyy-MM-dd_HHmmssZ"
+
     private let timeZone: TimeZone
 
     public init(timeZone: TimeZone = .current) {
@@ -67,24 +82,36 @@ public struct SnapshotNaming: Sendable {
     }
 
     public func name(for date: Date) -> String {
-        formatter().string(from: date)
+        let local = formatter(Self.localFormat).string(from: date)
+        return isRepeated(local, at: date) ? formatter(Self.offsetFormat).string(from: date) : local
     }
 
     public func date(from name: String) -> Date? {
-        let formatter = formatter()
-        guard let date = formatter.date(from: name), formatter.string(from: date) == name else { return nil }
-        return date
+        for format in [Self.localFormat, Self.offsetFormat] {
+            let formatter = formatter(format)
+            if let date = formatter.date(from: name), formatter.string(from: date) == name { return date }
+        }
+        return nil
     }
 
     public func snapshot(named name: String) -> Snapshot? {
         date(from: name).map { Snapshot(name: name, date: $0) }
     }
 
-    private func formatter() -> DateFormatter {
+    /// Whether another moment with a different UTC offset shows the same local time.
+    private func isRepeated(_ local: String, at date: Date) -> Bool {
+        let offset = timeZone.secondsFromGMT(for: date)
+        let neighbouringOffsets = Set([-1.0, 1.0].map { timeZone.secondsFromGMT(for: date.addingTimeInterval($0 * 86_400)) })
+        return neighbouringOffsets.subtracting([offset]).contains { other in
+            formatter(Self.localFormat).string(from: date.addingTimeInterval(TimeInterval(offset - other))) == local
+        }
+    }
+
+    private func formatter(_ format: String) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        formatter.dateFormat = format
         return formatter
     }
 }

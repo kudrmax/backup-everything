@@ -41,6 +41,21 @@ public struct RcloneDestination: DestinationStore {
         return lines(result.stdout).compactMap { line in line.split(separator: "/").first.map(String.init) }
     }
 
+    public func owners(sourceSlug: String) async throws -> [String: UUID] {
+        let fileManager = FileManager.default
+        let scratch = fileManager.temporaryDirectory.appendingPathComponent("rclone-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: scratch) }
+        let result = try await rclone(["copy", target(sourceSlug), scratch.path, "--include", "/*/\(SnapshotManifest.fileName)"])
+        if result.exitCode == Self.directoryNotFoundExitCode { return [:] }
+        try check(result)
+        var owners: [String: UUID] = [:]
+        for name in (try? fileManager.contentsOfDirectory(atPath: scratch.path)) ?? [] {
+            owners[name] = SnapshotManifest.owner(of: scratch.appendingPathComponent(name, isDirectory: true))
+        }
+        return owners
+    }
+
     public func removeIncomplete(sourceSlug: String) async throws {
         let result = try await rclone(["lsf", target(sourceSlug), "--dirs-only"])
         if result.exitCode == Self.directoryNotFoundExitCode { return }
@@ -60,6 +75,7 @@ public struct RcloneDestination: DestinationStore {
         defer { try? fileManager.removeItem(at: scratch) }
 
         let destination = target(sourceSlug, snapshotName)
+        try await clearTheWay(to: destination)
         let markerURL = scratch.appendingPathComponent(SnapshotManifest.unfinishedMarker)
         try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
         try check(try await rclone(["copyto", markerURL.path, "\(destination)/\(SnapshotManifest.unfinishedMarker)"]))
@@ -76,6 +92,19 @@ public struct RcloneDestination: DestinationStore {
         try JSONCoding.encoder().encode(manifest).write(to: manifestURL)
         try check(try await rclone(["copyto", manifestURL.path, "\(destination)/\(SnapshotManifest.fileName)"]))
         try check(try await rclone(["deletefile", "\(destination)/\(SnapshotManifest.unfinishedMarker)"]))
+    }
+
+    /// Spec 4.3: an unfinished attempt under the same name is purged, any other folder there stops the write untouched.
+    private func clearTheWay(to destination: String) async throws {
+        let result = try await rclone(["lsf", destination])
+        if result.exitCode == Self.directoryNotFoundExitCode { return }
+        try check(result)
+        let entries = Set(lines(result.stdout))
+        guard !entries.isEmpty else { return }
+        guard entries.contains(SnapshotManifest.unfinishedMarker), !entries.contains(SnapshotManifest.fileName) else {
+            throw DestinationError.folderInTheWay(destination)
+        }
+        try check(try await rclone(["purge", destination]))
     }
 
     public func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {

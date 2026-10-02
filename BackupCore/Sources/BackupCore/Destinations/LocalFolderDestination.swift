@@ -31,6 +31,14 @@ public struct LocalFolderDestination: DestinationStore {
         snapshotDirectories(sourceSlug).filter { hasManifest($0.url) }.map(\.snapshot)
     }
 
+    public func owners(sourceSlug: String) async throws -> [String: UUID] {
+        var owners: [String: UUID] = [:]
+        for directory in snapshotDirectories(sourceSlug) {
+            owners[directory.snapshot.name] = SnapshotManifest.owner(of: directory.url)
+        }
+        return owners
+    }
+
     public func removeIncomplete(sourceSlug: String) async throws {
         for directory in snapshotDirectories(sourceSlug) where isUnfinished(directory.url) {
             try trash(directory.url)

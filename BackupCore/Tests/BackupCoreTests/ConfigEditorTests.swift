@@ -108,6 +108,24 @@ struct ConfigEditorTests {
         #expect(editor.maskConflicts(for: export, in: config).map(\.name) == ["Claude"])
     }
 
+    @Test func masksThatMatchTheSameFileAreReportedAsOverlapping() {
+        let contacts = manual("Contacts", "*.vcf")
+        let work = manual("Work contacts", "Work*")
+        let passwords = manual("Passwords", "Passwords*.csv")
+        let finance = manual("Finance", "*-export.csv")
+        let config = Config(sources: [contacts, work, passwords, finance])
+
+        #expect(editor.maskConflicts(for: contacts, in: config).map(\.name) == ["Work contacts"])
+        #expect(editor.maskConflicts(for: passwords, in: config).map(\.name) == ["Finance"])
+    }
+
+    @Test(arguments: ["~/downloads", "~/Downloads/", "~/Desktop/../Downloads", "~/DOWNLOADS"])
+    func sameFolderWrittenDifferentlyIsOneFolder(folder: String) {
+        let passwords = manual("Passwords", "Passwords*.csv")
+        let finance = manual("Finance", "*.csv", folder: folder)
+        #expect(editor.maskConflicts(for: passwords, in: Config(sources: [passwords, finance])).map(\.name) == ["Finance"])
+    }
+
     @Test func orderingWithARepeatedIdUsesItsFirstPlaceAndKeepsTheRestInOrder() {
         let a = Fixtures.source(name: "A"), b = Fixtures.source(name: "B"), c = Fixtures.source(name: "C"), d = Fixtures.source(name: "D")
         var config = Config(sources: [a, b, c, d])

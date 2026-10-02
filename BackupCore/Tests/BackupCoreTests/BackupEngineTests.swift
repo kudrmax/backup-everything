@@ -162,6 +162,31 @@ struct BackupEngineTests {
         #expect(cloudStore.log == ["removeIncomplete"])
     }
 
+    /// When clocks go back, the hour repeats: two backups an hour apart are two copies, the second is not taken for “already delivered”.
+    @Test func backupInTheRepeatedHourIsNotLost() async throws {
+        defer { temp.remove() }
+        let berlinZone = TimeZone(identifier: "Europe/Berlin")!
+        let berlin = SnapshotNaming(timeZone: berlinZone)
+        let first = Fixtures.date("2026-10-25 00:30:00")
+        let second = Fixtures.date("2026-10-25 01:30:00")
+        try temp.file("vault/a.md", "alpha")
+        let provider = FakeSourceProvider(result: .success(Payload(root: temp.path("vault"), collectedAt: first)))
+        let disk = Destination(name: "HDD", kind: .localFolder(path: "/unused"))
+        let store = FakeDestinationStore()
+        let factories = FakeFactories(sourceProvider: provider, destinationStores: [disk.id: store])
+        let source = Fixtures.source(destinations: [disk])
+        func engine(at now: Date) -> BackupEngine {
+            BackupEngine(providers: factories, stores: factories, retention: RetentionPolicy(timeZone: berlinZone), naming: berlin, time: FakeTimeSource(now))
+        }
+
+        _ = await engine(at: first).run(source: source, destinations: [disk], trigger: .manual)
+        try temp.file("vault/a.md", "alpha, an hour later")
+        provider.result = .success(Payload(root: temp.path("vault"), collectedAt: second))
+        _ = await engine(at: second).run(source: source, destinations: [disk], trigger: .manual)
+
+        #expect(store.log.filter { $0.hasPrefix("write:") }.count == 2)
+    }
+
     @Test func freshlyWrittenSnapshotIsNeverPrunedEvenIfOlderThanExisting() async {
         defer { temp.remove() }
         cloudStore.snapshots = [Fixtures.snapshot("2026-09-28 20:00:00")]

@@ -15,7 +15,7 @@ public struct ConfigEditor: Sendable {
     ) -> Source {
         Source(
             name: name,
-            slug: Slug.make(from: name, existing: Set(config.sources.map(\.slug))),
+            slug: Slug.make(from: name, existing: config.takenSlugs),
             steps: steps,
             schedule: schedule,
             retention: retention,
@@ -28,7 +28,7 @@ public struct ConfigEditor: Sendable {
     public func save(_ source: Source, in config: inout Config) {
         var updated = source
         guard let index = config.sources.firstIndex(where: { $0.id == source.id }) else {
-            updated.slug = Slug.make(from: source.name, existing: Set(config.sources.map(\.slug)))
+            updated.slug = Slug.make(from: source.name, existing: config.takenSlugs)
             config.sources.append(updated)
             return
         }
@@ -38,7 +38,11 @@ public struct ConfigEditor: Sendable {
     }
 
     public func removeSource(_ id: UUID, from config: inout Config) {
+        guard let removed = config.source(id) else { return }
         config.sources.removeAll { $0.id == id }
+        if !config.takenSlugs.contains(removed.slug) {
+            config.retiredSlugs.append(removed.slug)
+        }
     }
 
     /// Sources missing from `ids` (for example, added in the meantime) stay at the end in their previous order.
@@ -75,12 +79,12 @@ public struct ConfigEditor: Sendable {
     }
 
     private static func overlap(_ first: WatchedFile, _ second: WatchedFile) -> Bool {
-        guard Paths.url(first.watchPath).standardizedFileURL == Paths.url(second.watchPath).standardizedFileURL else { return false }
-        return GlobPattern(first.filePattern).matches(sample(of: second.filePattern))
-            || GlobPattern(second.filePattern).matches(sample(of: first.filePattern))
+        folderKey(first.watchPath) == folderKey(second.watchPath)
+            && GlobPattern(first.filePattern).overlaps(GlobPattern(second.filePattern))
     }
 
-    private static func sample(of pattern: String) -> String {
-        pattern.replacingOccurrences(of: "*", with: "x").replacingOccurrences(of: "?", with: "x")
+    /// Folder names on macOS volumes ignore case and Unicode form: `~/Downloads` and `~/downloads/` are one folder.
+    private static func folderKey(_ path: String) -> String {
+        Paths.url(path).resolvingSymlinksInPath().standardizedFileURL.path.precomposedStringWithCanonicalMapping.lowercased()
     }
 }

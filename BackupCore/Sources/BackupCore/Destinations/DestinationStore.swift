@@ -25,7 +25,10 @@ public enum DestinationError: Error, Equatable, LocalizedError {
 
 public protocol DestinationStore: Sendable {
     func isAvailable() async -> Bool
+    /// Every finished copy in the folder of the slug, whoever wrote it.
     func listSnapshots(sourceSlug: String) async throws -> [Snapshot]
+    /// The source that wrote each copy in the folder of the slug, by copy name, as its manifest says. A copy whose manifest cannot be read is absent.
+    func owners(sourceSlug: String) async throws -> [String: UUID]
     /// Cleans up copies this app began and did not finish (marked `_unfinished`, no manifest). Anything else is left alone.
     func removeIncomplete(sourceSlug: String) async throws
     /// `reusingStoredFiles`: content already present in earlier copies of the source may be cloned instead of written again.
@@ -36,4 +39,14 @@ public protocol DestinationStore: Sendable {
     func usedBytes() async throws -> Int64
     /// Whether copies here can share unchanged files; `nil` when it cannot be checked right now (the disk is not connected).
     func canShareUnchangedFiles() async -> Bool?
+}
+
+extension DestinationStore {
+    /// Copies of the source: those in its folder whose manifest does not name another source. A folder can hold copies
+    /// of a removed source with the same slug (configurations made before slugs were retired); they are never this source's.
+    public func copies(of source: Source) async throws -> [Snapshot] {
+        let snapshots = try await listSnapshots(sourceSlug: source.slug)
+        let owners = try await owners(sourceSlug: source.slug)
+        return snapshots.filter { owners[$0.name].map { $0 == source.id } ?? true }
+    }
 }

@@ -26,6 +26,7 @@ final class FakeSourceProvider: SourceProvider, @unchecked Sendable {
 final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
     var available = true
     var snapshots: [Snapshot] = []
+    var owners: [String: UUID] = [:]
     var writeError: Error?
     var deleteError: Error?
     var listError: Error?
@@ -43,6 +44,10 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         return snapshots
     }
 
+    func owners(sourceSlug: String) async throws -> [String: UUID] {
+        owners
+    }
+
     func removeIncomplete(sourceSlug: String) async throws {
         if let removeIncompleteError { throw removeIncompleteError }
         log.append("removeIncomplete")
@@ -55,6 +60,7 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         writtenManifests.append(manifest)
         writtenPayloads.append(payload)
         snapshots.append(Snapshot(name: snapshotName, date: manifest.collectedAt))
+        owners[snapshotName] = manifest.sourceId
     }
 
     func usedBytes() async throws -> Int64 { 0 }
