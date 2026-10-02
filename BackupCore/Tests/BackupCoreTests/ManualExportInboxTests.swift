@@ -112,4 +112,31 @@ struct ManualExportInboxTests {
         #expect(temp.names(in: "pending/\(sourceId.uuidString)/2026-09-29_100000") == ["new.zip"])
         #expect(temp.names(in: "trash") == ["old.zip"])
     }
+
+    @Test func newestOfSeveralPendingPackagesIsTheOneDelivered() throws {
+        defer { temp.remove() }
+        let base = "pending/\(sourceId.uuidString)"
+        try temp.file("\(base)/2026-09-20_100000/old.zip", "old")
+        try temp.file("\(base)/2026-09-27_100000/new.zip", "new")
+        try temp.file("\(base)/2026-09-25_100000/middle.zip", "middle")
+        try temp.directory("\(base)/not a package")
+
+        let package = try #require(inbox.pendingPackage(for: sourceId))
+        #expect(package.collectedAt == Fixtures.date("2026-09-27 10:00:00"))
+        #expect(package.directory.lastPathComponent == "2026-09-27_100000")
+    }
+
+    @Test func removingAPackageTrashesOnlyItsFilesWhenAsked() throws {
+        defer { temp.remove() }
+        let base = "pending/\(sourceId.uuidString)"
+        try temp.file("\(base)/2026-09-27_100000/takeout.zip", "zip")
+        try inbox.removePackage(for: sourceId, toTrash: false)
+        #expect(temp.names(in: "trash").isEmpty)
+        #expect(!temp.exists(base))
+
+        try temp.file("\(base)/2026-09-27_100000/takeout.zip", "zip")
+        try inbox.removePackage(for: sourceId, toTrash: true)
+        #expect(temp.names(in: "trash") == ["takeout.zip"])
+        #expect(inbox.sourceIds().isEmpty)
+    }
 }

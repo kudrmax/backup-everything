@@ -136,4 +136,34 @@ struct DomainTests {
         let state = SourceState(chain: ChainState(stepIndex: 1, startedAt: at, stepEnteredAt: at, failure: "broke"))
         #expect(try JSONCoding.decoder().decode(SourceState.self, from: JSONCoding.encoder().encode(state)) == state)
     }
+
+    @Test func onlyStepsForThePersonHaveInstructions() {
+        #expect(SourceStep.folder("/vault").instructions == nil)
+        #expect(SourceStep.command("true", timeoutSeconds: 1).instructions == nil)
+        #expect(SourceStep.device("/Volumes/PB", instructions: "Plug in the reader").instructions == "Plug in the reader")
+    }
+
+    @Test func devicePathFallsBackToTheNextFolderAndOtherwiseIsUnknown() {
+        let byFolder = Fixtures.source(steps: [.device(""), .command("prepare", timeoutSeconds: 10), .folder(""), .folder("/Volumes/PB/Books")])
+        #expect(byFolder.devicePath(at: 0) == "/Volumes/PB/Books")
+        #expect(byFolder.devicePath(at: 1) == nil)
+        #expect(byFolder.devicePath(at: 9) == nil)
+
+        let nowhere = Fixtures.source(steps: [.device(""), .command("copy", timeoutSeconds: 10)])
+        #expect(nowhere.devicePath(at: 0) == nil)
+    }
+
+    @Test func deviceWithoutAnyPathIsAlwaysAwaited() async {
+        let source = Fixtures.source(steps: [.device(""), .command("copy", timeoutSeconds: 10)])
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("BackupCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let chains = StepChainRunner(
+            chainsRoot: temp.appendingPathComponent("chains"),
+            inbox: ManualExportInbox(pendingRoot: temp.appendingPathComponent("pending"), naming: Fixtures.naming),
+            runner: FakeProcessRunner(),
+            time: FakeTimeSource(Fixtures.date("2026-09-28 10:00:00"))
+        )
+        #expect(chains.awaitsDevice(source, chain: nil))
+        #expect(await chains.advance(source, chain: nil, lastPickup: nil, permissions: ChainPermissions(mayStart: true, mayRetry: true)) == .stay)
+    }
 }

@@ -194,4 +194,157 @@ struct BackupEngineTests {
         _ = await run()
         #expect(events.get() == [.collecting(sourceId: source.id), .finished(sourceId: source.id)])
     }
+
+    private func engine(_ stores: any DestinationStoreFactory) -> BackupEngine {
+        BackupEngine(
+            providers: FakeFactories(sourceProvider: provider, destinationStores: [:]),
+            stores: stores,
+            retention: RetentionPolicy(timeZone: Fixtures.utc),
+            naming: Fixtures.naming,
+            time: FakeTimeSource(now),
+            progress: { [events] event in events.set(events.get() + [event]) }
+        )
+    }
+
+    private var fakeStores: FakeFactories {
+        FakeFactories(sourceProvider: provider, destinationStores: [disk.id: diskStore, cloud.id: cloudStore])
+    }
+
+    private func materializedCopy() throws -> URL {
+        try temp.file("hdd-copy/\(name)/a.md", "alpha")
+        try temp.file("hdd-copy/\(name)/sub/b.md", "beta")
+        try temp.file("hdd-copy/\(name)/_snapshot.json", "{}")
+        return temp.path("hdd-copy/\(name)")
+    }
+
+    @Test func catchUpTransfersTheExistingCopyUnderItsOwnName() async throws {
+        defer { temp.remove() }
+        diskStore.materialized = try materializedCopy()
+        let snapshot = Snapshot(name: name, date: now)
+
+        let record = await engine(fakeStores).copy(snapshot, of: source, from: disk, to: [cloud])
+
+        #expect(provider.collectCount == 0)
+        #expect(record.trigger == .catchUp)
+        #expect(record.snapshotName == name)
+        #expect(record.collectedAt == now)
+        #expect(record.copiedFrom == "HDD")
+        #expect(record.details == "Copied from “HDD”")
+        #expect(record.fileCount == 2)
+        #expect(record.totalBytes == 9)
+        #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil)])
+        #expect(cloudStore.log == ["write:\(name)", "removeIncomplete"])
+        #expect(cloudStore.writtenManifests.map(\.fileCount) == [2])
+        #expect(cloudStore.writtenManifests.first?.sourceId == source.id)
+        #expect(cloudStore.writtenPayloads.first?.excludes == [SnapshotManifest.fileName, SnapshotManifest.unfinishedMarker])
+        #expect(events.get() == [.delivering(sourceId: source.id, destinationId: cloud.id), .finished(sourceId: source.id)])
+    }
+
+    @Test func catchUpSkipsUnavailableTargets() async throws {
+        defer { temp.remove() }
+        diskStore.materialized = try materializedCopy()
+        let laptop = Destination(name: "Laptop", kind: .localFolder(path: "/unused/laptop"))
+        let laptopStore = FakeDestinationStore()
+        laptopStore.available = false
+        let stores = FakeFactories(sourceProvider: provider, destinationStores: [disk.id: diskStore, cloud.id: cloudStore, laptop.id: laptopStore])
+
+        let record = await engine(stores).copy(Snapshot(name: name, date: now), of: source, from: disk, to: [laptop, cloud])
+
+        #expect(record.deliveries.map(\.outcome) == [.unavailable, .delivered(pruned: 0, warning: nil)])
+        #expect(laptopStore.log.isEmpty)
+    }
+
+    @Test func catchUpFromAnOriginThatCannotGiveTheCopyFailsEveryTarget() async {
+        defer { temp.remove() }
+        let record = await engine(fakeStores).copy(Snapshot(name: name, date: now), of: source, from: disk, to: [cloud])
+        #expect(record.deliveries.map(\.outcome) == [.failed(message: "Could not take the copy from “HDD”: The destination is unavailable.")])
+        #expect(record.snapshotName == nil)
+        #expect(cloudStore.log.isEmpty)
+        #expect(events.get() == [.finished(sourceId: source.id)])
+    }
+
+    @Test func caughtUpOlderCopyIsNotPrunedByItsOwnDelivery() async throws {
+        defer { temp.remove() }
+        diskStore.materialized = try materializedCopy()
+        cloudStore.snapshots = ["2026-09-26 10:00:00", "2026-09-27 10:00:00", "2026-09-28 20:00:00"].map(Fixtures.snapshot)
+
+        let record = await engine(fakeStores).copy(Snapshot(name: name, date: now), of: source, from: disk, to: [cloud])
+
+        #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 1, warning: nil)])
+        #expect(cloudStore.snapshots.map(\.name).sorted() == ["2026-09-27_100000", name, "2026-09-28_200000"])
+    }
+
+    @Test func destinationThatCannotListItsCopiesIsNotWrittenTo() async {
+        defer { temp.remove() }
+        cloudStore.listError = Boom()
+        let record = await run()
+        #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .failed(message: "disk disconnected")])
+        #expect(cloudStore.log.isEmpty)
+        #expect(provider.finished == [false])
+    }
+
+    @Test func failedCleanupOfUnfinishedCopiesPrunesNothing() async {
+        defer { temp.remove() }
+        cloudStore.snapshots = ["2026-09-25 10:00:00", "2026-09-26 10:00:00", "2026-09-27 10:00:00"].map(Fixtures.snapshot)
+        cloudStore.removeIncompleteError = Boom()
+        let record = await run()
+        #expect(record.deliveries[1].outcome == .delivered(pruned: 0, warning: "Could not clean up old copies: disk disconnected"))
+        #expect(cloudStore.snapshots.count == 4)
+        #expect(provider.finished == [true])
+    }
+
+    private struct TrashingLocalStores: DestinationStoreFactory {
+        let trash: URL
+
+        func store(for destination: Destination) -> any DestinationStore {
+            guard case let .localFolder(path) = destination.kind else { fatalError("local folders only") }
+            return LocalFolderDestination(root: URL(fileURLWithPath: path), naming: Fixtures.naming) { url in
+                try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent(url.lastPathComponent))
+            }
+        }
+    }
+
+    @Test func realDiskKeepsByRuleTrashesOnlyUnfinishedAndLeavesForeignFoldersAlone() async throws {
+        defer { temp.remove() }
+        try temp.directory("Trash")
+        for day in ["2026-09-24_100000", "2026-09-25_100000", "2026-09-26_100000", "2026-09-27_100000"] {
+            try temp.file("hdd/obsidian/\(day)/a.md", "old")
+            try temp.file("hdd/obsidian/\(day)/_snapshot.json", "{}")
+        }
+        try temp.file("hdd/obsidian/2026-09-28_120000/_unfinished")
+        try temp.file("hdd/obsidian/2026-09-28_120000/a.md", "half")
+        try temp.file("hdd/obsidian/2026-09-23_100000/lost-manifest.md")
+        try temp.file("hdd/obsidian/Мои вещи/keep.md")
+        let hdd = Fixtures.localDestination("HDD", at: temp.path("hdd"))
+        let source = Fixtures.source(retention: RetentionRules(daily: 2, weekly: 0, monthly: 0, yearly: 0), destinations: [hdd])
+
+        let record = await engine(TrashingLocalStores(trash: temp.path("Trash"))).run(source: source, destinations: [hdd], trigger: .scheduled)
+
+        #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 3, warning: nil)])
+        #expect(temp.names(in: "hdd/obsidian") == ["2026-09-23_100000", "2026-09-27_100000", name, "Мои вещи"])
+        #expect(temp.names(in: "Trash") == ["2026-09-28_120000"])
+        #expect(try String(contentsOf: temp.path("hdd/obsidian/\(name)/a.md"), encoding: .utf8) == "alpha")
+    }
+
+    @Test func realDiskThatFailsMidWriteKeepsEveryOlderCopy() async throws {
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: temp.path("vault/secret.md").path)
+            temp.remove()
+        }
+        try temp.directory("Trash")
+        for day in ["2026-09-25_100000", "2026-09-26_100000", "2026-09-27_100000"] {
+            try temp.file("hdd/obsidian/\(day)/_snapshot.json", "{}")
+        }
+        try temp.file("vault/secret.md", "no access")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: temp.path("vault/secret.md").path)
+        let hdd = Fixtures.localDestination("HDD", at: temp.path("hdd"))
+        let source = Fixtures.source(retention: RetentionRules(daily: 1, weekly: 0, monthly: 0, yearly: 0), destinations: [hdd])
+
+        let record = await engine(TrashingLocalStores(trash: temp.path("Trash"))).run(source: source, destinations: [hdd], trigger: .scheduled)
+
+        #expect(record.firstFailure != nil)
+        #expect(temp.names(in: "hdd/obsidian") == ["2026-09-25_100000", "2026-09-26_100000", "2026-09-27_100000", name])
+        #expect(temp.exists("hdd/obsidian/\(name)/_unfinished"))
+        #expect(temp.names(in: "Trash").isEmpty)
+    }
 }

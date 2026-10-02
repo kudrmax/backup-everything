@@ -315,4 +315,58 @@ struct StepChainRunnerTests {
         let running = chain(source, 1, startedAt: start.addingTimeInterval(-3600), stepEnteredAt: start.addingTimeInterval(-3600))
         #expect(runner.awaitedFiles(source, chain: running, lastPickup: nil) == nil)
     }
+
+    private func pickUpAfterACommand(removeOriginal: Bool) async throws -> (ChainTransition, Source) {
+        let pickup = SourceStep(name: "Exports", kind: .file(
+            instructions: "",
+            watchPath: temp.path("Downloads").path,
+            filePattern: "export-*.csv",
+            fileMode: .multiple,
+            includeInCopy: true,
+            removeOriginal: removeOriginal
+        ))
+        let source = source([command("Make the summary"), pickup])
+        let runner = runner { call in
+            let output = URL(fileURLWithPath: call.environment["BACKUP_OUTPUT_DIR"]!)
+            try Data("from the command".utf8).write(to: output.appendingPathComponent("export-2.csv"))
+            return ProcessResult(exitCode: 0)
+        }
+        guard case let .moved(afterCommand?) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the command step did not move on")
+            return (.stay, source)
+        }
+        time.advance(600)
+        try temp.file("Downloads/export-1.csv", "one", modified: start.addingTimeInterval(60))
+        try temp.file("Downloads/export-2.csv", "two", modified: start.addingTimeInterval(60))
+        let confirm = ChainPermissions(mayStart: true, mayRetry: true, mayConfirm: true)
+        return (await runner.advance(source, chain: afterCommand, lastPickup: nil, permissions: confirm), source)
+    }
+
+    @Test func pickupThatFailsHalfwayPutsMovedFilesBack() async throws {
+        defer { temp.remove() }
+        let (transition, source) = try await pickUpAfterACommand(removeOriginal: true)
+
+        guard case let .failed(chain) = transition else {
+            Issue.record("expected a failed pickup, got \(transition)")
+            return
+        }
+        #expect(chain.stepIndex == 1)
+        #expect(chain.failure?.hasPrefix("Could not pick up the files:") == true)
+        #expect(temp.names(in: "Downloads") == ["export-1.csv", "export-2.csv"])
+        #expect(try String(contentsOf: temp.path("Downloads/export-1.csv"), encoding: .utf8) == "one")
+        #expect(temp.names(in: chainFolder(source, "output")) == ["export-2.csv"])
+        #expect(try String(contentsOf: temp.path(chainFolder(source, "output") + "/export-2.csv"), encoding: .utf8) == "from the command")
+    }
+
+    @Test func pickupThatKeepsOriginalsAndFailsHalfwayLeavesNoCopies() async throws {
+        defer { temp.remove() }
+        let (transition, source) = try await pickUpAfterACommand(removeOriginal: false)
+
+        guard case .failed = transition else {
+            Issue.record("expected a failed pickup, got \(transition)")
+            return
+        }
+        #expect(temp.names(in: "Downloads") == ["export-1.csv", "export-2.csv"])
+        #expect(temp.names(in: chainFolder(source, "output")) == ["export-2.csv"])
+    }
 }

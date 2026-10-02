@@ -16,16 +16,13 @@ public struct RetentionPolicy: Sendable {
         func bucket(of date: Date, calendar: Calendar) -> String {
             switch self {
             case .day:
-                let parts = calendar.dateComponents([.year, .month, .day], from: date)
-                return "\(parts.year ?? 0)-\(parts.month ?? 0)-\(parts.day ?? 0)"
+                "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))-\(calendar.component(.day, from: date))"
             case .week:
-                let parts = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
-                return "\(parts.yearForWeekOfYear ?? 0)-W\(parts.weekOfYear ?? 0)"
+                "\(calendar.component(.yearForWeekOfYear, from: date))-W\(calendar.component(.weekOfYear, from: date))"
             case .month:
-                let parts = calendar.dateComponents([.year, .month], from: date)
-                return "\(parts.year ?? 0)-\(parts.month ?? 0)"
+                "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
             case .year:
-                return "\(calendar.component(.year, from: date))"
+                "\(calendar.component(.year, from: date))"
             }
         }
     }
