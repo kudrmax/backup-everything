@@ -1066,4 +1066,40 @@ struct BackupCoordinatorTests {
         try temp.file("PB/Books/book.epub", "epub")
         #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
     }
+
+    @Test func unreadableSubfolderMakesTheBackupFail() async throws {
+        let locked = temp.path("vault/private")
+        try temp.file("vault/private/secret.md", "secret")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            temp.remove()
+        }
+        try store.saveConfig(Config(sources: [vault([cloud])], destinations: [cloud]))
+
+        let result = try await coordinator.tick()
+
+        #expect(result.runs.first?.collectError == SourceError.unreadable(locked.path).localizedDescription)
+        #expect(temp.names(in: "cloud").isEmpty)
+        #expect(try await coordinator.statusReport().overall == .error)
+    }
+
+    @Test func copiesThatCouldNotBeListedAreNotTakenForMissing() async throws {
+        let listing = temp.path("cloud/obsidian")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: listing.path)
+            temp.remove()
+        }
+        let source = vault([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        _ = try await coordinator.tick()
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: listing.path)
+
+        time.advance(600)
+        let result = try await coordinator.tick()
+
+        #expect(result.notices.isEmpty)
+        #expect(result.runs.isEmpty)
+        #expect(try store.loadState().debts.isEmpty)
+    }
 }

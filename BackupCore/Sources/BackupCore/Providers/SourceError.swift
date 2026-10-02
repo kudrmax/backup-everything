@@ -8,6 +8,8 @@ public enum SourceError: Error, Equatable, LocalizedError {
     case nothingToCollect
     case stepFailed(index: Int, count: Int, name: String, reason: String)
     case pickupFailed(String)
+    case unreadable(String)
+    case reservedName(String)
 
     public var errorDescription: String? {
         switch self {
@@ -23,6 +25,10 @@ public enum SourceError: Error, Equatable, LocalizedError {
             "No picked-up files for this source."
         case let .pickupFailed(reason):
             "Could not pick up the files: \(reason)"
+        case let .unreadable(path):
+            "Could not read “\(path)”, so the copy would miss it. Give Backup Everything access (System Settings → Privacy & Security → Full Disk Access) or add it to the exclusions."
+        case let .reservedName(name):
+            "“\(name)” at the top of the source has the name Backup Everything gives its own file in every copy. Rename it, move it into a subfolder or add it to the exclusions."
         case let .stepFailed(index, count, name, reason):
             "Step \(index + 1) of \(count) “\(name)”. \(reason)"
         }

@@ -261,7 +261,7 @@ struct BackupEngineTests {
         #expect(cloudStore.log == ["write:\(name)", "removeIncomplete"])
         #expect(cloudStore.writtenManifests.map(\.fileCount) == [2])
         #expect(cloudStore.writtenManifests.first?.sourceId == source.id)
-        #expect(cloudStore.writtenPayloads.first?.excludes == [SnapshotManifest.fileName, SnapshotManifest.unfinishedMarker])
+        #expect(cloudStore.writtenPayloads.first?.excludedAtTop == SnapshotManifest.serviceFileNames)
         #expect(events.get() == [.delivering(sourceId: source.id, destinationId: cloud.id), .finished(sourceId: source.id)])
     }
 
@@ -371,5 +371,50 @@ struct BackupEngineTests {
         #expect(temp.names(in: "hdd/obsidian") == ["2026-09-25_100000", "2026-09-26_100000", "2026-09-27_100000", name])
         #expect(temp.exists("hdd/obsidian/\(name)/_unfinished"))
         #expect(temp.names(in: "Trash").isEmpty)
+    }
+
+    @Test func oneCopyThatCannotBeDeletedDoesNotKeepTheOthers() async {
+        defer { temp.remove() }
+        cloudStore.snapshots = ["2026-09-24 10:00:00", "2026-09-25 10:00:00", "2026-09-26 10:00:00", "2026-09-27 10:00:00"].map(Fixtures.snapshot)
+        cloudStore.undeletable = ["2026-09-25_100000"]
+
+        let record = await run()
+
+        let warning = "Could not clean up old copies: \(POSIXError(.EPERM).localizedDescription)"
+        #expect(record.deliveries[1].outcome == .delivered(pruned: 2, warning: warning))
+        #expect(cloudStore.snapshots.map(\.name).sorted() == ["2026-09-25_100000", "2026-09-27_100000", name])
+    }
+
+    @Test func dataNamedLikeTheAppsOwnFileAtTheTopIsACollectError() async throws {
+        defer { temp.remove() }
+        try temp.file("vault/_snapshot.json", "{}")
+
+        let record = await run()
+
+        #expect(record.collectError == SourceError.reservedName("_snapshot.json").localizedDescription)
+        #expect(record.deliveries.isEmpty)
+        #expect(diskStore.log.isEmpty)
+        #expect(provider.finished == [false])
+    }
+
+    @Test func catchUpCopyKeepsTheSourcesFilesNamedLikeTheAppsOwnOnes() async throws {
+        defer { temp.remove() }
+        try temp.directory("hdd")
+        try temp.directory("ssd")
+        try temp.file("hdd/obsidian/\(name)/_snapshot.json", "{}")
+        try temp.file("hdd/obsidian/\(name)/a.md", "alpha")
+        try temp.file("hdd/obsidian/\(name)/projects/site/_snapshot.json", "{\"page\": 1}")
+        try temp.file("hdd/obsidian/\(name)/notes/_unfinished", "a note called _unfinished")
+        let hdd = Fixtures.localDestination("HDD", at: temp.path("hdd"))
+        let ssd = Fixtures.localDestination("SSD", at: temp.path("ssd"))
+
+        let record = await engine(TrashingLocalStores(trash: temp.path("Trash"))).copy(Snapshot(name: name, date: now), of: source, from: hdd, to: [ssd])
+
+        #expect(record.deliveries.map(\.outcome.isDelivered) == [true])
+        #expect(record.fileCount == 3)
+        let copied = "ssd/obsidian/\(name)"
+        #expect(try String(contentsOf: temp.path(copied + "/projects/site/_snapshot.json"), encoding: .utf8) == "{\"page\": 1}")
+        #expect(temp.exists(copied + "/notes/_unfinished"))
+        #expect(!temp.exists(copied + "/_unfinished"))
     }
 }

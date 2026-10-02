@@ -64,7 +64,9 @@ public struct BackupEngine: Sendable {
             return record
         }
         do {
-            stats = walker.stats(of: try walker.entries(of: payload))
+            let entries = try walker.entries(of: payload)
+            try SnapshotManifest.checkTopLevelNames(of: entries)
+            stats = walker.stats(of: entries)
             guard stats.fileCount > 0 else { throw SourceError.emptyResult }
         } catch {
             provider.finish(payload, deliveredEverywhere: false)
@@ -115,7 +117,7 @@ public struct BackupEngine: Sendable {
         defer { try? FileManager.default.removeItem(at: scratch) }
         do {
             let folder = try await stores.store(for: origin).materialize(snapshot, sourceSlug: source.slug, scratch: scratch)
-            let payload = Payload(root: folder, excludes: [SnapshotManifest.fileName, SnapshotManifest.unfinishedMarker], collectedAt: snapshot.date)
+            let payload = Payload(root: folder, excludedAtTop: SnapshotManifest.serviceFileNames, collectedAt: snapshot.date)
             let stats = walker.stats(of: try walker.entries(of: payload))
             let manifest = SnapshotManifest(
                 sourceId: source.id,
@@ -171,16 +173,28 @@ public struct BackupEngine: Sendable {
         } catch {
             return .failed(message: error.localizedDescription)
         }
+        let doomed: [Snapshot]
         do {
             try await store.removeIncomplete(sourceSlug: source.slug)
             let snapshots = try await store.copies(of: source)
-            let doomed = retention.snapshotsToDelete(snapshots, rules: source.retention).filter { $0.name != snapshotName }
-            for snapshot in doomed {
-                try await store.delete(snapshot, sourceSlug: source.slug)
-            }
-            return .delivered(pruned: doomed.count, warning: nil)
+            doomed = retention.snapshotsToDelete(snapshots, rules: source.retention).filter { $0.name != snapshotName }
         } catch {
-            return .delivered(pruned: 0, warning: "Could not clean up old copies: \(error.localizedDescription)")
+            return .delivered(pruned: 0, warning: cleanupWarning([error.localizedDescription]))
         }
+        var pruned = 0
+        var problems: [String] = []
+        for snapshot in doomed {
+            do {
+                try await store.delete(snapshot, sourceSlug: source.slug)
+                pruned += 1
+            } catch {
+                if !problems.contains(error.localizedDescription) { problems.append(error.localizedDescription) }
+            }
+        }
+        return .delivered(pruned: pruned, warning: problems.isEmpty ? nil : cleanupWarning(problems))
+    }
+
+    private func cleanupWarning(_ problems: [String]) -> String {
+        "Could not clean up old copies: \(problems.joined(separator: " "))"
     }
 }

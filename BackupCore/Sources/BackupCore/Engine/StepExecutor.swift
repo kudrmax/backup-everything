@@ -4,6 +4,7 @@ import Foundation
 struct StepExecutor: Sendable {
     private let shell: ShellCommand
     private let walker = PayloadWalker()
+    private let copier = PayloadCopier()
 
     init(runner: any ProcessRunner) {
         shell = ShellCommand(runner: runner)
@@ -23,23 +24,6 @@ struct StepExecutor: Sendable {
     }
 
     private func copy(_ payload: Payload, into directory: URL) throws {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: payload.root.path) else {
-            throw SourceError.pathMissing(payload.root.path)
-        }
-        guard walker.isDirectory(payload) else {
-            try fileManager.copyItem(at: payload.root, to: directory.appendingPathComponent(payload.root.lastPathComponent))
-            return
-        }
-        for entry in try walker.entries(of: payload) {
-            let target = directory.appendingPathComponent(entry.relativePath)
-            switch entry.kind {
-            case .directory:
-                try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
-            case .file, .symlink:
-                try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try fileManager.copyItem(at: entry.url, to: target)
-            }
-        }
+        try copier.copy(try walker.entries(of: payload), into: directory.path)
     }
 }

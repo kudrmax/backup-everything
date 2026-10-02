@@ -15,6 +15,18 @@ public struct SnapshotManifest: Codable, Sendable, Equatable {
     /// Put into a copy folder before writing starts and removed after the manifest: only such folders are ever cleaned up as unfinished.
     public static let unfinishedMarker = "_unfinished"
     static let unfinishedNote = "Backup Everything was writing this copy and did not finish. It will be cleaned up after the next successful backup.\n"
+    /// Names of the app's own files at the top of every copy.
+    public static let serviceFileNames = [fileName, unfinishedMarker]
+
+    /// Data under a service name at the top of a copy would be taken for the app's own file, so such data is refused.
+    /// Names are compared the way the disk does: regardless of case and Unicode form.
+    static func checkTopLevelNames(of entries: [PayloadEntry]) throws {
+        let reserved = serviceFileNames.map(GlobPattern.init)
+        let clash = entries.first { entry in
+            !entry.relativePath.contains("/") && reserved.contains { $0.matches(entry.relativePath) }
+        }
+        if let clash { throw SourceError.reservedName(clash.relativePath) }
+    }
 
     public var sourceId: UUID
     public var sourceName: String

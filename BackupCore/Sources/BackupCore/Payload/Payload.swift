@@ -2,13 +2,17 @@ import Foundation
 
 public struct Payload: Sendable, Equatable {
     public let root: URL
+    /// Glob patterns matched against names and paths at any depth.
     public let excludes: [String]
+    /// Names left out only at the top level.
+    public let excludedAtTop: [String]
     public let collectedAt: Date
     public let details: String?
 
-    public init(root: URL, excludes: [String] = [], collectedAt: Date, details: String? = nil) {
+    public init(root: URL, excludes: [String] = [], excludedAtTop: [String] = [], collectedAt: Date, details: String? = nil) {
         self.root = root
         self.excludes = excludes
+        self.excludedAtTop = excludedAtTop
         self.collectedAt = collectedAt
         self.details = details
     }
