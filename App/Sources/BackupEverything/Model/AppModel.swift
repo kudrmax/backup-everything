@@ -334,7 +334,7 @@ final class AppModel {
     }
 
     func isWaiting(_ source: Source, for destination: Destination) -> Bool {
-        activeState.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
+        state.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
     }
 
     /// The missed backup exists on another disk of the source.
@@ -355,7 +355,7 @@ final class AppModel {
     }
 
     func waitingSources(for destination: Destination) -> [Source] {
-        activeState.debts(forDestination: destination.id).compactMap { config.source($0.sourceId) }
+        state.debts(forDestination: destination.id).compactMap { config.source($0.sourceId) }
     }
 
     func condition(of destination: Destination) -> DestinationCondition {

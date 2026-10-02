@@ -162,7 +162,7 @@ struct AppModelQueryTests {
         #expect(model.chain(of: notes.id) == nil)
     }
 
-    @Test func disabledSourceIsNotWaitingForTheDisk() async throws {
+    @Test func disabledSourceStillWaitsButDoesNotAskToConnectTheDisk() async throws {
         let fixture = try ModelFixture()
         let hdd = try fixture.disk("HDD", every: 30)
         var notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [hdd])
@@ -172,8 +172,8 @@ struct AppModelQueryTests {
         try await fixture.use(Config(sources: [notes], destinations: [hdd]), state: state)
         let model = fixture.model
 
-        #expect(!model.isWaiting(notes, for: hdd))
-        #expect(model.waitingSources(for: hdd).isEmpty)
+        #expect(model.isWaiting(notes, for: hdd))
+        #expect(model.waitingSources(for: hdd) == [notes])
         #expect(model.connectDeadline(of: hdd) == nil)
     }
 

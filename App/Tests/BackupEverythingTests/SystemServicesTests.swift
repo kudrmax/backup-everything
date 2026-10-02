@@ -264,9 +264,14 @@ struct AppServicesTests {
     }
 
     @Test func secondInstanceIsAnotherRunningAppWithTheSameIdentifier() {
-        #expect(!RunningCopies.isSecondInstance(bundleIdentifier: nil) { _ in 5 })
-        #expect(!RunningCopies.isSecondInstance(bundleIdentifier: "local.backup-everything") { _ in 1 })
-        #expect(RunningCopies.isSecondInstance(bundleIdentifier: "local.backup-everything") { $0 == "local.backup-everything" ? 2 : 0 })
+        #expect(!RunningCopies.isSecondInstance(bundleIdentifier: nil, ownProcess: 10) { _ in [10, 20] })
+        #expect(!RunningCopies.isSecondInstance(bundleIdentifier: "local.backup-everything", ownProcess: 10) { _ in [10] })
+        #expect(RunningCopies.isSecondInstance(bundleIdentifier: "local.backup-everything", ownProcess: 10) { $0 == "local.backup-everything" ? [10, 20] : [] })
+    }
+
+    @Test func copyStartedOutsideLaunchServicesStillSeesTheRunningOne() {
+        #expect(RunningCopies.isSecondInstance(bundleIdentifier: "local.backup-everything", ownProcess: 30) { _ in [20] })
+        #expect(!RunningCopies.isSecondInstance(bundleIdentifier: "local.backup-everything", ownProcess: 30) { _ in [] })
         #expect(!RunningCopies.isSecondInstance(bundleIdentifier: "local.backup-everything.tests.\(UUID().uuidString)"))
     }
 }

@@ -9,10 +9,11 @@ protocol BackgroundDriving {
 enum RunningCopies {
     static func isSecondInstance(
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        count: (String) -> Int = { NSRunningApplication.runningApplications(withBundleIdentifier: $0).count }
+        ownProcess: pid_t = ProcessInfo.processInfo.processIdentifier,
+        running: (String) -> [pid_t] = { NSRunningApplication.runningApplications(withBundleIdentifier: $0).map(\.processIdentifier) }
     ) -> Bool {
         guard let bundleIdentifier else { return false }
-        return count(bundleIdentifier) > 1
+        return running(bundleIdentifier).contains { $0 != ownProcess }
     }
 }
 
