@@ -175,6 +175,25 @@ struct ProcessRunnerTests {
         #expect(try await isGone(child))
     }
 
+    /// `kill` and logging out end a process at once, without `atexit`: the app handles the signal as Quit and ends itself.
+    @Test func signalToQuitStopsRunningCommandsBeforeTheAppEnds() async throws {
+        let groups = ProcessGroups()
+        let exitCode = LockedBox<Int32?>(nil)
+        groups.installTerminationHandlers(signals: [SIGUSR2]) { exitCode.set($0) }
+        let (task, child) = try await startInBackground(SystemProcessRunner(groups: groups))
+
+        kill(getpid(), SIGUSR2)
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(try await isGone(child))
+        for _ in 0..<50 where exitCode.get() == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(exitCode.get() == 0)
+        #expect(groups.isQuitting)
+        #expect(ProcessGroups.terminationSignals == [SIGTERM, SIGHUP, SIGINT])
+    }
+
     @Test func noCommandStartsOnceTheAppIsQuitting() async throws {
         let groups = ProcessGroups()
         let marker = FileManager.default.temporaryDirectory.appendingPathComponent("started-\(UUID().uuidString)")

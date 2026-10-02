@@ -58,9 +58,9 @@ struct SnapshotFilesTests {
         defer { cleanUp("copy") }
         try temp.file("vault/a.md", "alpha")
         let copy = try readOnly("copy")
-        let entries = try PayloadWalker().entries(of: Payload(root: temp.path("vault"), collectedAt: date))
+        let listing = try PayloadWalker().listing(of: Payload(root: temp.path("vault"), collectedAt: date))
         #expect(throws: POSIXError(.EACCES)) {
-            try SnapshotWriter(cloning: APFSCloning()).write(entries, into: copy, reusing: .empty)
+            try SnapshotWriter(cloning: APFSCloning()).write(listing, into: copy, reusing: .empty)
         }
     }
 
@@ -230,13 +230,15 @@ struct SnapshotFilesTests {
         try temp.file("vault/a.md", "alpha")
         try temp.file("vault/gone/b.md", "beta")
         try temp.file("vault/c.md", "gamma")
-        let entries = try PayloadWalker().entries(of: Payload(root: temp.path("vault"), collectedAt: date))
+        let listing = try PayloadWalker().listing(of: Payload(root: temp.path("vault"), collectedAt: date))
         try FileManager.default.removeItem(at: temp.path("vault/gone"))
         try FileManager.default.removeItem(at: temp.path("vault/c.md"))
 
-        let written = try SnapshotWriter(cloning: APFSCloning()).write(entries, into: try temp.directory("copy"), reusing: .empty)
+        let written = try SnapshotWriter(cloning: APFSCloning()).write(listing, into: try temp.directory("copy"), reusing: .empty)
 
-        #expect(written.map(\.path) == ["a.md"])
+        #expect(written.files.map(\.path) == ["a.md"])
+        #expect(written.vanished.map(\.relativePath) == ["c.md", "gone/b.md", "gone"])
+        #expect(written.itemCount == 1)
         #expect(temp.names(in: "copy") == ["a.md", "gone"])
         #expect(temp.names(in: "copy/gone").isEmpty)
     }

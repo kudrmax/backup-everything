@@ -61,8 +61,8 @@ public struct LocalFolderDestination: DestinationStore {
         let fileManager = FileManager.default
         let sourceDirectory = try directory(sourceSlug)
         let snapshotDirectory = sourceDirectory.appendingPathComponent(snapshotName, isDirectory: true)
-        let entries = try walker.entries(of: payload)
-        try SnapshotManifest.checkTopLevelNames(of: entries)
+        let listing = try walker.listing(of: payload)
+        try SnapshotManifest.checkTopLevelNames(of: listing.entries)
         do {
             if !fileManager.fileExists(atPath: sourceDirectory.path) {
                 try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: false)
@@ -76,9 +76,11 @@ public struct LocalFolderDestination: DestinationStore {
             try fileManager.createDirectory(at: snapshotDirectory, withIntermediateDirectories: false)
             let markerURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker)
             try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
+            let contents = try SnapshotWriter(cloning: cloning).write(listing, into: snapshotDirectory, reusing: index)
             var manifest = manifest
-            manifest.files = try SnapshotWriter(cloning: cloning)
-                .write(entries, into: snapshotDirectory, reusing: index)
+            manifest.fileCount = contents.itemCount
+            manifest.totalBytes = contents.totalBytes
+            manifest.files = contents.files
             manifest.sharesData = sharesData
             let manifestURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.fileName)
             try JSONCoding.encoder(pretty: false).encode(manifest).write(to: manifestURL, options: .atomic)

@@ -36,7 +36,13 @@ public enum CoreAssembly {
         )
         let stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: naming)
         let engine = BackupEngine(
-            providers: DefaultSourceProviderFactory(runner: runner, stagingRoot: stagingDirectory(in: workDirectory), inbox: inbox, progress: progress),
+            providers: DefaultSourceProviderFactory(
+                runner: runner,
+                stagingRoot: stagingDirectory(in: workDirectory),
+                inbox: inbox,
+                quit: quit,
+                progress: progress
+            ),
             stores: stores,
             retention: RetentionPolicy(timeZone: timeZone),
             naming: naming,

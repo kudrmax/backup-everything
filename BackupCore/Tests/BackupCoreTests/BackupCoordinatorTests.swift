@@ -25,10 +25,20 @@ struct BackupCoordinatorTests {
         cloud = Fixtures.localDestination("Cloud", at: temp.path("cloud"))
         disk = Fixtures.localDestination("HDD", at: temp.path("hdd"), expectedEvery: .days(30))
 
+        coordinator = Self.coordinator(temp: temp, store: store, time: time, events: events, runner: SystemProcessRunner(), quit: ProcessGroups.shared)
+    }
+
+    private static func coordinator(
+        temp: TempDirectory,
+        store: Store,
+        time: FakeTimeSource,
+        events: LockedBox<[RunProgress]>,
+        runner: any ProcessRunner,
+        quit: any QuitSignal
+    ) -> BackupCoordinator {
         let inbox = ManualExportInbox(pendingRoot: temp.path("work/pending"), naming: Fixtures.naming) { url in
             try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)"))
         }
-        let runner = SystemProcessRunner()
         let chains = StepChainRunner(
             chainsRoot: temp.path("work/chains"),
             inbox: inbox,
@@ -39,14 +49,14 @@ struct BackupCoordinatorTests {
         )
         let stores = DefaultDestinationStoreFactory(runner: runner, rclone: RcloneLocator(candidates: []), naming: Fixtures.naming)
         let engine = BackupEngine(
-            providers: DefaultSourceProviderFactory(runner: runner, stagingRoot: temp.path("work/staging"), inbox: inbox),
+            providers: DefaultSourceProviderFactory(runner: runner, stagingRoot: temp.path("work/staging"), inbox: inbox, quit: quit),
             stores: stores,
             retention: RetentionPolicy(timeZone: Fixtures.utc),
             naming: Fixtures.naming,
             time: time,
             progress: { [events] event in events.set(events.get() + [event]) }
         )
-        coordinator = BackupCoordinator(
+        return BackupCoordinator(
             store: store,
             engine: engine,
             inbox: inbox,
@@ -54,6 +64,7 @@ struct BackupCoordinatorTests {
             stores: stores,
             time: time,
             calendar: Fixtures.calendar,
+            quit: quit,
             progress: { [events] event in events.set(events.get() + [event]) }
         )
     }
@@ -1156,5 +1167,40 @@ struct BackupCoordinatorTests {
         #expect(chain.stepIndex == 1)
         #expect(chain.failure == nil)
         #expect(chain.retryAfter == nil)
+    }
+
+    /// The app began to quit while the package was being delivered: the delivery is not recorded, so the package stays
+    /// in pending for the debts that stay open, and the next launch delivers it again.
+    @Test func packageDeliveredWhileQuittingStaysForItsOpenDebts() async throws {
+        defer { temp.remove() }
+        let quit = FakeQuit()
+        let runner = FakeProcessRunner { call in
+            try Data("zip".utf8).write(to: URL(fileURLWithPath: call.environment["BACKUP_OUTPUT_DIR"]!).appendingPathComponent("archive.zip"))
+            quit.begin()
+            return ProcessResult(exitCode: 0)
+        }
+        let coordinator = Self.coordinator(temp: temp, store: store, time: time, events: events, runner: runner, quit: quit)
+        let source = claude([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+
+        let result = try await coordinator.tick()
+
+        #expect(result.runs.isEmpty)
+        #expect(temp.names(in: "work/pending/\(source.id.uuidString)").count == 1)
+        #expect(temp.names(in: "trash") == ["manifest-a.json"])
+        #expect(try store.loadState().debts.map(\.destinationId) == [cloud.id])
+    }
+}
+
+private final class FakeQuit: QuitSignal, @unchecked Sendable {
+    private let quitting = LockedBox(false)
+
+    var isQuitting: Bool {
+        quitting.get()
+    }
+
+    func begin() {
+        quitting.set(true)
     }
 }

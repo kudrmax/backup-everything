@@ -24,6 +24,6 @@ struct StepExecutor: Sendable {
     }
 
     private func copy(_ payload: Payload, into directory: URL) throws {
-        try copier.copy(try walker.entries(of: payload), into: directory.path)
+        try copier.copy(try walker.listing(of: payload), into: directory.path)
     }
 }

@@ -2,25 +2,27 @@ import Foundation
 
 /// A source made of automatic steps only: every run builds the copy from scratch in a temporary folder.
 /// What a failed run leaves there and cannot delete is deleted with the whole `staging` at the next launch.
+/// The running command is recorded next to the folder, so that the next launch stops it if the app dies first.
 public struct StepsSource: SourceProvider {
     private let removal = FolderRemoval()
     private let sourceId: UUID
     private let steps: [SourceStep]
     private let stagingRoot: URL
-    private let executor: StepExecutor
+    private let runner: any ProcessRunner
     private let progress: ProgressHandler
 
     public init(sourceId: UUID, steps: [SourceStep], stagingRoot: URL, runner: any ProcessRunner, progress: @escaping ProgressHandler = { _ in }) {
         self.sourceId = sourceId
         self.steps = steps
         self.stagingRoot = stagingRoot
-        self.executor = StepExecutor(runner: runner)
+        self.runner = runner
         self.progress = progress
     }
 
     public func collect(at date: Date, status: @escaping StatusHandler) async throws -> Payload {
         let folders = WorkFolders(root: stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true))
         try folders.prepare()
+        let executor = StepExecutor(runner: StepProcessRecord(folders: folders).recording(runner))
         var details: String?
         do {
             for (index, step) in steps.enumerated() {

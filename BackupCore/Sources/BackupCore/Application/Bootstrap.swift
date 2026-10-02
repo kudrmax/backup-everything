@@ -15,7 +15,9 @@ public struct Bootstrap: Sendable {
     public func prepare(now: Date) throws {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: store.dataDirectory, withIntermediateDirectories: true)
-        try? FolderRemoval().remove(CoreAssembly.stagingDirectory(in: workDirectory).path)
+        let staging = CoreAssembly.stagingDirectory(in: workDirectory)
+        StepProcessRecord.stopLeftovers(under: staging)
+        try? FolderRemoval().remove(staging.path)
         try fileManager.createDirectory(at: workDirectory, withIntermediateDirectories: true)
         try store.installBundledTemplates()
         guard !store.hasConfig else { return }

@@ -211,7 +211,12 @@ private final class RecordingNotifier: Notifying {
 
 @MainActor
 struct AppServicesTests {
-    private func services(secondInstance: Bool, temp: TemporaryFolder, defaults: TestDefaults) -> (AppServices, RecordingDriver, RecordingNotifier, () -> Int) {
+    private func services(
+        secondInstance: Bool,
+        temp: TemporaryFolder,
+        defaults: TestDefaults,
+        handleTermination: @escaping () -> Void = {}
+    ) -> (AppServices, RecordingDriver, RecordingNotifier, () -> Int) {
         let model = AppModel(
             dataDirectory: temp.url.appendingPathComponent("data"),
             workDirectory: temp.url.appendingPathComponent("work"),
@@ -221,7 +226,14 @@ struct AppServicesTests {
         let driver = RecordingDriver()
         let notifier = RecordingNotifier()
         var quits = 0
-        let services = AppServices(model: model, driver: driver, notifier: notifier, isSecondInstance: { secondInstance }, quit: { quits += 1 })
+        let services = AppServices(
+            model: model,
+            driver: driver,
+            notifier: notifier,
+            isSecondInstance: { secondInstance },
+            handleTermination: handleTermination,
+            quit: { quits += 1 }
+        )
         return (services, driver, notifier, { quits })
     }
 
@@ -237,6 +249,16 @@ struct AppServicesTests {
         let notice = Notice.deviceDue(sourceId: UUID(), sourceName: "PocketBook")
         services.model.onNotices([notice])
         #expect(notifier.posted == [notice])
+    }
+
+    /// `kill` and logging out stop the commands of the copy that runs them; a second copy runs none.
+    @Test(arguments: [false, true])
+    func onlyTheFirstCopyHandlesRequestsToQuit(secondInstance: Bool) throws {
+        let temp = try TemporaryFolder()
+        let defaults = TestDefaults()
+        var installed = 0
+        _ = services(secondInstance: secondInstance, temp: temp, defaults: defaults) { installed += 1 }
+        #expect(installed == (secondInstance ? 0 : 1))
     }
 
     @Test func secondCopyQuitsWithoutStartingAnything() throws {

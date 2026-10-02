@@ -1,7 +1,7 @@
 import Foundation
 
-/// The command a chain step is running, written next to the chain's folders. If the app dies with the command still
-/// running, the next launch stops it before the step runs again in the same folders.
+/// The command a step is running, written next to the run's folders. If the app dies with the command still running,
+/// the next launch stops it before the step runs again in the same folders or the folders are deleted.
 struct StepProcessRecord: Sendable {
     static let grace: TimeInterval = 2
 
@@ -9,6 +9,14 @@ struct StepProcessRecord: Sendable {
 
     init(folders: WorkFolders) {
         file = folders.root.appendingPathComponent("process.json")
+    }
+
+    /// Stops what the runs in the folders under `root` left running.
+    static func stopLeftovers(under root: URL) {
+        let runs = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        for run in runs {
+            StepProcessRecord(folders: WorkFolders(root: run)).stopLeftover()
+        }
     }
 
     func recording(_ runner: any ProcessRunner) -> any ProcessRunner {

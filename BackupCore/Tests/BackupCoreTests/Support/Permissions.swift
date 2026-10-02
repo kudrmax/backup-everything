@@ -34,9 +34,17 @@ enum Permissions {
     }
 
     static func denyDeleting(_ url: URL) throws {
+        try changeMode(["+a", "everyone deny delete,delete_child", url.path])
+    }
+
+    static func dropAccessList(_ url: URL) throws {
+        try changeMode(["-N", url.path])
+    }
+
+    private static func changeMode(_ arguments: [String]) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/chmod")
-        process.arguments = ["+a", "everyone deny delete,delete_child", url.path]
+        process.arguments = arguments
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { throw POSIXError(.EPERM) }

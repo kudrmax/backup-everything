@@ -62,6 +62,7 @@ public struct StepChainRunner: Sendable {
         next.retryAfter = nil
         let folders = folders(source.id)
         let pickup = FilePickup(folders: folders, trash: trash)
+        var outputAtNextStep: [String]?
         do {
             do {
                 try pickup.undoUnfinished(of: next.stepId)
@@ -85,6 +86,8 @@ public struct StepChainRunner: Sendable {
                 }
             case .device:
                 guard let path = source.devicePath(at: next.stepIndex), exists(path) else { return .stay }
+                // A copy from the device cut short by unplugging may have left what it could not trash: not the start of the next step.
+                outputAtNextStep = next.outputAtStepEntry
             case .folder, .command:
                 try folders.prepare()
                 let process = StepProcessRecord(folders: folders)
@@ -98,17 +101,22 @@ public struct StepChainRunner: Sendable {
                         progress(.status(sourceId: source.id, text: text))
                     }
                 } catch {
-                    for added in contents(of: folders.output).subtracting(before) {
-                        try trash(folders.output.appendingPathComponent(added))
+                    var failure = error
+                    do {
+                        for added in contents(of: folders.output).subtracting(before) {
+                            try trash(folders.output.appendingPathComponent(added))
+                        }
+                    } catch let cleanup {
+                        failure = SourceError.leftoversRemain(reason: error.localizedDescription, cleanup: cleanup.localizedDescription)
                     }
                     if let device = unpluggedDevice(before: next.stepIndex, in: source) {
                         next.stepIndex = device
                         next.stepId = steps[device].id
                         next.stepEnteredAt = time.now
-                        next.outputAtStepEntry = contents(of: folders.output).sorted()
+                        next.outputAtStepEntry = before.sorted()
                         return .moved(next)
                     }
-                    throw error
+                    throw failure
                 }
             }
         } catch {
@@ -118,7 +126,7 @@ public struct StepChainRunner: Sendable {
         next.stepIndex += 1
         next.stepId = next.stepIndex < steps.count ? steps[next.stepIndex].id : nil
         next.stepEnteredAt = time.now
-        next.outputAtStepEntry = contents(of: folders.output).sorted()
+        next.outputAtStepEntry = outputAtNextStep ?? contents(of: folders.output).sorted()
         return .moved(next)
     }
 

@@ -120,8 +120,9 @@ struct PayloadWalkerTests {
     /// Live folders (caches, app data) change while they are walked: what vanished after the listing is simply not in the copy.
     @Test func itemThatVanishedAfterTheListingIsLeftOut() throws {
         defer { temp.remove() }
-        #expect(try walker.entry(at: temp.path("vault/gone.md"), relativePath: "gone.md") == nil)
-        #expect(try walker.names(in: temp.path("vault/gone")) == nil)
+        let origin = try PayloadOrigin(try temp.directory("vault"))
+        #expect(try walker.entry(at: temp.path("vault/gone.md"), relativePath: "gone.md", origin: origin) == nil)
+        #expect(try walker.names(in: temp.path("vault/gone"), origin: origin) == nil)
     }
 
     @Test func itemThatCannotBeExaminedIsAnError() throws {
@@ -133,7 +134,7 @@ struct PayloadWalkerTests {
         chmod(temp.path("vault/closed").path, 0o444)
         let item = temp.path("vault/closed/b.md")
         #expect(throws: SourceError.unreadable(item.path)) {
-            try walker.entry(at: item, relativePath: "closed/b.md")
+            try walker.entry(at: item, relativePath: "closed/b.md", origin: try PayloadOrigin(temp.path("vault")))
         }
     }
 }

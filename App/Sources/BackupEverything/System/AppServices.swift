@@ -1,4 +1,5 @@
 import AppKit
+import BackupCore
 import Foundation
 
 @MainActor
@@ -34,16 +35,19 @@ final class AppServices {
             driver: BackgroundDriver(model: model),
             notifier: Notifier(),
             isSecondInstance: { RunningCopies.isSecondInstance() },
+            handleTermination: { ProcessGroups.shared.installTerminationHandlers() },
             quit: { NSApp.terminate(nil) }
         )
     }
 
     /// A second copy prepares nothing: preparing clears the temporary folder of a backup the first copy may be running.
+    /// `handleTermination` makes `kill` and logging out stop the commands the app runs, as Quit does.
     init(
         model: AppModel,
         driver: any BackgroundDriving,
         notifier: any Notifying,
         isSecondInstance: @escaping () -> Bool,
+        handleTermination: () -> Void,
         quit: @escaping () -> Void
     ) {
         self.model = model
@@ -52,6 +56,7 @@ final class AppServices {
         self.quit = quit
         self.isSecondInstance = isSecondInstance()
         guard !self.isSecondInstance else { return }
+        handleTermination()
         model.prepare()
     }
 

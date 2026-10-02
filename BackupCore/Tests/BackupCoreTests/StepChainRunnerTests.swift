@@ -459,30 +459,42 @@ struct StepChainRunnerTests {
         #expect(temp.names(in: "trash").isEmpty)
     }
 
-    /// The person downloaded a file with the same name meanwhile: neither file is touched, the step says it could not pick up,
-    /// and once the way back is free the repeat goes on.
-    @Test func movedFileThatCannotGoBackFailsTheStepAndKeepsBothFiles() async throws {
+    /// The person downloaded a file with the same name meanwhile: the taken file goes back next to it under a free name,
+    /// as Finder names a second copy, and the step goes on instead of failing for good.
+    @Test func movedFileWhoseNameIsTakenGoesBackUnderAFreeName() async throws {
         defer { temp.remove() }
         let source = exportAfterACommand(removeOriginal: true)
         let runner = runner()
         let atPickup = try #require(try await pickUpAndDie(source, runner))
         try temp.file("Downloads/export-1.csv", "newer", modified: start.addingTimeInterval(120))
+        try temp.file("Downloads/export-1 2.csv", "unrelated", modified: start.addingTimeInterval(-600))
+
+        let again = await runner.advance(source, chain: atPickup, lastPickup: nil, permissions: tickOnly)
+
+        guard case .moved = again else {
+            Issue.record("the repeat did not go on: \(again)")
+            return
+        }
+        let kept = Set((temp.names(in: "Downloads").map { "Downloads/" + $0 } + temp.names(in: chainFolder(source, "output")).map { chainFolder(source, "output") + "/" + $0 })
+            .compactMap { try? String(contentsOf: temp.path($0), encoding: .utf8) })
+        #expect(kept == ["one", "newer", "unrelated"])
+        #expect(try String(contentsOf: temp.path("Downloads/export-1 2.csv"), encoding: .utf8) == "unrelated")
+    }
+
+    /// The folder the file came from is gone: the file stays where the step put it, and the step says so.
+    @Test func movedFileThatCannotGoBackFailsTheStepAndStaysInTheWorkFolder() async throws {
+        defer { temp.remove() }
+        let source = exportAfterACommand(removeOriginal: true)
+        let runner = runner()
+        let atPickup = try #require(try await pickUpAndDie(source, runner))
+        try FileManager.default.removeItem(at: temp.path("Downloads"))
 
         guard case let .failed(failed) = await runner.advance(source, chain: atPickup, lastPickup: nil, permissions: tickOnly) else {
             Issue.record("expected the step to fail")
             return
         }
         #expect(failed.failure?.hasPrefix("Could not pick up the files:") == true)
-        #expect(try String(contentsOf: temp.path("Downloads/export-1.csv"), encoding: .utf8) == "newer")
         #expect(try String(contentsOf: temp.path(chainFolder(source, "output") + "/export-1.csv"), encoding: .utf8) == "one")
-
-        try FileManager.default.moveItem(at: temp.path("Downloads/export-1.csv"), to: temp.path("newer.csv"))
-        guard case .moved = await runner.advance(source, chain: failed, lastPickup: nil, permissions: allowAll) else {
-            Issue.record("the retry did not pick up the export")
-            return
-        }
-        #expect(temp.names(in: chainFolder(source, "output")) == ["export-1.csv"])
-        #expect(temp.names(in: "Downloads").isEmpty)
     }
 
     @Test func unreadableRecordOfAPickupIsForgotten() async throws {
@@ -782,29 +794,65 @@ struct StepChainRunnerTests {
         #expect(temp.names(in: chainFolder(source, "output")).isEmpty)
     }
 
-    @Test func addedOutputThatCannotBeTrashedFailsTheStepAndIsNotTakenAsItsStart() async throws {
+    private func runnerThatCannotTrash(_ handler: @escaping @Sendable (FakeProcessRunner.Call) throws -> ProcessResult = { _ in ProcessResult(exitCode: 0) }) -> StepChainRunner {
+        StepChainRunner(
+            chainsRoot: temp.path("chains"),
+            inbox: inbox,
+            runner: FakeProcessRunner(handler: handler),
+            time: time,
+            trash: { _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+    }
+
+    /// The device was unplugged mid-copy and what the copy added cannot be trashed: the chain still waits for the device,
+    /// and what was there before the attempt stays the start of the copy step, so the leftovers are cleared when it runs again.
+    @Test func addedOutputThatCannotBeTrashedIsNotTakenAsTheStartOfTheCopy() async throws {
         defer { Permissions.removeTree(temp.url) }
         let source = try protectedDevice()
         try temp.file("camera/z-unreadable.jpg", "z")
         chmod(temp.path("camera/z-unreadable.jpg").path, 0)
-        let runner = StepChainRunner(
-            chainsRoot: temp.path("chains"),
-            inbox: inbox,
-            runner: FakeProcessRunner(),
-            time: time,
-            trash: { _ in throw CocoaError(.fileWriteNoPermission) }
-        )
+        let runner = runnerThatCannotTrash()
         guard case let .moved(atFolder?) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll) else {
             Issue.record("the device was not accepted")
             return
         }
         try FileManager.default.removeItem(at: temp.path("device"))
 
-        guard case let .failed(failed) = await runner.advance(source, chain: atFolder, lastPickup: nil, permissions: allowAll) else {
-            Issue.record("expected a step error")
+        guard case let .moved(waiting?) = await runner.advance(source, chain: atFolder, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the chain did not go back to the device")
+            return
+        }
+        #expect(waiting.stepIndex == 0)
+        #expect(waiting.outputAtStepEntry == [])
+
+        try temp.directory("device")
+        guard case let .moved(atFolderAgain?) = await runner.advance(source, chain: waiting, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the device was not accepted again")
+            return
+        }
+        #expect(atFolderAgain.outputAtStepEntry == [])
+        guard case let .failed(failed) = await runner.advance(source, chain: atFolderAgain, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the leftovers were taken into the copy")
             return
         }
         #expect(failed.stepIndex == 1)
         #expect(failed.outputAtStepEntry == [])
+    }
+
+    @Test func failedStepWhoseOutputCannotBeTrashedReportsBoth() async throws {
+        defer { temp.remove() }
+        let source = source([command("Dump")])
+        let runner = runnerThatCannotTrash { call in
+            try Data("partial".utf8).write(to: URL(fileURLWithPath: call.environment["BACKUP_OUTPUT_DIR"]!).appendingPathComponent("dump.sql"))
+            return ProcessResult(exitCode: 1, stderr: "connection lost")
+        }
+
+        guard case let .failed(failed) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("expected a step error")
+            return
+        }
+        let failure = try #require(failed.failure)
+        #expect(failure.contains("Command exited with code 1. connection lost"))
+        #expect(failure.contains(CocoaError(.fileWriteNoPermission).localizedDescription))
     }
 }

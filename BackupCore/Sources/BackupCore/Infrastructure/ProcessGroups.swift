@@ -111,9 +111,33 @@ public final class ProcessGroups: QuitSignal {
         var quitting = false
     }
 
+    /// Requests to quit from outside the app: `kill`, logging out, Ctrl-C in Terminal.
+    public static let terminationSignals = [SIGTERM, SIGHUP, SIGINT]
+
     private let state = OSAllocatedUnfairLock(initialState: State())
+    private let signalSources = OSAllocatedUnfairLock<[any DispatchSourceSignal]>(uncheckedState: [])
 
     public init() {}
+
+    /// Left to the system, a request to quit from outside ends the app at once, without `atexit`, and its commands would run
+    /// on unattended. Handled, it ends the app the way Quit does: the commands are stopped first.
+    public func installTerminationHandlers(
+        signals: [Int32] = ProcessGroups.terminationSignals,
+        exit: @escaping @Sendable (Int32) -> Void = { Darwin.exit($0) }
+    ) {
+        let queue = DispatchQueue(label: "backup-everything.termination")
+        let sources = signals.map { number -> any DispatchSourceSignal in
+            Darwin.signal(number, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: number, queue: queue)
+            source.setEventHandler { [self] in
+                terminateAll(grace: Self.quitGrace)
+                exit(0)
+            }
+            source.resume()
+            return source
+        }
+        signalSources.withLockUnchecked { $0 += sources }
+    }
 
     public var count: Int {
         state.withLock { $0.running.count }

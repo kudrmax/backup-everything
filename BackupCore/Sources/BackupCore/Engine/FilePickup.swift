@@ -53,7 +53,8 @@ struct FilePickup: Sendable {
     }
 
     /// An attempt of `step` that the chain never recorded as done is undone: moved files go back, copies go to the Trash.
-    /// A record left by a step the chain has already passed is forgotten.
+    /// A file whose name was taken meanwhile (the person downloaded it again) goes back next to it under a free name,
+    /// “name 2.ext”, as Finder names a second copy. A record left by a step the chain has already passed is forgotten.
     func undoUnfinished(of step: UUID?) throws {
         guard let data = try? Data(contentsOf: file) else { return }
         guard let record = try? JSONDecoder().decode(Record.self, from: data), record.stepId == step else {
@@ -63,12 +64,26 @@ struct FilePickup: Sendable {
         let fileManager = FileManager.default
         for entry in record.entries.reversed() where fileManager.fileExists(atPath: entry.taken) {
             if entry.moved {
-                try fileManager.moveItem(atPath: entry.taken, toPath: entry.original)
+                try fileManager.moveItem(atPath: entry.taken, toPath: freePath(for: entry.original))
             } else {
                 try trash(URL(fileURLWithPath: entry.taken))
             }
         }
         forget()
+    }
+
+    private func freePath(for path: String) -> String {
+        let original = path as NSString
+        let folder = original.deletingLastPathComponent as NSString
+        let base = (original.lastPathComponent as NSString).deletingPathExtension
+        let suffix = original.pathExtension.isEmpty ? "" : "." + original.pathExtension
+        var candidate = path
+        var number = 2
+        while FileManager.default.fileExists(atPath: candidate) {
+            candidate = folder.appendingPathComponent("\(base) \(number)\(suffix)")
+            number += 1
+        }
+        return candidate
     }
 
     private func forget() {
