@@ -44,6 +44,32 @@ struct RcloneIntegrationTests {
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
     }
 
+    @Test func singleFileGivenAsALinkIsStoredWithItsData() async throws {
+        let temp = try TempDirectory()
+        defer { temp.remove() }
+        let destination = try cloud(in: temp)
+        try temp.file("dotfiles/zshrc", "export A=1")
+        try FileManager.default.createSymbolicLink(at: temp.path(".zshrc"), withDestinationURL: temp.path("dotfiles/zshrc"))
+        let date = Fixtures.date("2026-09-28 14:30:00")
+        let manifest = SnapshotManifest(sourceId: UUID(), sourceName: "Shell", collectedAt: date, fileCount: 1, totalBytes: 10)
+
+        try await destination.write(Payload(root: temp.path(".zshrc"), collectedAt: date), manifest: manifest, sourceSlug: "shell", snapshotName: "2026-09-28_143000", reusingStoredFiles: true)
+
+        #expect(try String(contentsOf: temp.path("remote/shell/2026-09-28_143000/.zshrc"), encoding: .utf8) == "export A=1")
+    }
+
+    @Test func folderGivenAsALinkIsStoredWithItsContents() async throws {
+        let temp = try TempDirectory()
+        defer { temp.remove() }
+        let destination = try cloud(in: temp)
+        try temp.file("real/vault/a.md", "alpha")
+        try FileManager.default.createSymbolicLink(at: temp.path("vault"), withDestinationURL: temp.path("real/vault"))
+
+        try await writeVault(to: destination, in: temp)
+
+        #expect(try String(contentsOf: temp.path("remote/obsidian/2026-09-28_143000/a.md"), encoding: .utf8) == "alpha")
+    }
+
     private func cloud(in temp: TempDirectory) throws -> RcloneDestination {
         let executable = try #require(RcloneLocator().find(), "rclone is required: brew install rclone")
         try temp.directory("remote")

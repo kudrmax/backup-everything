@@ -79,14 +79,15 @@ public struct RcloneDestination: DestinationStore {
         let markerURL = scratch.appendingPathComponent(SnapshotManifest.unfinishedMarker)
         try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
         try check(try await rclone(["copyto", markerURL.path, "\(destination)/\(SnapshotManifest.unfinishedMarker)"]))
-        var arguments = ["copy", payload.root.path, destination]
+        let root = payload.root.resolvingSymlinksInPath()
         if walker.isDirectory(payload) {
             let files = try walker.entries(of: payload).filter { $0.kind == .file }.map(\.relativePath)
             let listURL = scratch.appendingPathComponent("files.txt")
             try files.joined(separator: "\n").write(to: listURL, atomically: true, encoding: .utf8)
-            arguments += ["--files-from-raw", listURL.path]
+            try check(try await rclone(["copy", root.path, destination, "--files-from-raw", listURL.path]))
+        } else {
+            try check(try await rclone(["copyto", root.path, "\(destination)/\(payload.root.lastPathComponent)"]))
         }
-        try check(try await rclone(arguments))
 
         let manifestURL = scratch.appendingPathComponent(SnapshotManifest.fileName)
         try JSONCoding.encoder().encode(manifest).write(to: manifestURL)

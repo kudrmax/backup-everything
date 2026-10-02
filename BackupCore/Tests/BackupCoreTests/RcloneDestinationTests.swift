@@ -91,13 +91,13 @@ struct RcloneDestinationTests {
         defer { temp.remove() }
         let file = try temp.file("export.csv")
         let runner = FakeProcessRunner { call in
-            call.arguments.first == "copy" ? ProcessResult(exitCode: 1, stderr: "quota exceeded") : ProcessResult(exitCode: 0)
+            call.arguments.contains(file.path) ? ProcessResult(exitCode: 1, stderr: "quota exceeded") : ProcessResult(exitCode: 0)
         }
         let manifest = SnapshotManifest(sourceId: UUID(), sourceName: "Finance", collectedAt: date, fileCount: 1, totalBytes: 7)
         await #expect(throws: DestinationError.commandFailed("quota exceeded")) {
             try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest, sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         }
-        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copy"])
+        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copyto"])
         #expect(runner.calls[1].arguments.last == "gdrive:backups/finance/\(name)/_unfinished")
     }
 
@@ -205,7 +205,7 @@ struct RcloneDestinationTests {
         await #expect(throws: DestinationError.commandFailed("connection reset")) {
             try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest(), sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         }
-        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copy", "copyto"])
+        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copyto", "copyto"])
         #expect(!runner.calls.contains { $0.arguments.first == "deletefile" })
     }
 
@@ -226,7 +226,7 @@ struct RcloneDestinationTests {
             try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: expected, sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         }
         #expect(uploadedManifest.get() == expected)
-        #expect(runner.calls[2].arguments == ["copy", file.path, "gdrive:backups/finance/\(name)"])
+        #expect(runner.calls[2].arguments == ["copyto", file.path, "gdrive:backups/finance/\(name)/export.csv"])
     }
 
     @Test func onlyRegularFilesAreSentToTheCloud() async throws {
@@ -313,14 +313,14 @@ struct RcloneDestinationTests {
     @Test func unfinishedAttemptUnderTheSameNameIsPurgedBeforeWriting() async throws {
         let runner = listing("_unfinished\nstale.csv\n")
         try await writeExport(runner)
-        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "purge", "copyto", "copy", "copyto", "deletefile"])
+        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "purge", "copyto", "copyto", "copyto", "deletefile"])
         #expect(runner.calls[1].arguments == ["purge", "gdrive:backups/finance/\(name)"])
     }
 
     @Test func missingOrEmptyFolderIsWrittenStraightAway() async throws {
         for runner in [listing("", exitCode: 3), listing("\n")] {
             try await writeExport(runner)
-            #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copy", "copyto", "deletefile"])
+            #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copyto", "copyto", "deletefile"])
         }
     }
 
