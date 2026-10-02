@@ -378,6 +378,126 @@ struct StepChainRunnerTests {
         #expect(temp.names(in: chainFolder(source, "output")) == ["export-2.csv"])
     }
 
+    // MARK: Interrupted pickups
+
+    private func exportAfterACommand(removeOriginal: Bool) -> Source {
+        source([command("Prepare"), SourceStep(name: "Export", kind: .file(
+            instructions: "",
+            watchPath: temp.path("Downloads").path,
+            filePattern: "export-*.csv",
+            fileMode: .single,
+            includeInCopy: true,
+            removeOriginal: removeOriginal
+        ))])
+    }
+
+    /// Takes the export and returns the chain as it was before: the app died before the step was recorded as done.
+    private func pickUpAndDie(_ source: Source, _ runner: StepChainRunner) async throws -> ChainState? {
+        guard case let .moved(atPickup?) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the command step did not move on")
+            return nil
+        }
+        try temp.file("Downloads/export-1.csv", "one", modified: start.addingTimeInterval(60))
+        time.advance(600)
+        guard case .moved = await runner.advance(source, chain: atPickup, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the export was not picked up")
+            return nil
+        }
+        return atPickup
+    }
+
+    /// The copy left by the first attempt would make the repeat fail with “file exists”. It goes to the Trash: the original is still in Downloads.
+    @Test func interruptedPickupThatKeepsOriginalsIsRepeatedFromACleanPlace() async throws {
+        defer { temp.remove() }
+        let source = exportAfterACommand(removeOriginal: false)
+        let runner = runner()
+        let atPickup = try #require(try await pickUpAndDie(source, runner))
+
+        guard case let .moved(done?) = await runner.advance(source, chain: atPickup, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the repeat did not pick up the export")
+            return
+        }
+        #expect(done.stepIndex == 2)
+        #expect(temp.names(in: chainFolder(source, "output")) == ["export-1.csv"])
+        #expect(temp.names(in: "Downloads") == ["export-1.csv"])
+        #expect(temp.names(in: "trash") == ["export-1.csv"])
+    }
+
+    /// A moved file is the person's only copy: it goes back to Downloads, not to the Trash, and is picked up again.
+    @Test func interruptedPickupPutsMovedFilesBackAndTakesThemAgain() async throws {
+        defer { temp.remove() }
+        let source = exportAfterACommand(removeOriginal: true)
+        let runner = runner()
+        let atPickup = try #require(try await pickUpAndDie(source, runner))
+        #expect(temp.names(in: "Downloads").isEmpty)
+
+        guard case .moved = await runner.advance(source, chain: atPickup, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the repeat did not pick up the export")
+            return
+        }
+        #expect(temp.names(in: chainFolder(source, "output")) == ["export-1.csv"])
+        #expect(try String(contentsOf: temp.path(chainFolder(source, "output") + "/export-1.csv"), encoding: .utf8) == "one")
+        #expect(temp.names(in: "Downloads").isEmpty)
+        #expect(temp.names(in: "trash").isEmpty)
+    }
+
+    /// The first step has no saved position yet: starting afresh must not send the moved file to the Trash.
+    @Test func interruptedFirstPickupGivesTheFileBackInsteadOfTrashingIt() async throws {
+        defer { temp.remove() }
+        let source = source([manual("manifest-*.json"), command()])
+        let runner = runner()
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+        guard case .moved = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed) else {
+            Issue.record("the manifest was not picked up")
+            return
+        }
+
+        let again = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed)
+
+        #expect(again == .moved(chain(source, 1, startedAt: start, stepEnteredAt: start)))
+        #expect(temp.names(in: chainFolder(source, "input")) == ["manifest-a.json"])
+        #expect(temp.names(in: "trash").isEmpty)
+    }
+
+    /// The person downloaded a file with the same name meanwhile: neither file is touched, the step says it could not pick up,
+    /// and once the way back is free the repeat goes on.
+    @Test func movedFileThatCannotGoBackFailsTheStepAndKeepsBothFiles() async throws {
+        defer { temp.remove() }
+        let source = exportAfterACommand(removeOriginal: true)
+        let runner = runner()
+        let atPickup = try #require(try await pickUpAndDie(source, runner))
+        try temp.file("Downloads/export-1.csv", "newer", modified: start.addingTimeInterval(120))
+
+        guard case let .failed(failed) = await runner.advance(source, chain: atPickup, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("expected the step to fail")
+            return
+        }
+        #expect(failed.failure?.hasPrefix("Could not pick up the files:") == true)
+        #expect(try String(contentsOf: temp.path("Downloads/export-1.csv"), encoding: .utf8) == "newer")
+        #expect(try String(contentsOf: temp.path(chainFolder(source, "output") + "/export-1.csv"), encoding: .utf8) == "one")
+
+        try FileManager.default.moveItem(at: temp.path("Downloads/export-1.csv"), to: temp.path("newer.csv"))
+        guard case .moved = await runner.advance(source, chain: failed, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the retry did not pick up the export")
+            return
+        }
+        #expect(temp.names(in: chainFolder(source, "output")) == ["export-1.csv"])
+        #expect(temp.names(in: "Downloads").isEmpty)
+    }
+
+    @Test func unreadableRecordOfAPickupIsForgotten() async throws {
+        defer { temp.remove() }
+        let source = exportAfterACommand(removeOriginal: true)
+        try temp.file(chainFolder(source, "pickup.json"), "{broken")
+        let runner = runner()
+
+        guard case .moved = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the command step did not move on")
+            return
+        }
+        #expect(!temp.exists(chainFolder(source, "pickup.json")))
+    }
+
     // MARK: Interrupted steps
 
     private func interrupted(_ source: Source, output: [String]?) -> ChainState {

@@ -8,13 +8,23 @@ public struct Payload: Sendable, Equatable {
     public let excludedAtTop: [String]
     public let collectedAt: Date
     public let details: String?
+    /// The content was gathered before the run asked for it: a result waiting in `pending`.
+    public let madeEarlier: Bool
 
-    public init(root: URL, excludes: [String] = [], excludedAtTop: [String] = [], collectedAt: Date, details: String? = nil) {
+    public init(
+        root: URL,
+        excludes: [String] = [],
+        excludedAtTop: [String] = [],
+        collectedAt: Date,
+        details: String? = nil,
+        madeEarlier: Bool = false
+    ) {
         self.root = root
         self.excludes = excludes
         self.excludedAtTop = excludedAtTop
         self.collectedAt = collectedAt
         self.details = details
+        self.madeEarlier = madeEarlier
     }
 }
 

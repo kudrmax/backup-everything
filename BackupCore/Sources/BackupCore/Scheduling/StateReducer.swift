@@ -3,7 +3,7 @@ import Foundation
 public struct StateReducer: Sendable {
     public init() {}
 
-    public func apply(_ record: RunRecord, to state: inout AppState) {
+    public func apply(_ record: RunRecord, to state: inout AppState, config: Config) {
         if let collectError = record.collectError {
             state.updateSource(record.sourceId) {
                 $0.lastError = collectError
@@ -28,8 +28,9 @@ public struct StateReducer: Sendable {
                 upsertDebt(record, delivery, attemptedAt: record.finishedAt, in: &state)
             }
         }
+        let active = state.pausingDisabledSources(of: config)
         for delivery in record.deliveries where delivery.outcome.isDelivered {
-            if state.debts(forDestination: delivery.destinationId).isEmpty {
+            if active.debts(forDestination: delivery.destinationId).isEmpty {
                 state.updateDestination(delivery.destinationId) { $0.lastCaughtUp = record.finishedAt }
             }
         }
@@ -40,7 +41,9 @@ public struct StateReducer: Sendable {
                 $0.retryAfter = nil
             }
             if record.deliveries.contains(where: \.outcome.isDelivered) {
-                $0.lastSuccess = max($0.lastSuccess ?? .distantPast, record.collectedAt ?? record.startedAt)
+                // A name read in another time zone can put the copy after the run; it was made no later than the run ended.
+                let collectedAt = min(record.collectedAt ?? record.startedAt, record.finishedAt)
+                $0.lastSuccess = max($0.lastSuccess ?? .distantPast, collectedAt)
             }
             if record.trigger != .catchUp { $0.lastRun = record.startedAt }
         }

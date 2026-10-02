@@ -52,6 +52,19 @@ struct BackupEngineTests {
         #expect(provider.finished == [true])
     }
 
+    /// Whether a run delivers a copy made before it is a fact of the run, not a guess from the copy's date.
+    @Test(arguments: [
+        (RunTrigger.catchUp, true, true),
+        (RunTrigger.catchUp, false, false),
+        (RunTrigger.pickup, true, false),
+        (RunTrigger.scheduled, false, false),
+    ])
+    func runKnowsWhetherItDeliversACopyMadeEarlier(trigger: RunTrigger, madeEarlier: Bool, older: Bool) async {
+        defer { temp.remove() }
+        provider.result = .success(Payload(root: temp.path("vault"), collectedAt: now.addingTimeInterval(7200), madeEarlier: madeEarlier))
+        #expect(await run(trigger).deliversAnOlderCopy == older)
+    }
+
     @Test func destinationsAreToldWhetherTheSourceSavesSpace() async {
         defer { temp.remove() }
         _ = await run()
@@ -254,6 +267,7 @@ struct BackupEngineTests {
         #expect(record.snapshotName == name)
         #expect(record.collectedAt == now)
         #expect(record.copiedFrom == "HDD")
+        #expect(record.deliversAnOlderCopy)
         #expect(record.details == "Copied from “HDD”")
         #expect(record.fileCount == 2)
         #expect(record.totalBytes == 9)

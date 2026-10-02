@@ -16,7 +16,7 @@ public struct PendingSource: SourceProvider {
         guard let package = inbox.pendingPackage(for: sourceId) else {
             throw SourceError.nothingToCollect
         }
-        return Payload(root: package.directory, collectedAt: package.collectedAt)
+        return Payload(root: package.directory, collectedAt: package.collectedAt, madeEarlier: true)
     }
 
     public func finish(_ payload: Payload, deliveredEverywhere: Bool) {

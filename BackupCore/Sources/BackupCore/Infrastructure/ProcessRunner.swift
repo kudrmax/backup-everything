@@ -3,12 +3,15 @@ import os
 
 public struct ProcessResult: Sendable, Equatable {
     public var exitCode: Int32
+    /// The signal that stopped the process; `exitCode` is then 128 + signal, as the shell shows it.
+    public var signal: Int32?
     public var stdout: String
     public var stderr: String
     public var timedOut: Bool
 
-    public init(exitCode: Int32, stdout: String = "", stderr: String = "", timedOut: Bool = false) {
+    public init(exitCode: Int32, signal: Int32? = nil, stdout: String = "", stderr: String = "", timedOut: Bool = false) {
         self.exitCode = exitCode
+        self.signal = signal
         self.stdout = stdout
         self.stderr = stderr
         self.timedOut = timedOut
@@ -111,6 +114,9 @@ public struct SystemProcessRunner: ProcessRunner {
     }
 
     private static func runBlocking(_ launch: Launch, group: SpawnedGroup, groups: ProcessGroups) throws -> ProcessResult {
+        // Registered before the start, so that a quit beginning at any moment either refuses the command or stops it.
+        guard groups.insert(group) else { throw CancellationError() }
+        defer { groups.remove(group) }
         let fileManager = FileManager.default
         let capture = fileManager.temporaryDirectory.appendingPathComponent("process-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: capture, withIntermediateDirectories: true)
@@ -153,7 +159,6 @@ public struct SystemProcessRunner: ProcessRunner {
         guard spawnCode == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: spawnCode) ?? .ENOENT)
         }
-        groups.insert(group)
         group.attach(spawned)
         if let onSpawn = launch.onSpawn, let identity = ProcessIdentity.of(spawned) {
             onSpawn(identity)
@@ -180,11 +185,14 @@ public struct SystemProcessRunner: ProcessRunner {
         var status: Int32 = 0
         while waitpid(spawned, &status, 0) == -1, errno == EINTR {}
         watcher?.stop()
+        // What a command stopped by quitting reports is not its result: nobody is left to record it as a failure.
+        if group.wasStopped, groups.isQuitting { throw CancellationError() }
         let signal = status & 0x7f
-        let exitCode = signal == 0 ? (status >> 8) & 0xff : signal
+        let exitCode = signal == 0 ? (status >> 8) & 0xff : 128 + signal
 
         return ProcessResult(
             exitCode: exitCode,
+            signal: signal == 0 ? nil : signal,
             stdout: text(of: stdoutURL),
             stderr: text(of: stderrURL),
             timedOut: timedOut.withLock { $0 }

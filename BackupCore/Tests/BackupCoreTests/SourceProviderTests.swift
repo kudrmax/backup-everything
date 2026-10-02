@@ -130,6 +130,17 @@ struct SourceProviderTests {
         }
     }
 
+    /// A command killed by a signal did not exit with a code: the message says what happened.
+    @Test func commandStoppedByASignalSaysSoInsteadOfAnExitCode() async {
+        defer { temp.remove() }
+        let shell = ShellCommand(runner: FakeProcessRunner { _ in ProcessResult(exitCode: 128 + SIGKILL, signal: SIGKILL, stderr: "half done\n") })
+
+        await #expect(throws: SourceError.commandStopped(signal: SIGKILL, output: "half done")) {
+            try await shell.run("work", timeoutSeconds: 30, environment: [:]) { _ in }
+        }
+        #expect(SourceError.commandStopped(signal: SIGKILL, output: "half done").localizedDescription == "Command was stopped by a signal (Killed: 9). half done")
+    }
+
     // MARK: Folder step copies exactly
 
     private func folderThenCommand(_ path: String) -> StepsSource {

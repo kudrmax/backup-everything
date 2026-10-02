@@ -88,6 +88,8 @@ public struct BackupEngine: Sendable {
         record.fileCount = stats.fileCount
         record.totalBytes = stats.totalBytes
         record.details = payload.details
+        // A pickup delivers what its own steps have just gathered, even though it waits in `pending`.
+        record.deliversAnOlderCopy = trigger == .catchUp && payload.madeEarlier
 
         for destination in destinations {
             let outcome: DeliveryOutcome
@@ -111,7 +113,8 @@ public struct BackupEngine: Sendable {
             sourceName: source.name,
             trigger: .catchUp,
             startedAt: time.now,
-            finishedAt: time.now
+            finishedAt: time.now,
+            deliversAnOlderCopy: true
         )
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("copy-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: scratch) }

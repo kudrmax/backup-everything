@@ -1102,4 +1102,59 @@ struct BackupCoordinatorTests {
         #expect(result.runs.isEmpty)
         #expect(try store.loadState().debts.isEmpty)
     }
+
+    // MARK: Quitting the app
+
+    /// The command is stopped because the app quits (Quit in the menu) — like a real one, it then reports SIGTERM.
+    private func coordinatorThatQuitsDuringTheCommand() -> BackupCoordinator {
+        let groups = ProcessGroups()
+        let runner = FakeProcessRunner { _ in
+            groups.terminateAll(grace: 0)
+            return ProcessResult(exitCode: 128 + SIGTERM, signal: SIGTERM)
+        }
+        return CoreAssembly.makeCoordinator(
+            dataDirectory: temp.path("data"),
+            workDirectory: temp.path("work"),
+            timeZone: Fixtures.utc,
+            runner: runner,
+            time: time,
+            quit: groups
+        )
+    }
+
+    @Test func commandStoppedByQuittingIsNotRecordedAsAFailure() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(steps: [.command("make-export", timeoutSeconds: 60)], destinations: [cloud], createdAt: created)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+
+        let result = try await coordinatorThatQuitsDuringTheCommand().tick()
+
+        #expect(result.runs.isEmpty)
+        #expect(result.notices.isEmpty)
+        #expect(store.loadRuns().isEmpty)
+        #expect(try store.loadState().sourceState(source.id) == SourceState())
+    }
+
+    @Test func chainStepStoppedByQuittingRunsAgainAtTheNextLaunchWithoutAnError() async throws {
+        defer { temp.remove() }
+        let source = Fixtures.source(
+            name: "Photos",
+            steps: [.file("takeout-*.zip", in: temp.path("Downloads").path, includeInCopy: false), .command("unpack", timeoutSeconds: 60)],
+            schedule: .monthly,
+            destinations: [cloud],
+            createdAt: created
+        )
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("Downloads/takeout-1.zip", "zip")
+        try FileManager.default.setAttributes([.modificationDate: start.addingTimeInterval(-60)], ofItemAtPath: temp.path("Downloads/takeout-1.zip").path)
+
+        let result = try await coordinatorThatQuitsDuringTheCommand().tick()
+
+        #expect(result.runs.isEmpty)
+        #expect(store.loadRuns().isEmpty)
+        let chain = try #require(try store.loadState().sourceState(source.id).chain)
+        #expect(chain.stepIndex == 1)
+        #expect(chain.failure == nil)
+        #expect(chain.retryAfter == nil)
+    }
 }

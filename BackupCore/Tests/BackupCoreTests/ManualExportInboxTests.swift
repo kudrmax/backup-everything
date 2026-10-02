@@ -74,7 +74,7 @@ struct ManualExportInboxTests {
         try temp.file("run/takeout-001.zip", "12345")
         let package = try inbox.adopt(sourceId: sourceId, directory: temp.path("run"), at: now)
         let payload = try await source.collect(at: now.addingTimeInterval(3600))
-        #expect(payload == Payload(root: package.directory, collectedAt: now))
+        #expect(payload == Payload(root: package.directory, collectedAt: now, madeEarlier: true))
 
         source.finish(payload, deliveredEverywhere: false)
         #expect(inbox.pendingPackage(for: sourceId) != nil)

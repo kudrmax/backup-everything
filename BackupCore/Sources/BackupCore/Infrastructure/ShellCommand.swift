@@ -27,6 +27,9 @@ public struct ShellCommand: Sendable {
         if result.timedOut {
             throw SourceError.commandTimedOut(seconds: timeoutSeconds, output: tail)
         }
+        if let signal = result.signal {
+            throw SourceError.commandStopped(signal: signal, output: tail)
+        }
         guard result.exitCode == 0 else {
             throw SourceError.commandFailed(exitCode: result.exitCode, output: tail)
         }

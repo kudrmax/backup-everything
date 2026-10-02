@@ -111,8 +111,8 @@ public struct Store: Sendable {
         let decoder = JSONCoding.decoder()
         var records: [RunRecord] = []
         for url in jsonFiles(in: historyDirectory, extension: "jsonl").sorted(by: { $0.lastPathComponent > $1.lastPathComponent }) {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let month = text.split(separator: "\n").compactMap { try? decoder.decode(RunRecord.self, from: Data($0.utf8)) }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let month = data.split(separator: 0x0A).compactMap { try? decoder.decode(RunRecord.self, from: Data($0)) }
             records.append(contentsOf: month.sorted { $0.startedAt > $1.startedAt })
             if let limit, records.count >= limit { return Array(records.prefix(limit)) }
         }

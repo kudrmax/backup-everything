@@ -7,6 +7,7 @@ public actor BackupCoordinator {
     private let chains: StepChainRunner
     private let stores: any DestinationStoreFactory
     private let time: any TimeSource
+    private let quit: any QuitSignal
     private let progress: ProgressHandler
     private let planner: SchedulePlanner
     private let reporter: StatusReporter
@@ -29,6 +30,7 @@ public actor BackupCoordinator {
         stores: any DestinationStoreFactory,
         time: any TimeSource,
         calendar: Calendar,
+        quit: any QuitSignal = ProcessGroups.shared,
         progress: @escaping ProgressHandler = { _ in }
     ) {
         self.store = store
@@ -37,6 +39,7 @@ public actor BackupCoordinator {
         self.chains = chains
         self.stores = stores
         self.time = time
+        self.quit = quit
         self.progress = progress
         self.planner = SchedulePlanner(calendar: calendar)
         self.reporter = StatusReporter(planner: planner)
@@ -190,14 +193,14 @@ public actor BackupCoordinator {
         announce((copies.map(\.source) + catchUps + due).filter { !announced.contains($0.id) })
         for plan in copies {
             let record = await engine.copy(plan.snapshot, of: plan.source, from: plan.origin, to: plan.targets)
-            try register(record, trigger: .catchUp, state: &state, runs: &runs)
+            try register(record, trigger: .catchUp, config: config, state: &state, runs: &runs)
         }
         for source in catchUps {
             let debtors = state.debts.filter { $0.sourceId == source.id }.compactMap { config.destination($0.destinationId) }
-            try await execute(source, debtors, .catchUp, state: &state, runs: &runs)
+            try await execute(source, debtors, .catchUp, config: config, state: &state, runs: &runs)
         }
         for source in due {
-            try await execute(source, config.destinations(of: source), .scheduled, state: &state, runs: &runs)
+            try await execute(source, config.destinations(of: source), .scheduled, config: config, state: &state, runs: &runs)
         }
         var runNotices: [Notice] = []
         for source in config.sources where source.enabled && source.needsHuman {
@@ -217,7 +220,7 @@ public actor BackupCoordinator {
         let destinations = config.destinations(of: source)
         guard !destinations.isEmpty else { return TickResult() }
         guard source.needsHuman else {
-            try await execute(source, destinations, .manual, state: &state, runs: &runs)
+            try await execute(source, destinations, .manual, config: config, state: &state, runs: &runs)
             return TickResult(runs: runs, notices: failureNotices(runs))
         }
         if state.sourceState(source.id).chain == nil {
@@ -236,7 +239,7 @@ public actor BackupCoordinator {
         let sources = config.sources.filter { $0.enabled && !$0.needsHuman && !config.destinations(of: $0).isEmpty }
         announce(sources)
         for source in sources {
-            try await execute(source, config.destinations(of: source), .manual, state: &state, runs: &runs)
+            try await execute(source, config.destinations(of: source), .manual, config: config, state: &state, runs: &runs)
         }
         var notices: [Notice] = []
         for source in config.sources where source.enabled && source.needsHuman {
@@ -396,6 +399,7 @@ public actor BackupCoordinator {
                 }
                 try store.saveState(state)
             case var .failed(chain):
+                guard !quit.isQuitting else { return }
                 if Self.retriesByItself(chain, in: source) {
                     chain.retryAfter = time.now.addingTimeInterval(SchedulePlanner.retryInterval)
                 }
@@ -428,7 +432,7 @@ public actor BackupCoordinator {
                 if source.hasDevice {
                     progress(.canUnplug(sourceId: source.id, sourceName: source.name))
                 }
-                try await execute(source, destinations, .pickup, state: &state, runs: &runs)
+                try await execute(source, destinations, .pickup, config: config, state: &state, runs: &runs)
                 return
             }
         }
@@ -453,15 +457,19 @@ public actor BackupCoordinator {
         _ source: Source,
         _ destinations: [Destination],
         _ trigger: RunTrigger,
+        config: Config,
         state: inout AppState,
         runs: inout [RunRecord]
     ) async throws {
         let record = await engine.run(source: source, destinations: destinations, trigger: trigger)
-        try register(record, trigger: trigger, state: &state, runs: &runs)
+        try register(record, trigger: trigger, config: config, state: &state, runs: &runs)
     }
 
-    private func register(_ record: RunRecord, trigger: RunTrigger, state: inout AppState, runs: inout [RunRecord]) throws {
-        reducer.apply(record, to: &state)
+    /// Once the app is quitting, a run's outcome is not recorded: its commands were stopped by the quit, not broken.
+    /// Nothing is lost: the next launch finds the run still due, or its debts still open, and does it again.
+    private func register(_ record: RunRecord, trigger: RunTrigger, config: Config, state: inout AppState, runs: inout [RunRecord]) throws {
+        guard !quit.isQuitting else { return }
+        reducer.apply(record, to: &state, config: config)
         try store.saveState(state)
         if record.isDeferredOnly && trigger != .manual { return }
         try store.appendRun(record)

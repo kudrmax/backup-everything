@@ -98,12 +98,10 @@ public struct SnapshotNaming: Sendable {
         return isRepeated(local, at: date) ? formatter(Self.offsetFormat).string(from: date) : local
     }
 
+    /// A name with an offset is one moment wherever the Mac is now; a plain name is read in the current time zone.
     public func date(from name: String) -> Date? {
-        for format in [Self.localFormat, Self.offsetFormat] {
-            let formatter = formatter(format)
-            if let date = formatter.date(from: name), formatter.string(from: date) == name { return date }
-        }
-        return nil
+        if let date = Self.date(from: name, format: Self.localFormat, in: timeZone) { return date }
+        return Self.offsetZone(of: name).flatMap { Self.date(from: name, format: Self.offsetFormat, in: $0) }
     }
 
     public func snapshot(named name: String) -> Snapshot? {
@@ -120,9 +118,29 @@ public struct SnapshotNaming: Sendable {
     }
 
     private func formatter(_ format: String) -> DateFormatter {
+        Self.formatter(format, in: timeZone)
+    }
+
+    private static func date(from name: String, format: String, in zone: TimeZone) -> Date? {
+        let formatter = formatter(format, in: zone)
+        guard let date = formatter.date(from: name), formatter.string(from: date) == name else { return nil }
+        return date
+    }
+
+    /// `+0200` at the end of the name as a fixed zone: the name is checked against the offset it carries, not against today's zone.
+    private static func offsetZone(of name: String) -> TimeZone? {
+        let offset = name.suffix(5)
+        guard let sign = offset.first, sign == "+" || sign == "-" else { return nil }
+        let digits = offset.dropFirst()
+        guard digits.count == 4, digits.allSatisfy({ $0.isASCII && $0.isNumber }), let value = Int(digits) else { return nil }
+        let seconds = (value / 100 * 3600 + value % 100 * 60) * (sign == "-" ? -1 : 1)
+        return TimeZone(secondsFromGMT: seconds)
+    }
+
+    private static func formatter(_ format: String, in zone: TimeZone) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
+        formatter.timeZone = zone
         formatter.dateFormat = format
         return formatter
     }

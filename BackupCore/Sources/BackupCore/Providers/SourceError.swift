@@ -4,6 +4,7 @@ public enum SourceError: Error, Equatable, LocalizedError {
     case pathMissing(String)
     case commandFailed(exitCode: Int32, output: String)
     case commandTimedOut(seconds: Int, output: String)
+    case commandStopped(signal: Int32, output: String)
     case emptyResult
     case nothingToCollect
     case stepFailed(index: Int, count: Int, name: String, reason: String)
@@ -19,6 +20,8 @@ public enum SourceError: Error, Equatable, LocalizedError {
             "Command exited with code \(exitCode). \(output)"
         case let .commandTimedOut(seconds, output):
             "Command did not finish within \(seconds) s and was stopped. \(output)"
+        case let .commandStopped(signal, output):
+            "Command was stopped by a signal (\(String(cString: strsignal(signal)))). \(output)"
         case .emptyResult:
             "The source produced no files. An empty copy is not created."
         case .nothingToCollect:

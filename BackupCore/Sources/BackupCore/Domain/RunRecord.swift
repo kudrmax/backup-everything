@@ -45,6 +45,8 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
     public var details: String?
     /// Catch-up with a ready copy: the name of the destination it was taken from. The source was not gathered.
     public var copiedFrom: String?
+    /// A catch-up that delivered a copy made earlier (from another destination or `pending`) instead of gathering the source now.
+    public var deliversAnOlderCopy: Bool
     public var deliveries: [Delivery]
 
     public init(
@@ -61,6 +63,7 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
         collectError: String? = nil,
         details: String? = nil,
         copiedFrom: String? = nil,
+        deliversAnOlderCopy: Bool = false,
         deliveries: [Delivery] = []
     ) {
         self.id = id
@@ -76,7 +79,33 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
         self.collectError = collectError
         self.details = details
         self.copiedFrom = copiedFrom
+        self.deliversAnOlderCopy = deliversAnOlderCopy
         self.deliveries = deliveries
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, sourceId, sourceName, trigger, startedAt, finishedAt, snapshotName, collectedAt, fileCount, totalBytes
+        case collectError, details, copiedFrom, deliversAnOlderCopy, deliveries
+    }
+
+    /// History written before `deliversAnOlderCopy` knows for sure only about copies taken from another destination.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        sourceId = try container.decode(UUID.self, forKey: .sourceId)
+        sourceName = try container.decode(String.self, forKey: .sourceName)
+        trigger = try container.decode(RunTrigger.self, forKey: .trigger)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        finishedAt = try container.decode(Date.self, forKey: .finishedAt)
+        snapshotName = try container.decodeIfPresent(String.self, forKey: .snapshotName)
+        collectedAt = try container.decodeIfPresent(Date.self, forKey: .collectedAt)
+        fileCount = try container.decodeIfPresent(Int.self, forKey: .fileCount)
+        totalBytes = try container.decodeIfPresent(Int64.self, forKey: .totalBytes)
+        collectError = try container.decodeIfPresent(String.self, forKey: .collectError)
+        details = try container.decodeIfPresent(String.self, forKey: .details)
+        copiedFrom = try container.decodeIfPresent(String.self, forKey: .copiedFrom)
+        deliversAnOlderCopy = try container.decodeIfPresent(Bool.self, forKey: .deliversAnOlderCopy) ?? (copiedFrom != nil)
+        deliveries = try container.decode([Delivery].self, forKey: .deliveries)
     }
 
     public var firstFailure: String? {
@@ -89,10 +118,5 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
 
     public var isDeferredOnly: Bool {
         collectError == nil && !deliveries.isEmpty && deliveries.allSatisfy { $0.outcome == .unavailable }
-    }
-
-    /// A catch-up that delivered a copy made earlier (from another destination or `pending`) instead of gathering the source now.
-    public var deliversAnOlderCopy: Bool {
-        trigger == .catchUp && (collectedAt.map { $0 < startedAt } ?? true)
     }
 }

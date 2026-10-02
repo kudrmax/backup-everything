@@ -150,6 +150,31 @@ struct StatusReporterTests {
         #expect(report([source], state, unavailable: [disk.id]).items == [.connectDestination(destinationId: disk.id)])
     }
 
+    /// The disk got yesterday's backup and was unplugged; a long-standing debt of a disabled source must not make it overdue.
+    @Test func diskCaughtUpYesterdayIsNotAskedForBecauseOfADisabledSource() {
+        let active = Fixtures.source(name: "Active", destinations: [disk])
+        var paused = Fixtures.source(name: "Paused", destinations: [disk])
+        paused.enabled = false
+        let config = Config(sources: [active, paused], destinations: [disk])
+        var state = fresh(active)
+        state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-08-01 00:00:00") }
+        state.debts = [Debt(sourceId: paused.id, destinationId: disk.id, since: Fixtures.date("2026-08-20 00:00:00"))]
+        let reducer = StateReducer()
+        func run(_ day: String, _ outcome: DeliveryOutcome) -> RunRecord {
+            RunRecord(
+                sourceId: active.id, sourceName: active.name, trigger: .scheduled,
+                startedAt: Fixtures.date(day), finishedAt: Fixtures.date(day),
+                deliveries: [Delivery(destinationId: disk.id, destinationName: disk.name, outcome: outcome)]
+            )
+        }
+        reducer.apply(run("2026-09-26 10:00:00", .delivered(pruned: 0, warning: nil)), to: &state, config: config)
+        reducer.apply(run("2026-09-27 10:00:00", .unavailable), to: &state, config: config)
+        state.debts = state.debts.map { var debt = $0; debt.elsewhere = true; return debt }
+
+        let items = reporter.report(config: config, state: state, now: now, unavailableDestinations: [disk.id], inboxScans: [:]).items
+        #expect(!items.contains(.connectDestination(destinationId: disk.id)))
+    }
+
     @Test func stepChainReportsWhereItIsStuck() {
         let now = Fixtures.date("2026-09-28 10:00:00")
         let cloud = Fixtures.localDestination("Cloud", at: URL(fileURLWithPath: "/tmp/cloud"))

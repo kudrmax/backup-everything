@@ -61,7 +61,13 @@ public struct StepChainRunner: Sendable {
         next.failure = nil
         next.retryAfter = nil
         let folders = folders(source.id)
+        let pickup = FilePickup(folders: folders, trash: trash)
         do {
+            do {
+                try pickup.undoUnfinished(of: next.stepId)
+            } catch {
+                throw SourceError.pickupFailed(error.localizedDescription)
+            }
             if chain == nil { try discard(sourceId: source.id) }
             guard next.stepIndex < steps.count else {
                 return .completed(try assemble(source.id, chain: next, folders: folders, at: now))
@@ -73,7 +79,7 @@ public struct StepChainRunner: Sendable {
                 if fileMode == .multiple, !permissions.mayConfirm { return .stay }
                 try folders.prepare()
                 do {
-                    try take(scan.files, into: includeInCopy ? folders.output : folders.input, keepOriginals: !removeOriginal)
+                    try pickup.take(scan.files, into: includeInCopy ? folders.output : folders.input, keepOriginals: !removeOriginal, step: step.id)
                 } catch {
                     throw SourceError.pickupFailed(error.localizedDescription)
                 }
@@ -197,32 +203,6 @@ public struct StepChainRunner: Sendable {
     /// The run may have been interrupted right after moving the result to pending: such a package is already this run's finished result.
     private func isProduct(_ package: PendingPackage, of chain: ChainState) -> Bool {
         package.collectedAt.addingTimeInterval(1) > chain.startedAt
-    }
-
-    /// Pick up all files or none: on an error the ones already moved are put back.
-    private func take(_ files: [URL], into directory: URL, keepOriginals: Bool) throws {
-        let fileManager = FileManager.default
-        var taken: [(original: URL, copy: URL)] = []
-        do {
-            for file in files {
-                let target = directory.appendingPathComponent(file.lastPathComponent)
-                if keepOriginals {
-                    try fileManager.copyItem(at: file, to: target)
-                } else {
-                    try fileManager.moveItem(at: file, to: target)
-                }
-                taken.append((file, target))
-            }
-        } catch {
-            for item in taken.reversed() {
-                if keepOriginals {
-                    try? fileManager.removeItem(at: item.copy)
-                } else {
-                    try? fileManager.moveItem(at: item.copy, to: item.original)
-                }
-            }
-            throw error
-        }
     }
 
     private func folders(_ sourceId: UUID) -> WorkFolders {

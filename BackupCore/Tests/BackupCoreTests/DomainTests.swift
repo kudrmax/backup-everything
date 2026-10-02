@@ -67,6 +67,20 @@ struct DomainTests {
         #expect(doomed.map(\.name) == [naming.name(for: earlier)])
     }
 
+    /// A name with an offset names one moment: it reads back the same after the Mac moved to another time zone.
+    @Test func copyNamedWithAnOffsetReadsBackInAnyTimeZone() {
+        let name = SnapshotNaming(timeZone: berlin).name(for: Fixtures.date("2026-10-25 00:30:00"))
+        for zone in ["Europe/Lisbon", "UTC", "Asia/Tokyo", "America/New_York"] {
+            #expect(SnapshotNaming(timeZone: TimeZone(identifier: zone)!).date(from: name) == Fixtures.date("2026-10-25 00:30:00"))
+        }
+        #expect(Fixtures.naming.date(from: "2026-10-25_023000-0330") == Fixtures.date("2026-10-25 06:00:00"))
+    }
+
+    @Test(arguments: ["2026-10-25_023000+2", "2026-10-25_023000+02:00", "2026-10-25_023000+0260", "2026-10-25_023000x0200", "2026-10-25_023000++200", "2026-10-25_023000+-200"])
+    func malformedOffsetIsNotACopyName(name: String) {
+        #expect(Fixtures.naming.date(from: name) == nil)
+    }
+
     @Test func utcNamesNeverCarryAnOffset() {
         #expect(Fixtures.naming.name(for: Fixtures.date("2026-10-25 00:30:00")) == "2026-10-25_003000")
     }
@@ -179,6 +193,23 @@ struct DomainTests {
         let at = Fixtures.date("2026-09-28 10:00:00")
         let state = SourceState(chain: ChainState(stepIndex: 1, startedAt: at, stepEnteredAt: at, failure: "broke"))
         #expect(try JSONCoding.decoder().decode(SourceState.self, from: JSONCoding.encoder().encode(state)) == state)
+    }
+
+    /// History written before the field: only a copy taken from another destination is known to be an older copy.
+    @Test func runRecordWrittenByAnOlderVersionStillKnowsCopiesTakenFromADestination() throws {
+        let sourceId = UUID().uuidString
+        func decoded(_ extra: String) throws -> RunRecord {
+            let json = #"{"id":"\#(UUID().uuidString)","sourceId":"\#(sourceId)","sourceName":"S","trigger":"catchUp","#
+                + #""startedAt":"2026-09-28T10:00:00Z","finishedAt":"2026-09-28T10:01:00Z","deliveries":[]\#(extra)}"#
+            return try JSONCoding.decoder().decode(RunRecord.self, from: Data(json.utf8))
+        }
+        #expect(try decoded(#","copiedFrom":"Cloud""#).deliversAnOlderCopy)
+        #expect(try !decoded("").deliversAnOlderCopy)
+        #expect(try decoded(#","deliversAnOlderCopy":true"#).deliversAnOlderCopy)
+
+        var record = try decoded("")
+        record.deliversAnOlderCopy = true
+        #expect(try JSONCoding.decoder().decode(RunRecord.self, from: JSONCoding.encoder().encode(record)) == record)
     }
 
     @Test func onlyStepsForThePersonHaveInstructions() {

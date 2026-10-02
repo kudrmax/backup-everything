@@ -31,13 +31,25 @@ public struct ProcessIdentity: Codable, Sendable, Equatable {
     /// a group without it may already be someone else's.
     public func terminateGroup(grace: TimeInterval) {
         guard isRunning else { return }
-        kill(-pid, SIGTERM)
+        Self.signalGroup(pid, SIGTERM)
         let deadline = Date().addingTimeInterval(grace)
         while isRunning, Date() < deadline {
             usleep(50_000)
         }
-        if isRunning { kill(-pid, SIGKILL) }
+        if isRunning { Self.signalGroup(pid, SIGKILL) }
     }
+
+    /// `kill(-pid)` for 0 or 1 would reach the app's own group or every process of the user, so only a real leader is signalled.
+    @discardableResult
+    static func signalGroup(_ leader: pid_t, _ signal: Int32) -> Bool {
+        guard leader > 1 else { return false }
+        return kill(-leader, signal) == 0
+    }
+}
+
+/// Tells whether the app has begun to quit: from then on, whatever its stopped commands report is not a result.
+public protocol QuitSignal: Sendable {
+    var isQuitting: Bool { get }
 }
 
 /// A process group the app started and has not reaped yet: until then its id cannot belong to anyone else.
@@ -58,7 +70,7 @@ final class SpawnedGroup: Sendable {
             state.pid = pid
             return state.stopped
         }
-        if stopped { kill(-pid, SIGTERM) }
+        if stopped { ProcessIdentity.signalGroup(pid, SIGTERM) }
     }
 
     func terminate() {
@@ -74,7 +86,7 @@ final class SpawnedGroup: Sendable {
 
     func signal(_ signal: Int32) {
         state.withLock { state in
-            if let pid = state.pid { kill(-pid, signal) }
+            if let pid = state.pid { ProcessIdentity.signalGroup(pid, signal) }
         }
     }
 
@@ -85,36 +97,56 @@ final class SpawnedGroup: Sendable {
 }
 
 /// Commands the app is running right now. On quit they are stopped with the app instead of living on unattended.
-public final class ProcessGroups: Sendable {
+public final class ProcessGroups: QuitSignal {
+    static let quitGrace: TimeInterval = 1
+
     public static let shared: ProcessGroups = {
         let groups = ProcessGroups()
-        atexit { ProcessGroups.shared.terminateAll(grace: 1) }
+        atexit { ProcessGroups.shared.terminateAll(grace: ProcessGroups.quitGrace) }
         return groups
     }()
 
-    private let running = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: SpawnedGroup]())
+    private struct State {
+        var running: [ObjectIdentifier: SpawnedGroup] = [:]
+        var quitting = false
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     public init() {}
 
     public var count: Int {
-        running.withLock { $0.count }
+        state.withLock { $0.running.count }
     }
 
+    public var isQuitting: Bool {
+        state.withLock { $0.quitting }
+    }
+
+    /// The app quits: every running command is stopped, and no new one is let in.
     public func terminateAll(grace: TimeInterval) {
-        let groups = running.withLock { Array($0.values) }
+        let groups = state.withLock { state in
+            state.quitting = true
+            return Array(state.running.values)
+        }
         groups.forEach { $0.terminate() }
         let deadline = Date().addingTimeInterval(grace)
         while count > 0, Date() < deadline {
             usleep(20_000)
         }
-        running.withLock { $0.values.forEach { $0.signal(SIGKILL) } }
+        state.withLock { $0.running.values.forEach { $0.signal(SIGKILL) } }
     }
 
-    func insert(_ group: SpawnedGroup) {
-        running.withLock { $0[ObjectIdentifier(group)] = group }
+    /// `false` once the app is quitting: such a group is not kept and is to be stopped right away.
+    func insert(_ group: SpawnedGroup) -> Bool {
+        state.withLock { state in
+            guard !state.quitting else { return false }
+            state.running[ObjectIdentifier(group)] = group
+            return true
+        }
     }
 
     func remove(_ group: SpawnedGroup) {
-        running.withLock { _ = $0.removeValue(forKey: ObjectIdentifier(group)) }
+        state.withLock { _ = $0.running.removeValue(forKey: ObjectIdentifier(group)) }
     }
 }

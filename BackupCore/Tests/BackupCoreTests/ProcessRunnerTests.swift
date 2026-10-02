@@ -96,7 +96,7 @@ struct ProcessRunnerTests {
             timeout: 0.3
         )
         #expect(result.timedOut)
-        #expect(result.exitCode == SIGKILL)
+        #expect(result.signal == SIGKILL)
         #expect(Date().timeIntervalSince(started) < 15)
     }
 
@@ -170,9 +170,47 @@ struct ProcessRunnerTests {
 
         groups.terminateAll(grace: 2)
 
-        let result = try await task.value
-        #expect(result.exitCode == SIGTERM)
+        #expect(groups.isQuitting)
+        await #expect(throws: CancellationError.self) { try await task.value }
         #expect(try await isGone(child))
+    }
+
+    @Test func noCommandStartsOnceTheAppIsQuitting() async throws {
+        let groups = ProcessGroups()
+        let marker = FileManager.default.temporaryDirectory.appendingPathComponent("started-\(UUID().uuidString)")
+        groups.terminateAll(grace: 0)
+
+        await #expect(throws: CancellationError.self) {
+            try await SystemProcessRunner(groups: groups).run(executable: shell, arguments: ["-c", "touch \"\(marker.path)\""], environment: [:], timeout: nil)
+        }
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    /// A command spawned while the quit was being handled is not kept: the runner stops it right away.
+    @Test func groupIsNotLetInOnceTheAppIsQuitting() {
+        let groups = ProcessGroups()
+        groups.terminateAll(grace: 0)
+
+        #expect(!groups.insert(SpawnedGroup()))
+        #expect(groups.count == 0)
+    }
+
+    @Test func signalThatStoppedTheCommandIsToldApartFromItsExitCode() async throws {
+        let killed = try await runner.run(executable: shell, arguments: ["-c", "kill -KILL $$"], environment: [:], timeout: nil)
+        #expect(killed.signal == SIGKILL)
+        #expect(killed.exitCode == 128 + SIGKILL)
+
+        let exited = try await runner.run(executable: shell, arguments: ["-c", "exit 9"], environment: [:], timeout: nil)
+        #expect(exited.signal == nil)
+        #expect(exited.exitCode == 9)
+    }
+
+    /// `kill(-pid)` with 0 or 1 would reach the app's own group or every process of the user.
+    @Test func onlyARealGroupLeaderIsEverSignalled() {
+        #expect(!ProcessIdentity.signalGroup(0, 0))
+        #expect(!ProcessIdentity.signalGroup(1, 0))
+        #expect(!ProcessIdentity.signalGroup(-getpid(), 0))
+        #expect(ProcessIdentity.signalGroup(getpgrp(), 0))
     }
 
     @Test func quittingKillsACommandThatIgnoresTheRequestToStop() async throws {
@@ -191,7 +229,7 @@ struct ProcessRunnerTests {
 
         groups.terminateAll(grace: 0.3)
 
-        #expect(try await task.value.exitCode == SIGKILL)
+        await #expect(throws: CancellationError.self) { try await task.value }
     }
 
     /// Cancellation can come between the decision to start and the start itself: the command is stopped as soon as it appears.
@@ -213,7 +251,7 @@ struct ProcessRunnerTests {
 
         group.attach(try #require(spawned.get()).pid)
 
-        #expect(try await task.value.exitCode == SIGTERM)
+        #expect(try await task.value.signal == SIGTERM)
     }
 
     @Test func identityTellsAProcessFromALaterOneWithTheSamePid() throws {
@@ -243,7 +281,7 @@ struct ProcessRunnerTests {
 
         orphan.terminateGroup(grace: 0.3)
 
-        #expect(try await task.value.exitCode == SIGKILL)
+        #expect(try await task.value.signal == SIGKILL)
     }
 
     @Test func latestLineIsFoundAfterLongOutput() async throws {

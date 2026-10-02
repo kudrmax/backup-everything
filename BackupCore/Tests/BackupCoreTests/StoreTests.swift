@@ -92,6 +92,24 @@ struct StoreTests {
         #expect(store.loadRuns().map(\.sourceName) == ["B", "A"])
     }
 
+    /// A write cut in the middle of a Cyrillic letter is not UTF-8: only that line is lost, not the whole month.
+    @Test func lineCutInTheMiddleOfALetterHidesOnlyItself() throws {
+        defer { temp.remove() }
+        let start = Fixtures.date("2026-09-01 08:00:00")
+        try store.appendRun(RunRecord(sourceId: UUID(), sourceName: "Фото", trigger: .manual, startedAt: start, finishedAt: start))
+        let broken = try JSONCoding.encoder(pretty: false).encode(
+            RunRecord(sourceId: UUID(), sourceName: "Заметки", trigger: .manual, startedAt: start, finishedAt: start)
+        )
+        let handle = try FileHandle(forWritingTo: temp.path("data/history/2026-09.jsonl"))
+        try handle.seekToEnd()
+        try handle.write(contentsOf: broken.prefix(through: try #require(broken.firstIndex(of: 0xD0))))
+        try handle.close()
+
+        try store.appendRun(RunRecord(sourceId: UUID(), sourceName: "Почта", trigger: .manual, startedAt: start.addingTimeInterval(60), finishedAt: start))
+
+        #expect(store.loadRuns().map(\.sourceName) == ["Почта", "Фото"])
+    }
+
     @Test func runIsAppendedToAnEmptyHistoryFile() throws {
         defer { temp.remove() }
         let start = Fixtures.date("2026-09-01 08:00:00")

@@ -20,6 +20,7 @@ public enum CoreAssembly {
         runner: any ProcessRunner = SystemProcessRunner(),
         time: any TimeSource = SystemTimeSource(),
         rclone: RcloneLocator = RcloneLocator(),
+        quit: any QuitSignal = ProcessGroups.shared,
         progress: @escaping ProgressHandler = { _ in }
     ) -> BackupCoordinator {
         var calendar = Calendar(identifier: .iso8601)
@@ -50,6 +51,7 @@ public enum CoreAssembly {
             stores: stores,
             time: time,
             calendar: calendar,
+            quit: quit,
             progress: progress
         )
     }
