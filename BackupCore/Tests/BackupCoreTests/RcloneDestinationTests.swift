@@ -76,26 +76,29 @@ struct RcloneDestinationTests {
         try await destination(runner).write(payload, manifest: manifest, sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
 
         #expect(listedFiles.get() == "a.md\nsub/b.md")
-        #expect(runner.calls.count == 4)
-        #expect(runner.calls[0].arguments.first == "copyto")
-        #expect(runner.calls[0].arguments.last == "gdrive:backups/obsidian/\(name)/_unfinished")
-        #expect(Array(runner.calls[1].arguments.prefix(4)) == ["copy", temp.path("vault").path, "gdrive:backups/obsidian/\(name)", "--files-from-raw"])
-        #expect(runner.calls[2].arguments.first == "copyto")
-        #expect(runner.calls[2].arguments.last == "gdrive:backups/obsidian/\(name)/_snapshot.json")
-        #expect(runner.calls[3].arguments == ["deletefile", "gdrive:backups/obsidian/\(name)/_unfinished"])
+        #expect(runner.calls.count == 5)
+        #expect(runner.calls[0].arguments == ["lsf", "gdrive:backups/obsidian/\(name)"])
+        #expect(runner.calls[1].arguments.first == "copyto")
+        #expect(runner.calls[1].arguments.last == "gdrive:backups/obsidian/\(name)/_unfinished")
+        #expect(Array(runner.calls[2].arguments.prefix(4)) == ["copy", temp.path("vault").path, "gdrive:backups/obsidian/\(name)", "--files-from-raw"])
+        #expect(runner.calls[3].arguments.first == "copyto")
+        #expect(runner.calls[3].arguments.last == "gdrive:backups/obsidian/\(name)/_snapshot.json")
+        #expect(runner.calls[4].arguments == ["deletefile", "gdrive:backups/obsidian/\(name)/_unfinished"])
     }
 
     @Test func manifestIsNotUploadedWhenCopyFails() async throws {
         let temp = try TempDirectory()
         defer { temp.remove() }
         let file = try temp.file("export.csv")
-        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 1, stderr: "quota exceeded") }
+        let runner = FakeProcessRunner { call in
+            call.arguments.first == "copy" ? ProcessResult(exitCode: 1, stderr: "quota exceeded") : ProcessResult(exitCode: 0)
+        }
         let manifest = SnapshotManifest(sourceId: UUID(), sourceName: "Finance", collectedAt: date, fileCount: 1, totalBytes: 7)
         await #expect(throws: DestinationError.commandFailed("quota exceeded")) {
             try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest, sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         }
-        #expect(runner.calls.count == 1)
-        #expect(runner.calls[0].arguments.last == "gdrive:backups/finance/\(name)/_unfinished")
+        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copy"])
+        #expect(runner.calls[1].arguments.last == "gdrive:backups/finance/\(name)/_unfinished")
     }
 
     @Test func deleteRefusesForeignNames() async throws {
@@ -202,7 +205,7 @@ struct RcloneDestinationTests {
         await #expect(throws: DestinationError.commandFailed("connection reset")) {
             try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest(), sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         }
-        #expect(runner.calls.map { $0.arguments.first } == ["copyto", "copy", "copyto"])
+        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copy", "copyto"])
         #expect(!runner.calls.contains { $0.arguments.first == "deletefile" })
     }
 
@@ -223,7 +226,7 @@ struct RcloneDestinationTests {
             try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: expected, sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         }
         #expect(uploadedManifest.get() == expected)
-        #expect(runner.calls[1].arguments == ["copy", file.path, "gdrive:backups/finance/\(name)"])
+        #expect(runner.calls[2].arguments == ["copy", file.path, "gdrive:backups/finance/\(name)"])
     }
 
     @Test func onlyRegularFilesAreSentToTheCloud() async throws {
@@ -281,5 +284,62 @@ struct RcloneDestinationTests {
         _ = await destination(runner, path: "not/created/yet").isAvailable()
         #expect(runner.calls.map(\.arguments) == [["lsf", "gdrive:", "--max-depth", "1", "--contimeout", "10s", "--retries", "1"]])
         #expect(runner.calls.first?.timeout == 15)
+    }
+
+    // MARK: Folder under the name of the new copy (spec 4.3)
+
+    private func writeExport(_ runner: FakeProcessRunner) async throws {
+        let temp = try TempDirectory()
+        defer { temp.remove() }
+        let file = try temp.file("export.csv", "1;2")
+        try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest("Finance"), sourceSlug: "finance", snapshotName: name, reusingStoredFiles: false)
+    }
+
+    private func listing(_ entries: String, exitCode: Int32 = 0) -> FakeProcessRunner {
+        FakeProcessRunner { call in
+            call.arguments == ["lsf", "gdrive:backups/finance/\(name)"] ? ProcessResult(exitCode: exitCode, stdout: entries, stderr: "listing failed") : ProcessResult(exitCode: 0)
+        }
+    }
+
+    @Test(arguments: ["2026-09-28_143000/\nold-export.csv\n", "_snapshot.json\n_unfinished\n", "_snapshot.json\nexport.csv\n"])
+    func folderThatIsNotAnUnfinishedAttemptStopsTheWrite(entries: String) async throws {
+        let runner = listing(entries)
+        await #expect(throws: DestinationError.folderInTheWay("gdrive:backups/finance/\(name)")) {
+            try await writeExport(runner)
+        }
+        #expect(runner.calls.map { $0.arguments.first } == ["lsf"])
+    }
+
+    @Test func unfinishedAttemptUnderTheSameNameIsPurgedBeforeWriting() async throws {
+        let runner = listing("_unfinished\nstale.csv\n")
+        try await writeExport(runner)
+        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "purge", "copyto", "copy", "copyto", "deletefile"])
+        #expect(runner.calls[1].arguments == ["purge", "gdrive:backups/finance/\(name)"])
+    }
+
+    @Test func missingOrEmptyFolderIsWrittenStraightAway() async throws {
+        for runner in [listing("", exitCode: 3), listing("\n")] {
+            try await writeExport(runner)
+            #expect(runner.calls.map { $0.arguments.first } == ["lsf", "copyto", "copy", "copyto", "deletefile"])
+        }
+    }
+
+    @Test func unreadableFolderStopsTheWrite() async throws {
+        let runner = listing("", exitCode: 1)
+        await #expect(throws: DestinationError.commandFailed("listing failed")) {
+            try await writeExport(runner)
+        }
+        #expect(runner.calls.count == 1)
+    }
+
+    @Test func failedPurgeOfTheUnfinishedAttemptStopsTheWrite() async throws {
+        let runner = FakeProcessRunner { call in
+            if call.arguments.first == "lsf" { return ProcessResult(exitCode: 0, stdout: "_unfinished\n") }
+            return call.arguments.first == "purge" ? ProcessResult(exitCode: 1, stderr: "busy") : ProcessResult(exitCode: 0)
+        }
+        await #expect(throws: DestinationError.commandFailed("busy")) {
+            try await writeExport(runner)
+        }
+        #expect(runner.calls.map { $0.arguments.first } == ["lsf", "purge"])
     }
 }

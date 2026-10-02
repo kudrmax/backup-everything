@@ -43,4 +43,45 @@ struct RcloneIntegrationTests {
         try await destination.delete(Snapshot(name: name, date: date), sourceSlug: "obsidian")
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
     }
+
+    private func cloud(in temp: TempDirectory) throws -> RcloneDestination {
+        let executable = try #require(RcloneLocator().find(), "rclone is required: brew install rclone")
+        try temp.directory("remote")
+        return RcloneDestination(executable: executable, remote: ":local", path: temp.path("remote").path, runner: SystemProcessRunner(), naming: Fixtures.naming)
+    }
+
+    private func writeVault(to destination: RcloneDestination, in temp: TempDirectory) async throws {
+        let date = Fixtures.date("2026-09-28 14:30:00")
+        let manifest = SnapshotManifest(sourceId: UUID(), sourceName: "Obsidian", collectedAt: date, fileCount: 1, totalBytes: 5)
+        try await destination.write(Payload(root: temp.path("vault"), collectedAt: date), manifest: manifest, sourceSlug: "obsidian", snapshotName: "2026-09-28_143000", reusingStoredFiles: true)
+    }
+
+    /// Spec 4.3: a folder without the mark under the new copy's name stops the write and is never touched.
+    @Test func writeDoesNotTakeOverAForeignFolderWithTheSameName() async throws {
+        let temp = try TempDirectory()
+        defer { temp.remove() }
+        let destination = try cloud(in: temp)
+        try temp.file("vault/a.md", "alpha")
+        try temp.file("remote/obsidian/2026-09-28_143000/mine.md", "not a backup")
+
+        await #expect(throws: DestinationError.self) {
+            try await writeVault(to: destination, in: temp)
+        }
+        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
+        #expect(temp.names(in: "remote/obsidian/2026-09-28_143000") == ["mine.md"])
+    }
+
+    /// Spec 4.3: an unfinished folder under the same name (a retry of the same copy) is replaced, the copy is written anew.
+    @Test func retryReplacesTheUnfinishedAttemptUnderTheSameName() async throws {
+        let temp = try TempDirectory()
+        defer { temp.remove() }
+        let destination = try cloud(in: temp)
+        try temp.file("vault/a.md", "alpha")
+        try temp.file("remote/obsidian/2026-09-28_143000/_unfinished")
+        try temp.file("remote/obsidian/2026-09-28_143000/deleted-since.md", "stale")
+
+        try await writeVault(to: destination, in: temp)
+
+        #expect(temp.names(in: "remote/obsidian/2026-09-28_143000") == ["_snapshot.json", "a.md"])
+    }
 }

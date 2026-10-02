@@ -308,7 +308,7 @@ public actor BackupCoordinator {
         for destination in config.destinations(of: source) where !debtors.contains(destination.id) {
             let destinationStore = stores.store(for: destination)
             guard await destinationStore.isAvailable(),
-                  let newest = (try? await destinationStore.listSnapshots(sourceSlug: source.slug))?.max(by: { $0.date < $1.date }) else { continue }
+                  let newest = (try? await destinationStore.copies(of: source))?.max(by: { $0.date < $1.date }) else { continue }
             if let current = best {
                 let isLocal = if case .localFolder = destination.kind { true } else { false }
                 guard newest.date > current.snapshot.date || (newest.date == current.snapshot.date && isLocal) else { continue }

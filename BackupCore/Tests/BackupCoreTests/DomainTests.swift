@@ -27,6 +27,50 @@ struct DomainTests {
         #expect(Fixtures.naming.date(from: name) == nil)
     }
 
+    // MARK: Names when clocks change (Europe/Berlin, 25 October 2026: 03:00 CEST becomes 02:00 CET)
+
+    private let berlin = TimeZone(identifier: "Europe/Berlin")!
+
+    @Test func copiesInTheRepeatedHourCarryTheOffsetAndReadBackAsTheirOwnMoment() {
+        let naming = SnapshotNaming(timeZone: berlin)
+        let beforeClocksGoBack = Fixtures.date("2026-10-25 00:30:00")
+        let anHourLater = Fixtures.date("2026-10-25 01:30:00")
+
+        #expect(naming.name(for: beforeClocksGoBack) == "2026-10-25_023000+0200")
+        #expect(naming.name(for: anHourLater) == "2026-10-25_023000+0100")
+        #expect(naming.date(from: naming.name(for: beforeClocksGoBack)) == beforeClocksGoBack)
+        #expect(naming.date(from: naming.name(for: anHourLater)) == anHourLater)
+    }
+
+    @Test(arguments: ["2026-10-24 23:59:59", "2026-10-25 02:00:00", "2026-03-29 00:59:59", "2026-03-29 01:00:00", "2026-07-01 12:00:00"])
+    func copiesOutsideTheRepeatedHourKeepPlainLocalNames(moment: String) {
+        let naming = SnapshotNaming(timeZone: berlin)
+        let date = Fixtures.date(moment)
+        #expect(!naming.name(for: date).contains("+"))
+        #expect(naming.date(from: naming.name(for: date)) == date)
+    }
+
+    @Test func copyNamedInTheRepeatedHourByAnEarlierVersionIsStillACopy() {
+        #expect(SnapshotNaming(timeZone: berlin).date(from: "2026-10-25_023000") != nil)
+    }
+
+    @Test func copyNamesAreUnambiguousWhenClocksGoBackSoTheFresherCopyOfTheDayIsKept() throws {
+        let naming = SnapshotNaming(timeZone: berlin)
+        let earlier = Fixtures.date("2026-10-25 00:50:00")
+        let later = Fixtures.date("2026-10-25 01:10:00")
+        let nextDay = Fixtures.date("2026-10-26 09:00:00")
+        let listed = [earlier, later, nextDay].map { naming.snapshot(named: naming.name(for: $0))! }
+
+        #expect(listed[0].date == earlier)
+        let doomed = RetentionPolicy(timeZone: berlin)
+            .snapshotsToDelete(listed, rules: RetentionRules(daily: 2, weekly: 0, monthly: 0, yearly: 0))
+        #expect(doomed.map(\.name) == [naming.name(for: earlier)])
+    }
+
+    @Test func utcNamesNeverCarryAnOffset() {
+        #expect(Fixtures.naming.name(for: Fixtures.date("2026-10-25 00:30:00")) == "2026-10-25_003000")
+    }
+
     @Test func scheduleComputesNextDue() {
         let start = Fixtures.date("2026-01-31 10:00:00")
         #expect(Schedule.daily.nextDue(after: start, calendar: Fixtures.calendar) == Fixtures.date("2026-02-01 10:00:00"))

@@ -158,7 +158,7 @@ public struct BackupEngine: Sendable {
         to store: any DestinationStore
     ) async -> DeliveryOutcome {
         do {
-            let existing = try await store.listSnapshots(sourceSlug: source.slug)
+            let existing = try await store.copies(of: source)
             if !existing.contains(where: { $0.name == snapshotName }) {
                 try await store.write(
                     payload,
@@ -173,7 +173,7 @@ public struct BackupEngine: Sendable {
         }
         do {
             try await store.removeIncomplete(sourceSlug: source.slug)
-            let snapshots = try await store.listSnapshots(sourceSlug: source.slug)
+            let snapshots = try await store.copies(of: source)
             let doomed = retention.snapshotsToDelete(snapshots, rules: source.retention).filter { $0.name != snapshotName }
             for snapshot in doomed {
                 try await store.delete(snapshot, sourceSlug: source.slug)
