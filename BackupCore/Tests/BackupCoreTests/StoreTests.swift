@@ -77,6 +77,33 @@ struct StoreTests {
         #expect(store.loadRuns().map(\.sourceName) == ["B", "A"])
     }
 
+    /// The app died in the middle of writing a line: the next run starts on a line of its own instead of being glued to the broken one.
+    @Test func runAppendedAfterAnInterruptedWriteIsNotLost() throws {
+        defer { temp.remove() }
+        let start = Fixtures.date("2026-09-01 08:00:00")
+        try store.appendRun(RunRecord(sourceId: UUID(), sourceName: "A", trigger: .manual, startedAt: start, finishedAt: start))
+        let handle = try FileHandle(forWritingTo: temp.path("data/history/2026-09.jsonl"))
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(#"{"id":"0E5B"#.utf8))
+        try handle.close()
+
+        try store.appendRun(RunRecord(sourceId: UUID(), sourceName: "B", trigger: .manual, startedAt: start.addingTimeInterval(60), finishedAt: start))
+
+        #expect(store.loadRuns().map(\.sourceName) == ["B", "A"])
+    }
+
+    @Test func runIsAppendedToAnEmptyHistoryFile() throws {
+        defer { temp.remove() }
+        let start = Fixtures.date("2026-09-01 08:00:00")
+        try temp.file("data/history/2026-09.jsonl", "")
+
+        try store.appendRun(RunRecord(sourceId: UUID(), sourceName: "A", trigger: .manual, startedAt: start, finishedAt: start))
+
+        #expect(store.loadRuns().map(\.sourceName) == ["A"])
+        let text = try String(contentsOf: temp.path("data/history/2026-09.jsonl"), encoding: .utf8)
+        #expect(!text.hasPrefix("\n"))
+    }
+
     @Test func bundledTemplatesInstallOnceAndAllDecode() throws {
         defer { temp.remove() }
         try store.installBundledTemplates()
@@ -132,6 +159,21 @@ struct StoreTests {
         #expect(state.sourceState(sourceId).lastRun == Fixtures.date("2026-09-28 10:00:00"))
         #expect(state.lastDelivered.isEmpty)
         #expect(temp.names(in: "data") == ["state.json"])
+    }
+
+    @Test func chainSavedByAnOlderVersionDoesNotKnowItsStepOutput() throws {
+        defer { temp.remove() }
+        let sourceId = UUID()
+        try temp.file("data/state.json", """
+        {"schemaVersion":1,"sources":{"\(sourceId.uuidString)":{"chain":{"stepIndex":1,"startedAt":"2026-09-28T10:00:00Z","stepEnteredAt":"2026-09-28T10:00:00Z"}}}}
+        """)
+        let chain = try #require(try store.loadState().sourceState(sourceId).chain)
+        #expect(chain.outputAtStepEntry == nil)
+
+        var state = AppState()
+        state.updateSource(sourceId) { $0.chain = ChainState(stepIndex: 1, startedAt: chain.startedAt, stepEnteredAt: chain.startedAt, outputAtStepEntry: ["a.zip"]) }
+        try store.saveState(state)
+        #expect(try store.loadState() == state)
     }
 
     @Test func unreadableStateIsAnErrorAndIsNotReset() throws {

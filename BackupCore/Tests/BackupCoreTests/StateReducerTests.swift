@@ -73,6 +73,33 @@ struct StateReducerTests {
         #expect(state.destinationState(disk).lastCaughtUp == finished)
     }
 
+    /// A catch-up delivers a copy made before the source broke: the source stays red and its hourly retry stays.
+    @Test func catchUpKeepsTheErrorOfACollectionThatKeepsFailing() {
+        var state = AppState()
+        let retryAfter = started.addingTimeInterval(3600)
+        state.updateSource(sourceId) { $0.lastError = "path missing"; $0.retryAfter = retryAfter }
+        state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: started)]
+        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp), to: &state)
+        #expect(state.debts.isEmpty)
+        #expect(state.sourceState(sourceId) == SourceState(lastSuccess: started, lastError: "path missing", retryAfter: retryAfter))
+    }
+
+    @Test func catchUpThatGatheredTheSourceAgainClearsItsError() {
+        var state = AppState()
+        state.updateSource(sourceId) { $0.lastError = "path missing"; $0.retryAfter = started.addingTimeInterval(3600) }
+        var gathered = record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
+        gathered.collectedAt = started
+        reducer.apply(gathered, to: &state)
+        #expect(state.sourceState(sourceId) == SourceState(lastSuccess: started))
+    }
+
+    @Test func scheduledRunClearsTheErrorOfAFailedCollection() {
+        var state = AppState()
+        state.updateSource(sourceId) { $0.lastError = "path missing"; $0.retryAfter = started }
+        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))]), to: &state)
+        #expect(state.sourceState(sourceId) == SourceState(lastRun: started, lastSuccess: started))
+    }
+
     @Test func destinationIsNotCaughtUpWhileOtherSourcesAreOwed() {
         var state = AppState()
         state.debts = [Debt(sourceId: UUID(), destinationId: disk, since: started)]

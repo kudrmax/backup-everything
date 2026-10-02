@@ -71,6 +71,7 @@ public struct SchedulePlanner: Sendable {
     }
 
     public func nextWake(config: Config, state: AppState, now: Date, needsAttention: Bool) -> Date? {
+        let state = state.pausingDisabledSources(of: config)
         var candidates: [Date] = []
         for source in config.sources {
             let sourceState = state.sourceState(source.id)
