@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import BackupCore
@@ -119,17 +120,14 @@ struct LocalFolderDestinationTests {
         #expect(temp.names(in: "disk/obsidian") == ["Photos"])
     }
 
-    @Test func failedWriteLeavesNoManifest() async throws {
+    @Test func sourceThatCannotBeReadStartsNoCopy() async throws {
         defer { temp.remove() }
         let payload = Payload(root: temp.path("missing-source"), collectedAt: date)
         await #expect(throws: SourceError.pathMissing(temp.path("missing-source").path)) {
             try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
         }
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
-        #expect(temp.names(in: "disk/obsidian/\(name)") == ["_unfinished"])
-        try await destination.removeIncomplete(sourceSlug: "obsidian")
-        #expect(temp.names(in: "disk/obsidian").isEmpty)
-        #expect(temp.names(in: "Trash") == [name])
+        #expect(!temp.exists("disk/obsidian/\(name)"))
     }
 
     @Test func usedBytesSumsEverythingUnderRoot() async throws {
@@ -323,5 +321,241 @@ struct LocalFolderDestinationTests {
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").map(\.name) == [name])
         #expect(temp.names(in: "Trash").isEmpty)
         #expect(try String(contentsOf: temp.path("disk/obsidian/\(name)/a.md"), encoding: .utf8) == "alpha")
+    }
+
+    // MARK: Locks, permissions and access lists kept from the originals
+
+    private func cleanUp() {
+        Permissions.unlockTree(temp.url)
+        temp.remove()
+    }
+
+    private func write(_ root: String, as snapshotName: String? = nil) async throws {
+        try await destination.write(
+            Payload(root: temp.path(root), collectedAt: date),
+            manifest: manifest(),
+            sourceSlug: "obsidian",
+            snapshotName: snapshotName ?? name,
+            reusingStoredFiles: false
+        )
+    }
+
+    private func permissions(_ relative: String) throws -> Int {
+        try (FileManager.default.attributesOfItem(atPath: temp.path(relative).path)[.posixPermissions] as? NSNumber)?.intValue ?? -1
+    }
+
+    private func denyDeleting(_ relative: String) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/chmod")
+        process.arguments = ["+a", "everyone deny delete,delete_child", temp.path(relative).path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+    }
+
+    @Test func copyWithLockedFilesIsDeletedWhole() async throws {
+        defer { cleanUp() }
+        try temp.file("vault/a.md", "alpha")
+        try temp.file("vault/m.md", "middle")
+        try temp.file("vault/z.md", "omega")
+        try Permissions.lock(temp.path("vault/m.md"))
+        try await write("vault")
+
+        try await destination.delete(Snapshot(name: name, date: date), sourceSlug: "obsidian")
+
+        #expect(temp.names(in: "disk/obsidian").isEmpty)
+    }
+
+    @Test func copyWithLockedReadOnlyAndProtectedFoldersIsDeletedWhole() async throws {
+        defer { cleanUp() }
+        try temp.file("vault/locked/a.md", "alpha")
+        try temp.file("vault/readonly/inner/b.md", "beta")
+        try temp.file("vault/protected/c.md", "gamma")
+        try Permissions.lock(temp.path("vault/locked"))
+        chmod(temp.path("vault/readonly/inner").path, 0o500)
+        chmod(temp.path("vault/readonly").path, 0o500)
+        try denyDeleting("vault/protected")
+        try denyDeleting("vault/protected/c.md")
+        try await write("vault")
+        #expect(try permissions("disk/obsidian/\(name)/readonly") == 0o500)
+
+        try await destination.delete(Snapshot(name: name, date: date), sourceSlug: "obsidian")
+
+        #expect(temp.names(in: "disk/obsidian").isEmpty)
+    }
+
+    @Test func lockedCopyFolderIsDeletedToo() async throws {
+        defer { cleanUp() }
+        try temp.file("vault/a.md", "alpha")
+        try await write("vault")
+        try Permissions.lock(temp.path("disk/obsidian/\(name)"))
+
+        try await destination.delete(Snapshot(name: name, date: date), sourceSlug: "obsidian")
+
+        #expect(temp.names(in: "disk/obsidian").isEmpty)
+    }
+
+    @Test func deletionThatStoppedHalfwayIsNeverTakenForACopyAndIsFinishedLater() async throws {
+        defer { cleanUp() }
+        let interrupted = "2026-09-27_100000.deleting"
+        try temp.file("disk/obsidian/\(interrupted)/_snapshot.json", "{}")
+        try temp.file("disk/obsidian/\(interrupted)/locked.md", "half deleted")
+        try Permissions.lock(temp.path("disk/obsidian/\(interrupted)/locked.md"))
+        try temp.file("disk/obsidian/notes.deleting/keep.md")
+
+        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
+        try await destination.removeIncomplete(sourceSlug: "obsidian")
+
+        #expect(temp.names(in: "disk/obsidian") == ["notes.deleting"])
+        #expect(temp.names(in: "Trash").isEmpty)
+    }
+
+    @Test func copyIsDeletedAgainAfterItWasRestoredUnderTheSameName() async throws {
+        defer { cleanUp() }
+        try temp.file("vault/a.md", "alpha")
+        try temp.file("disk/obsidian/\(name).deleting/old.md", "left from the first deletion")
+        try await write("vault")
+
+        try await destination.delete(Snapshot(name: name, date: date), sourceSlug: "obsidian")
+
+        #expect(temp.names(in: "disk/obsidian").isEmpty)
+    }
+
+    @Test func deletingACopyThatIsGoneIsAnError() async throws {
+        defer { temp.remove() }
+        await #expect(throws: POSIXError(.ENOENT)) {
+            try await destination.delete(Snapshot(name: name, date: date), sourceSlug: "obsidian")
+        }
+    }
+
+    // MARK: Everything in the source or nothing
+
+    @Test func unreadableSubfolderStartsNoCopy() async throws {
+        defer { cleanUp() }
+        try temp.file("vault/a.md", "alpha")
+        try temp.file("vault/private/diary.md", "secret")
+        chmod(temp.path("vault/private").path, 0)
+
+        await #expect(throws: SourceError.unreadable(temp.path("vault/private").path)) {
+            try await write("vault")
+        }
+        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
+        #expect(!temp.exists("disk/obsidian/\(name)"))
+    }
+
+    @Test func singleFileGivenAsALinkIsStoredWithItsData() async throws {
+        defer { temp.remove() }
+        let real = try temp.file("dotfiles/zshrc", "export PATH=/opt/homebrew/bin")
+        try temp.directory("home")
+        try FileManager.default.createSymbolicLink(at: temp.path("home/.zshrc"), withDestinationURL: real)
+
+        try await write("home/.zshrc")
+
+        let stored = temp.path("disk/obsidian/\(name)/.zshrc")
+        #expect(try FileManager.default.attributesOfItem(atPath: stored.path)[.type] as? FileAttributeType == .typeRegular)
+        #expect(try String(contentsOf: stored, encoding: .utf8) == "export PATH=/opt/homebrew/bin")
+        #expect(try storedManifest().files?.map(\.path) == [".zshrc"])
+    }
+
+    @Test func folderGivenAsALinkIsStoredWithItsContents() async throws {
+        defer { temp.remove() }
+        try temp.file("real/a.md", "alpha")
+        try FileManager.default.createSymbolicLink(at: temp.path("vault"), withDestinationURL: temp.path("real"))
+
+        try await write("vault")
+
+        #expect(try String(contentsOf: temp.path("disk/obsidian/\(name)/a.md"), encoding: .utf8) == "alpha")
+    }
+
+    @Test func foldersKeepTheirPermissionsDatesAndAttributes() async throws {
+        defer { cleanUp() }
+        let modified = Fixtures.date("2026-01-02 03:04:05")
+        try temp.file("vault/keys/id_ed25519", "PRIVATE")
+        try temp.file("vault/keys/sub/known_hosts", "github.com")
+        try Permissions.setAttribute("com.apple.metadata:_kMDItemUserTags", value: "Red", on: temp.path("vault/keys"))
+        chmod(temp.path("vault/keys/sub").path, 0o500)
+        chmod(temp.path("vault/keys").path, 0o700)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: temp.path("vault/keys").path)
+
+        try await write("vault")
+
+        let keys = "disk/obsidian/\(name)/keys"
+        #expect(try permissions(keys) == 0o700)
+        #expect(try permissions(keys + "/sub") == 0o500)
+        #expect(try String(contentsOf: temp.path(keys + "/sub/known_hosts"), encoding: .utf8) == "github.com")
+        #expect(try FileManager.default.attributesOfItem(atPath: temp.path(keys).path)[.modificationDate] as? Date == modified)
+        #expect(try Permissions.attribute("com.apple.metadata:_kMDItemUserTags", of: temp.path(keys)) == "Red")
+    }
+
+    // MARK: Names of the app's own files in the person's data
+
+    @Test func dataNamedLikeTheAppsOwnFilesAtTheTopIsRefused() async throws {
+        defer { temp.remove() }
+        for (index, reserved) in ["_snapshot.json", "_Unfinished", "_SNAPSHOT.JSON"].enumerated() {
+            try temp.file("vault\(index)/a.md", "alpha")
+            try temp.file("vault\(index)/\(reserved)", "exported by another tool")
+
+            await #expect(throws: SourceError.reservedName(reserved)) {
+                try await write("vault\(index)")
+            }
+        }
+        #expect(temp.names(in: "disk").isEmpty)
+    }
+
+    @Test func halfWrittenCopyOfDataWithItsOwnManifestNeverCountsAsFinished() async throws {
+        defer { cleanUp() }
+        try temp.file("vault/_snapshot.json", "{\"note\": \"exported by another tool\"}")
+        try temp.file("vault/a.md", "alpha")
+        try temp.file("vault/zz.md", "unreadable")
+        chmod(temp.path("vault/zz.md").path, 0)
+
+        await #expect(throws: (any Error).self) {
+            try await write("vault")
+        }
+        chmod(temp.path("vault/zz.md").path, 0o644)
+
+        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
+        try await destination.removeIncomplete(sourceSlug: "obsidian")
+        #expect(!temp.exists("disk/obsidian/\(name)"))
+    }
+
+    @Test func dataNamedLikeTheAppsOwnFilesDeeperIsCopied() async throws {
+        defer { temp.remove() }
+        try temp.file("vault/site/_snapshot.json", "{\"page\": 1}")
+        try temp.file("vault/draft/_unfinished", "todo")
+
+        try await write("vault")
+
+        #expect(try await destination.listSnapshots(sourceSlug: "obsidian") == [Snapshot(name: name, date: date)])
+        #expect(try storedManifest().files?.map(\.path) == ["draft/_unfinished", "site/_snapshot.json"])
+    }
+
+    // MARK: Listing
+
+    @Test func unreadableFolderOfTheSourceIsAnErrorNotAnEmptyList() async throws {
+        defer { cleanUp() }
+        try temp.file("vault/a.md", "alpha")
+        try await write("vault")
+        chmod(temp.path("disk/obsidian").path, 0)
+
+        await #expect(throws: (any Error).self) {
+            _ = try await destination.listSnapshots(sourceSlug: "obsidian")
+        }
+        await #expect(throws: (any Error).self) {
+            try await destination.removeIncomplete(sourceSlug: "obsidian")
+        }
+    }
+
+    // MARK: Disks under /Volumes
+
+    @Test func leftoverFolderOfAnUnpluggedDiskIsUnavailable() async throws {
+        defer { temp.remove() }
+        try temp.directory("Volumes/HDD/Backups")
+        let volumes = VolumeMounts(volumesRoot: temp.path("Volumes").path)
+        for root in ["Volumes/HDD", "Volumes/HDD/Backups"] {
+            let stale = LocalFolderDestination(root: temp.path(root), naming: Fixtures.naming, volumes: volumes)
+            #expect(await stale.isAvailable() == false)
+        }
+        #expect(await LocalFolderDestination(root: temp.path("disk"), naming: Fixtures.naming, volumes: volumes).isAvailable())
     }
 }

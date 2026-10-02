@@ -27,6 +27,10 @@ struct CoreSupportTests {
             == "Command did not finish within 60 s and was stopped. still downloading")
         #expect(SourceError.nothingToCollect.localizedDescription == "No picked-up files for this source.")
         #expect(SourceError.pickupFailed("disk full").localizedDescription == "Could not pick up the files: disk full")
+        #expect(SourceError.unreadable("/Users/max/Library/Mail").localizedDescription
+            == "Could not read “/Users/max/Library/Mail”, so the copy would miss it. Give Backup Everything access (System Settings → Privacy & Security → Full Disk Access) or add it to the exclusions.")
+        #expect(SourceError.reservedName("_snapshot.json").localizedDescription
+            == "“_snapshot.json” at the top of the source has the name Backup Everything gives its own file in every copy. Rename it, move it into a subfolder or add it to the exclusions.")
     }
 
     @Test func systemClockIsTheCurrentTime() {
@@ -115,5 +119,28 @@ struct CoreSupportTests {
         let entries = try walker.entries(of: Payload(root: temp.path("vault"), excludes: [".trash"], collectedAt: date))
         #expect(entries.map(\.relativePath) == ["empty"])
         #expect(walker.stats(of: entries) == PayloadStats(fileCount: 0, totalBytes: 0))
+    }
+
+    @Test func volumeFoldersCountOnlyWhileSomethingIsMountedThere() throws {
+        defer { temp.remove() }
+        try temp.directory("Volumes/HDD/Backups")
+        try temp.directory("elsewhere")
+        try FileManager.default.createSymbolicLink(at: temp.path("Volumes/Macintosh HD"), withDestinationURL: temp.path("elsewhere"))
+        let volumes = VolumeMounts(volumesRoot: temp.path("Volumes").path)
+
+        #expect(volumes.isOnMountedVolume(temp.path("Volumes/HDD")) == false)
+        #expect(volumes.isOnMountedVolume(temp.path("Volumes/HDD/Backups")) == false)
+        #expect(volumes.isOnMountedVolume(temp.path("Volumes/Gone/Backups")) == false)
+        #expect(volumes.isOnMountedVolume(temp.path("Volumes/Macintosh HD/Backups")))
+        #expect(volumes.isOnMountedVolume(temp.path("elsewhere")))
+        #expect(volumes.isOnMountedVolume(temp.path("Volumes")))
+    }
+
+    @Test func realMountPointsCount() {
+        defer { temp.remove() }
+        let fromRoot = VolumeMounts(volumesRoot: "/")
+        #expect(fromRoot.isOnMountedVolume(URL(fileURLWithPath: "/dev/null")))
+        #expect(fromRoot.isOnMountedVolume(URL(fileURLWithPath: "/usr/bin")) == false)
+        #expect(VolumeMounts().isOnMountedVolume(URL(fileURLWithPath: NSHomeDirectory())))
     }
 }

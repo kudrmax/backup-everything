@@ -323,4 +323,45 @@ struct CloneSnapshotsTests {
 
         #expect(try await destination.usedBytes() == temp.allocatedBytes("disk/obsidian/\(name(first))/photo.jpg"))
     }
+
+    // MARK: Metadata of clones
+
+    @Test func lockedFileIsClonedAndStaysLocked() async throws {
+        defer {
+            Permissions.unlockTree(temp.url)
+            temp.remove()
+        }
+        let cloning = RecordingCloning()
+        try temp.file("vault/a.md", "alpha")
+        try Permissions.lock(try temp.file("vault/contract.pdf", "signed"))
+        try await backUp(destination(cloning), at: first)
+
+        try await backUp(destination(cloning), at: second)
+
+        #expect(cloning.clonedTargets(relativeTo: snapshot(second)) == ["a.md", "contract.pdf"])
+        #expect(try content(second, "contract.pdf") == "signed")
+        let flags = try FileManager.default.attributesOfItem(atPath: snapshot(second).appendingPathComponent("contract.pdf").path)[.immutable] as? Bool
+        #expect(flags == true)
+    }
+
+    @Test func cloneTakesExtendedAttributesAndPermissionsOfTheSourceFile() async throws {
+        defer { temp.remove() }
+        let tags = "com.apple.metadata:_kMDItemUserTags"
+        let photo = try temp.file("vault/photo.jpg", "pixels")
+        let scan = try temp.file("vault/scan.jpg", "scan")
+        try Permissions.setAttribute(tags, value: "Red", on: photo)
+        try Permissions.setAttribute(tags, value: "Blue", on: scan)
+        try await backUp(destination(RecordingCloning()), at: first)
+
+        try Permissions.setAttribute(tags, value: "Green", on: photo)
+        #expect(removexattr(scan.path, tags, 0) == 0)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: photo.path)
+        try await backUp(destination(RecordingCloning()), at: second)
+
+        let stored = snapshot(second)
+        #expect(try Permissions.attribute(tags, of: stored.appendingPathComponent("photo.jpg")) == "Green")
+        #expect(throws: (any Error).self) { try Permissions.attribute(tags, of: stored.appendingPathComponent("scan.jpg")) }
+        let permissions = try FileManager.default.attributesOfItem(atPath: stored.appendingPathComponent("photo.jpg").path)[.posixPermissions] as? NSNumber
+        #expect(permissions?.intValue == 0o600)
+    }
 }

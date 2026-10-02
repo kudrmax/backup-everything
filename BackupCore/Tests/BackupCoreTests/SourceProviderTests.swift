@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import BackupCore
@@ -126,6 +127,74 @@ struct SourceProviderTests {
 
         await #expect(throws: SourceError.commandFailed(exitCode: 3, output: "out\nboom")) {
             try await shell.run("echo hi", timeoutSeconds: 30, environment: ["MODE": "fail"]) { _ in }
+        }
+    }
+
+    // MARK: Folder step copies exactly
+
+    private func folderThenCommand(_ path: String) -> StepsSource {
+        StepsSource(
+            sourceId: UUID(),
+            steps: [.folder(temp.path(path).path, name: "Vault"), .command("true", timeoutSeconds: 30)],
+            stagingRoot: temp.path("staging"),
+            runner: FakeProcessRunner()
+        )
+    }
+
+    @Test func folderStepKeepsNamesByteForByte() async throws {
+        defer { temp.remove() }
+        let composed = "Мой план".precomposedStringWithCanonicalMapping
+        let vault = try temp.directory("vault").path
+        let descriptor = open(vault + "/" + composed + ".md", O_CREAT | O_WRONLY, 0o644)
+        #expect(descriptor >= 0)
+        close(descriptor)
+
+        let payload = try await folderThenCommand("vault").collect(at: date)
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: payload.root.path)
+        #expect(names.map { Array($0.utf8) } == [Array("\(composed).md".utf8)])
+    }
+
+    @Test func folderStepKeepsPermissionsAndLinks() async throws {
+        defer {
+            Permissions.unlockTree(temp.url)
+            temp.remove()
+        }
+        try temp.file("vault/keys/id_ed25519", "PRIVATE")
+        chmod(temp.path("vault/keys").path, 0o700)
+        try FileManager.default.createSymbolicLink(atPath: temp.path("vault/link").path, withDestinationPath: "keys/id_ed25519")
+
+        let payload = try await folderThenCommand("vault").collect(at: date)
+
+        let keys = try FileManager.default.attributesOfItem(atPath: payload.root.appendingPathComponent("keys").path)
+        #expect((keys[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: payload.root.appendingPathComponent("link").path) == "keys/id_ed25519")
+    }
+
+    @Test func folderStepGivenALinkToAFileCopiesTheFile() async throws {
+        defer { temp.remove() }
+        let real = try temp.file("dotfiles/zshrc", "export PATH=/opt/homebrew/bin")
+        try temp.directory("home")
+        try FileManager.default.createSymbolicLink(at: temp.path("home/.zshrc"), withDestinationURL: real)
+
+        let payload = try await folderThenCommand("home/.zshrc").collect(at: date)
+
+        #expect(try String(contentsOf: payload.root.appendingPathComponent(".zshrc"), encoding: .utf8) == "export PATH=/opt/homebrew/bin")
+        let attributes = try FileManager.default.attributesOfItem(atPath: payload.root.appendingPathComponent(".zshrc").path)
+        #expect(attributes[.type] as? FileAttributeType == .typeRegular)
+    }
+
+    @Test func folderStepFailsOnAnUnreadableSubfolder() async throws {
+        defer {
+            Permissions.unlockTree(temp.url)
+            temp.remove()
+        }
+        try temp.file("vault/private/diary.md", "secret")
+        chmod(temp.path("vault/private").path, 0)
+        let reason = SourceError.unreadable(temp.path("vault/private").path).localizedDescription
+
+        await #expect(throws: SourceError.stepFailed(index: 0, count: 2, name: "Vault", reason: reason)) {
+            try await folderThenCommand("vault").collect(at: date)
         }
     }
 }

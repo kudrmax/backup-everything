@@ -28,6 +28,7 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
     var snapshots: [Snapshot] = []
     var writeError: Error?
     var deleteError: Error?
+    var undeletable: Set<String> = []
     var listError: Error?
     var removeIncompleteError: Error?
     var materialized: URL?
@@ -69,6 +70,7 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
 
     func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
         if let deleteError { throw deleteError }
+        if undeletable.contains(snapshot.name) { throw POSIXError(.EPERM) }
         log.append("delete:\(snapshot.name)")
         snapshots.removeAll { $0 == snapshot }
     }

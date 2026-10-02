@@ -110,28 +110,6 @@ struct FoundBugsOrchestrationTests {
         #expect(try await coordinator.statusReport().items.isEmpty)
     }
 
-    // MARK: Unreadable folders are skipped silently
-
-    /// A subfolder the app cannot read (permissions, macOS privacy protection) is silently left out of the copy,
-    /// and the backup is reported as a success.
-    @Test func unreadableSubfolderMakesTheBackupFailInsteadOfBeingSkipped() async throws {
-        try temp.file("vault/private/secret.md", "secret")
-        let locked = temp.path("vault/private")
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
-        defer {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
-            temp.remove()
-        }
-        try store.saveConfig(Config(sources: [vault([cloud])], destinations: [cloud]))
-
-        let result = try await coordinator.tick()
-        let copied = temp.exists("cloud/obsidian/2026-09-28_100000/private/secret.md")
-        let reported = result.runs.first?.firstFailure != nil
-        #expect(copied || reported, "secret.md is neither in the copy nor reported as a failure")
-        let overall = try await coordinator.statusReport().overall
-        #expect(copied || overall == .error)
-    }
-
     // MARK: Interrupted command leaves its partial output in the copy
 
     /// The app quit while the command of step 2 was writing. After the restart the step is run again from its start,
