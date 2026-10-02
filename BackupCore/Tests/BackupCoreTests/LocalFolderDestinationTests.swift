@@ -11,7 +11,11 @@ struct LocalFolderDestinationTests {
     init() throws {
         temp = try TempDirectory()
         try temp.directory("disk")
-        destination = LocalFolderDestination(root: temp.path("disk"), naming: Fixtures.naming)
+        try temp.directory("Trash")
+        let trashFolder = temp.path("Trash")
+        destination = LocalFolderDestination(root: temp.path("disk"), naming: Fixtures.naming) { url in
+            try FileManager.default.moveItem(at: url, to: trashFolder.appendingPathComponent(url.lastPathComponent))
+        }
     }
 
     private func manifest() -> SnapshotManifest {
@@ -46,15 +50,49 @@ struct LocalFolderDestinationTests {
         #expect(temp.names(in: "disk/finance/\(name)") == ["_snapshot.json", "export.csv"])
     }
 
-    @Test func snapshotWithoutManifestIsIncomplete() async throws {
+    @Test func onlyUnfinishedCopiesOfThisAppGoToTheTrash() async throws {
         defer { temp.remove() }
+        try temp.file("disk/obsidian/2026-09-26_100000/a.md")
+        try temp.file("disk/obsidian/2026-09-26_100000/_unfinished")
         try temp.file("disk/obsidian/2026-09-27_100000/a.md")
         try temp.file("disk/obsidian/Мои заметки/keep.md")
         try temp.file("disk/obsidian/notes.txt")
 
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
         try await destination.removeIncomplete(sourceSlug: "obsidian")
-        #expect(temp.names(in: "disk/obsidian") == ["notes.txt", "Мои заметки"])
+        #expect(temp.names(in: "disk/obsidian") == ["2026-09-27_100000", "notes.txt", "Мои заметки"])
+        #expect(temp.names(in: "Trash") == ["2026-09-26_100000"])
+    }
+
+    @Test func finishedCopyKeepsNoUnfinishedMark() async throws {
+        defer { temp.remove() }
+        try await destination.write(try vaultPayload(), manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+        #expect(!temp.exists("disk/obsidian/\(name)/_unfinished"))
+        try await destination.removeIncomplete(sourceSlug: "obsidian")
+        #expect(temp.names(in: "Trash").isEmpty)
+    }
+
+    @Test func unfinishedCopyUnderTheSameNameIsReplaced() async throws {
+        defer { temp.remove() }
+        try temp.file("disk/obsidian/\(name)/half.md")
+        try temp.file("disk/obsidian/\(name)/_unfinished")
+
+        try await destination.write(try vaultPayload(), manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+
+        #expect(!temp.exists("disk/obsidian/\(name)/half.md"))
+        #expect(temp.exists("disk/obsidian/\(name)/sub/b.md"))
+        #expect(temp.names(in: "Trash") == [name])
+    }
+
+    @Test func foreignFolderUnderTheSameNameIsLeftAlone() async throws {
+        defer { temp.remove() }
+        try temp.file("disk/obsidian/\(name)/mine.md")
+        let payload = try vaultPayload()
+
+        await #expect(throws: DestinationError.folderInTheWay(temp.path("disk/obsidian/\(name)").path)) {
+            try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+        }
+        #expect(temp.names(in: "disk/obsidian/\(name)") == ["mine.md"])
     }
 
     @Test func missingRootIsUnavailableAndNeverCreated() async throws {
@@ -88,8 +126,10 @@ struct LocalFolderDestinationTests {
             try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
         }
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
+        #expect(temp.names(in: "disk/obsidian/\(name)") == ["_unfinished"])
         try await destination.removeIncomplete(sourceSlug: "obsidian")
         #expect(temp.names(in: "disk/obsidian").isEmpty)
+        #expect(temp.names(in: "Trash") == [name])
     }
 
     @Test func usedBytesSumsEverythingUnderRoot() async throws {

@@ -5,6 +5,7 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case outOfSpace
     case rcloneMissing
     case commandFailed(String)
+    case folderInTheWay(String)
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "rclone is not installed. Install it with “brew install rclone”."
         case let .commandFailed(output):
             "rclone failed: \(output)"
+        case let .folderInTheWay(path):
+            "A folder that is not a finished copy is in the way: \(path). It was left as is; move it away and retry."
         }
     }
 }
@@ -23,6 +26,7 @@ public enum DestinationError: Error, Equatable, LocalizedError {
 public protocol DestinationStore: Sendable {
     func isAvailable() async -> Bool
     func listSnapshots(sourceSlug: String) async throws -> [Snapshot]
+    /// Cleans up copies this app began and did not finish (marked `_unfinished`, no manifest). Anything else is left alone.
     func removeIncomplete(sourceSlug: String) async throws
     /// `reusingStoredFiles`: content already present in earlier copies of the source may be cloned instead of written again.
     func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws

@@ -115,7 +115,7 @@ public struct BackupEngine: Sendable {
         defer { try? FileManager.default.removeItem(at: scratch) }
         do {
             let folder = try await stores.store(for: origin).materialize(snapshot, sourceSlug: source.slug, scratch: scratch)
-            let payload = Payload(root: folder, excludes: [SnapshotManifest.fileName], collectedAt: snapshot.date)
+            let payload = Payload(root: folder, excludes: [SnapshotManifest.fileName, SnapshotManifest.unfinishedMarker], collectedAt: snapshot.date)
             let stats = walker.stats(of: try walker.entries(of: payload))
             let manifest = SnapshotManifest(
                 sourceId: source.id,
@@ -158,7 +158,6 @@ public struct BackupEngine: Sendable {
         to store: any DestinationStore
     ) async -> DeliveryOutcome {
         do {
-            try await store.removeIncomplete(sourceSlug: source.slug)
             let existing = try await store.listSnapshots(sourceSlug: source.slug)
             if !existing.contains(where: { $0.name == snapshotName }) {
                 try await store.write(
@@ -173,6 +172,7 @@ public struct BackupEngine: Sendable {
             return .failed(message: error.localizedDescription)
         }
         do {
+            try await store.removeIncomplete(sourceSlug: source.slug)
             let snapshots = try await store.listSnapshots(sourceSlug: source.slug)
             let doomed = retention.snapshotsToDelete(snapshots, rules: source.retention).filter { $0.name != snapshotName }
             for snapshot in doomed {

@@ -38,13 +38,16 @@ struct RcloneDestinationTests {
         #expect(!runner.calls.contains { $0.arguments.first == "purge" })
     }
 
-    @Test func purgesOnlyIncompleteSnapshotDirectories() async throws {
+    @Test func purgesOnlyUnfinishedSnapshotDirectories() async throws {
         let runner = FakeProcessRunner { call in
             if call.arguments.contains("--dirs-only") {
-                return ProcessResult(exitCode: 0, stdout: "2026-09-26_100000/\n2026-09-27_100000/\nPhotos/\n")
+                return ProcessResult(exitCode: 0, stdout: "2026-09-25_100000/\n2026-09-26_100000/\n2026-09-27_100000/\nPhotos/\n")
             }
-            if call.arguments.first == "lsf" {
+            if call.arguments.contains("/*/_snapshot.json") {
                 return ProcessResult(exitCode: 0, stdout: "2026-09-27_100000/_snapshot.json\n")
+            }
+            if call.arguments.contains("/*/_unfinished") {
+                return ProcessResult(exitCode: 0, stdout: "2026-09-26_100000/_unfinished\n")
             }
             return ProcessResult(exitCode: 0)
         }
@@ -73,10 +76,13 @@ struct RcloneDestinationTests {
         try await destination(runner).write(payload, manifest: manifest, sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
 
         #expect(listedFiles.get() == "a.md\nsub/b.md")
-        #expect(runner.calls.count == 2)
-        #expect(Array(runner.calls[0].arguments.prefix(4)) == ["copy", temp.path("vault").path, "gdrive:backups/obsidian/\(name)", "--files-from-raw"])
-        #expect(runner.calls[1].arguments.first == "copyto")
-        #expect(runner.calls[1].arguments.last == "gdrive:backups/obsidian/\(name)/_snapshot.json")
+        #expect(runner.calls.count == 4)
+        #expect(runner.calls[0].arguments.first == "copyto")
+        #expect(runner.calls[0].arguments.last == "gdrive:backups/obsidian/\(name)/_unfinished")
+        #expect(Array(runner.calls[1].arguments.prefix(4)) == ["copy", temp.path("vault").path, "gdrive:backups/obsidian/\(name)", "--files-from-raw"])
+        #expect(runner.calls[2].arguments.first == "copyto")
+        #expect(runner.calls[2].arguments.last == "gdrive:backups/obsidian/\(name)/_snapshot.json")
+        #expect(runner.calls[3].arguments == ["deletefile", "gdrive:backups/obsidian/\(name)/_unfinished"])
     }
 
     @Test func manifestIsNotUploadedWhenCopyFails() async throws {
@@ -88,7 +94,8 @@ struct RcloneDestinationTests {
         await #expect(throws: DestinationError.commandFailed("quota exceeded")) {
             try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest, sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
         }
-        #expect(runner.calls.map(\.arguments) == [["copy", file.path, "gdrive:backups/finance/\(name)"]])
+        #expect(runner.calls.count == 1)
+        #expect(runner.calls[0].arguments.last == "gdrive:backups/finance/\(name)/_unfinished")
     }
 
     @Test func deleteRefusesForeignNames() async throws {

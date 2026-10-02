@@ -27,16 +27,18 @@ public struct RcloneDestination: DestinationStore {
     }
 
     public func listSnapshots(sourceSlug: String) async throws -> [Snapshot] {
+        try await directories(containing: SnapshotManifest.fileName, in: sourceSlug).compactMap(naming.snapshot(named:))
+    }
+
+    private func directories(containing fileName: String, in sourceSlug: String) async throws -> [String] {
         let result = try await rclone([
             "lsf", target(sourceSlug),
             "--files-only", "--recursive", "--max-depth", "2",
-            "--include", "/*/\(SnapshotManifest.fileName)",
+            "--include", "/*/\(fileName)",
         ])
         if result.exitCode == Self.directoryNotFoundExitCode { return [] }
         try check(result)
-        return lines(result.stdout).compactMap { line in
-            line.split(separator: "/").first.flatMap { naming.snapshot(named: String($0)) }
-        }
+        return lines(result.stdout).compactMap { line in line.split(separator: "/").first.map(String.init) }
     }
 
     public func removeIncomplete(sourceSlug: String) async throws {
@@ -44,8 +46,9 @@ public struct RcloneDestination: DestinationStore {
         if result.exitCode == Self.directoryNotFoundExitCode { return }
         try check(result)
         let complete = Set(try await listSnapshots(sourceSlug: sourceSlug).map(\.name))
+        let unfinished = Set(try await directories(containing: SnapshotManifest.unfinishedMarker, in: sourceSlug))
         let directories = lines(result.stdout).map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
-        for name in directories where naming.date(from: name) != nil && !complete.contains(name) {
+        for name in directories where naming.date(from: name) != nil && unfinished.contains(name) && !complete.contains(name) {
             try check(try await rclone(["purge", target(sourceSlug, name)]))
         }
     }
@@ -57,6 +60,9 @@ public struct RcloneDestination: DestinationStore {
         defer { try? fileManager.removeItem(at: scratch) }
 
         let destination = target(sourceSlug, snapshotName)
+        let markerURL = scratch.appendingPathComponent(SnapshotManifest.unfinishedMarker)
+        try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
+        try check(try await rclone(["copyto", markerURL.path, "\(destination)/\(SnapshotManifest.unfinishedMarker)"]))
         var arguments = ["copy", payload.root.path, destination]
         if walker.isDirectory(payload) {
             let files = try walker.entries(of: payload).filter { $0.kind == .file }.map(\.relativePath)
@@ -69,6 +75,7 @@ public struct RcloneDestination: DestinationStore {
         let manifestURL = scratch.appendingPathComponent(SnapshotManifest.fileName)
         try JSONCoding.encoder().encode(manifest).write(to: manifestURL)
         try check(try await rclone(["copyto", manifestURL.path, "\(destination)/\(SnapshotManifest.fileName)"]))
+        try check(try await rclone(["deletefile", "\(destination)/\(SnapshotManifest.unfinishedMarker)"]))
     }
 
     public func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {

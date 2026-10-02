@@ -12,6 +12,9 @@ public struct Snapshot: Sendable, Equatable, Hashable {
 
 public struct SnapshotManifest: Codable, Sendable, Equatable {
     public static let fileName = "_snapshot.json"
+    /// Put into a copy folder before writing starts and removed after the manifest: only such folders are ever cleaned up as unfinished.
+    public static let unfinishedMarker = "_unfinished"
+    static let unfinishedNote = "Backup Everything was writing this copy and did not finish. It will be cleaned up after the next successful backup.\n"
 
     public var sourceId: UUID
     public var sourceName: String

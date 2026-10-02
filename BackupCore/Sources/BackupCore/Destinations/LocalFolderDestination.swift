@@ -4,12 +4,19 @@ public struct LocalFolderDestination: DestinationStore {
     private let root: URL
     private let naming: SnapshotNaming
     private let cloning: any FileCloning
+    private let trash: ManualExportInbox.Trash
     private let walker = PayloadWalker()
 
-    public init(root: URL, naming: SnapshotNaming, cloning: any FileCloning = APFSCloning()) {
+    public init(
+        root: URL,
+        naming: SnapshotNaming,
+        cloning: any FileCloning = APFSCloning(),
+        trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    ) {
         self.root = root
         self.naming = naming
         self.cloning = cloning
+        self.trash = trash
     }
 
     public func isAvailable() async -> Bool {
@@ -25,8 +32,8 @@ public struct LocalFolderDestination: DestinationStore {
     }
 
     public func removeIncomplete(sourceSlug: String) async throws {
-        for directory in snapshotDirectories(sourceSlug) where !hasManifest(directory.url) {
-            try FileManager.default.removeItem(at: directory.url)
+        for directory in snapshotDirectories(sourceSlug) where isUnfinished(directory.url) {
+            try trash(directory.url)
         }
     }
 
@@ -39,15 +46,22 @@ public struct LocalFolderDestination: DestinationStore {
             if !fileManager.fileExists(atPath: sourceDirectory.path) {
                 try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: false)
             }
+            if fileManager.fileExists(atPath: snapshotDirectory.path) {
+                guard isUnfinished(snapshotDirectory) else { throw DestinationError.folderInTheWay(snapshotDirectory.path) }
+                try trash(snapshotDirectory)
+            }
             let sharesData = reusingStoredFiles && cloning.isSupported(at: root)
             let index = sharesData ? StoredContentIndex(snapshots: storedManifests(sourceSlug)) : .empty
             try fileManager.createDirectory(at: snapshotDirectory, withIntermediateDirectories: false)
+            let markerURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker)
+            try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
             var manifest = manifest
             manifest.files = try SnapshotWriter(cloning: cloning)
                 .write(try walker.entries(of: payload), into: snapshotDirectory, reusing: index)
             manifest.sharesData = sharesData
             let manifestURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.fileName)
             try JSONCoding.encoder(pretty: false).encode(manifest).write(to: manifestURL, options: .atomic)
+            try fileManager.removeItem(at: markerURL)
         } catch let error as CocoaError where error.code == .fileWriteOutOfSpace {
             throw DestinationError.outOfSpace
         } catch let error as POSIXError where error.code == .ENOSPC {
@@ -89,6 +103,11 @@ public struct LocalFolderDestination: DestinationStore {
                       let manifest = try? JSONCoding.decoder().decode(SnapshotManifest.self, from: data) else { return nil }
                 return (directory.url, manifest)
             }
+    }
+
+    private func isUnfinished(_ snapshotDirectory: URL) -> Bool {
+        !hasManifest(snapshotDirectory)
+            && FileManager.default.fileExists(atPath: snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker).path)
     }
 
     private func hasManifest(_ snapshotDirectory: URL) -> Bool {

@@ -26,12 +26,16 @@ struct RcloneIntegrationTests {
         #expect(await destination.isAvailable())
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
 
-        try temp.file("remote/obsidian/2026-09-27_100000/partial.md")
+        try temp.file("remote/obsidian/2026-09-26_100000/partial.md")
+        try temp.file("remote/obsidian/2026-09-26_100000/_unfinished")
+        try temp.file("remote/obsidian/2026-09-27_100000/mine.md")
         try await destination.removeIncomplete(sourceSlug: "obsidian")
-        #expect(!temp.exists("remote/obsidian/2026-09-27_100000"))
+        #expect(!temp.exists("remote/obsidian/2026-09-26_100000"))
+        #expect(temp.exists("remote/obsidian/2026-09-27_100000/mine.md"))
 
         try await destination.write(payload, manifest: manifest, sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
         #expect(try String(contentsOf: temp.path("remote/obsidian/\(name)/sub/b.md"), encoding: .utf8) == "beta")
+        #expect(!temp.exists("remote/obsidian/\(name)/_unfinished"))
         #expect(!temp.exists("remote/obsidian/\(name)/.trash"))
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian") == [Snapshot(name: name, date: date)])
         #expect(try await destination.usedBytes() > 9)

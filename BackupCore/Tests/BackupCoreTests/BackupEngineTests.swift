@@ -48,7 +48,7 @@ struct BackupEngineTests {
         #expect(record.details == "log tail")
         #expect(record.collectError == nil)
         #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .delivered(pruned: 0, warning: nil)])
-        #expect(diskStore.log == ["removeIncomplete", "write:\(name)"])
+        #expect(diskStore.log == ["write:\(name)", "removeIncomplete"])
         #expect(provider.finished == [true])
     }
 
@@ -132,6 +132,7 @@ struct BackupEngineTests {
         #expect(record.deliveries.map(\.outcome) == [.failed(message: "disk disconnected"), .delivered(pruned: 0, warning: nil)])
         #expect(record.firstFailure == "disk disconnected")
         #expect(diskStore.snapshots.count == 3)
+        #expect(!diskStore.log.contains("removeIncomplete"))
         #expect(provider.finished == [false])
     }
 
@@ -140,7 +141,7 @@ struct BackupEngineTests {
         cloudStore.snapshots = ["2026-09-25 10:00:00", "2026-09-26 10:00:00", "2026-09-27 10:00:00"].map(Fixtures.snapshot)
         let record = await run()
         #expect(record.deliveries[1].outcome == .delivered(pruned: 2, warning: nil))
-        #expect(cloudStore.log == ["removeIncomplete", "write:\(name)", "delete:2026-09-25_100000", "delete:2026-09-26_100000"])
+        #expect(cloudStore.log == ["write:\(name)", "removeIncomplete", "delete:2026-09-25_100000", "delete:2026-09-26_100000"])
         #expect(cloudStore.snapshots.map(\.name) == ["2026-09-27_100000", name])
     }
 
