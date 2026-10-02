@@ -34,8 +34,11 @@ public struct StateReducer: Sendable {
             }
         }
         state.updateSource(record.sourceId) {
-            $0.lastError = record.firstFailure
-            $0.retryAfter = nil
+            // An older copy says nothing about a collection that keeps failing.
+            if $0.retryAfter == nil || !record.deliversAnOlderCopy {
+                $0.lastError = record.firstFailure
+                $0.retryAfter = nil
+            }
             if record.deliveries.contains(where: \.outcome.isDelivered) {
                 $0.lastSuccess = max($0.lastSuccess ?? .distantPast, record.collectedAt ?? record.startedAt)
             }

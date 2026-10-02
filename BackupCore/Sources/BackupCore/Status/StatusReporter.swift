@@ -58,6 +58,7 @@ public struct StatusReporter: Sendable {
         inboxScans: [UUID: InboxScan],
         missingDevices: Set<UUID> = []
     ) -> StatusReport {
+        let state = state.pausingDisabledSources(of: config)
         var items: [AttentionItem] = []
         for source in config.sources where source.enabled {
             let sourceState = state.sourceState(source.id)

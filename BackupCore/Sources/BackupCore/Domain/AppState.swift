@@ -14,6 +14,8 @@ public struct ChainState: Codable, Sendable, Equatable {
     public var failure: String?
     public var startedBy: RunStart?
     public var retryAfter: Date?
+    /// The result folder when the current step began; `nil` in state saved by older versions, which did not record it.
+    public var outputAtStepEntry: [String]?
 
     public init(
         stepIndex: Int,
@@ -22,7 +24,8 @@ public struct ChainState: Codable, Sendable, Equatable {
         stepEnteredAt: Date,
         failure: String? = nil,
         startedBy: RunStart? = nil,
-        retryAfter: Date? = nil
+        retryAfter: Date? = nil,
+        outputAtStepEntry: [String]? = []
     ) {
         self.stepIndex = stepIndex
         self.stepId = stepId
@@ -31,6 +34,7 @@ public struct ChainState: Codable, Sendable, Equatable {
         self.failure = failure
         self.startedBy = startedBy
         self.retryAfter = retryAfter
+        self.outputAtStepEntry = outputAtStepEntry
     }
 }
 
@@ -165,5 +169,12 @@ public struct AppState: Codable, Sendable, Equatable {
 
     public func debts(forDestination id: UUID) -> [Debt] {
         debts.filter { $0.destinationId == id }
+    }
+
+    /// Debts of a disabled source wait for it to be enabled again: until then nothing pays them, so they neither show nor remind.
+    public func pausingDisabledSources(of config: Config) -> AppState {
+        var active = self
+        active.debts.removeAll { debt in config.source(debt.sourceId).map { !$0.enabled } ?? false }
+        return active
     }
 }

@@ -90,4 +90,9 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
     public var isDeferredOnly: Bool {
         collectError == nil && !deliveries.isEmpty && deliveries.allSatisfy { $0.outcome == .unavailable }
     }
+
+    /// A catch-up that delivered a copy made earlier (from another destination or `pending`) instead of gathering the source now.
+    public var deliversAnOlderCopy: Bool {
+        trigger == .catchUp && (collectedAt.map { $0 < startedAt } ?? true)
+    }
 }

@@ -186,4 +186,87 @@ struct CoordinatorDestinationTests {
         #expect(result.runs.map(\.trigger) == [.catchUp])
         #expect(temp.names(in: "remote/obsidian").count == 1)
     }
+
+    // MARK: Catch-up and a failing source
+
+    /// The vault can no longer be read, so the scheduled backup fails. A catch-up copy of yesterday's snapshot to a newly
+    /// added disk must not make the source green and must not cancel the hourly retry of the failed backup.
+    @Test func catchUpOfAnOldCopyDoesNotHideThatTheSourceItselfFails() async throws {
+        defer { temp.remove() }
+        let cloud = try local("Cloud")
+        var source = vault([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        _ = try await coordinator.tick()
+
+        time.advance(86_400)
+        try FileManager.default.moveItem(at: temp.path("vault"), to: temp.path("vault-moved"))
+        let failed = try await coordinator.tick()
+        #expect(failed.runs.first?.collectError != nil)
+        #expect(try await coordinator.statusReport().overall == .error)
+        let retryAt = time.now.addingTimeInterval(SchedulePlanner.retryInterval)
+        #expect(try await coordinator.nextWake() == retryAt)
+
+        time.advance(600)
+        let second = try local("Second")
+        source.destinationIds.append(second.id)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud, second]))
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
+
+        #expect(try await coordinator.statusReport().overall == .error)
+        #expect(try await coordinator.nextWake() == retryAt)
+
+        try FileManager.default.moveItem(at: temp.path("vault-moved"), to: temp.path("vault"))
+        time.advance(3000)
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.scheduled])
+        #expect(try await coordinator.statusReport().overall == .ok)
+    }
+
+    // MARK: Disabled sources
+
+    /// A disabled source is neither collected nor caught up, so connecting the disk would not pay its debt:
+    /// the app must not keep asking to connect the disk every day.
+    @Test func disabledSourceDoesNotKeepAskingToConnectTheDisk() async throws {
+        defer { temp.remove() }
+        let disk = Fixtures.localDestination("Disk", at: temp.path("disk"), expectedEvery: .days(30))
+        var source = vault([disk])
+        try store.saveConfig(Config(sources: [source], destinations: [disk]))
+        _ = try await coordinator.tick()
+        #expect(try store.loadState().debts.count == 1)
+
+        source.enabled = false
+        try store.saveConfig(Config(sources: [source], destinations: [disk]))
+
+        time.advance(86_400 + 60)
+        let result = try await coordinator.tick()
+        #expect(!result.notices.contains { if case .connectDestination = $0 { true } else { false } })
+        #expect(try await coordinator.statusReport().items.isEmpty)
+        #expect(try await coordinator.nextWake() == nil)
+        #expect(try store.loadState().debts.count == 1)
+    }
+
+    /// The debt waits while the source is disabled: once it is enabled again, the disk is asked for and caught up.
+    @Test func reenabledSourceCatchesUpTheDiskItStillOwes() async throws {
+        defer { temp.remove() }
+        let disk = Fixtures.localDestination("Disk", at: temp.path("disk"), expectedEvery: .days(30))
+        var source = weekly([disk])
+        try store.saveConfig(Config(sources: [source], destinations: [disk]))
+        _ = try await coordinator.tick()
+        source.enabled = false
+        try store.saveConfig(Config(sources: [source], destinations: [disk]))
+        time.advance(86_400)
+        _ = try await coordinator.tick()
+
+        source.enabled = true
+        try store.saveConfig(Config(sources: [source], destinations: [disk]))
+        time.advance(60)
+        let reminded = try await coordinator.tick()
+        #expect(reminded.notices.contains { if case .connectDestination = $0 { true } else { false } })
+
+        try temp.directory("disk")
+        time.advance(60)
+        let caughtUp = try await coordinator.tick()
+        #expect(caughtUp.runs.map(\.trigger) == [.catchUp])
+        #expect(caughtUp.notices.contains(.destinationCaughtUp(destinationId: disk.id, destinationName: "Disk")))
+        #expect(try store.loadState().debts.isEmpty)
+    }
 }

@@ -25,7 +25,7 @@ public struct ChainPermissions: Sendable, Equatable {
 public struct StepChainRunner: Sendable {
     private let chainsRoot: URL
     private let inbox: ManualExportInbox
-    private let executor: StepExecutor
+    private let runner: any ProcessRunner
     private let time: any TimeSource
     private let trash: ManualExportInbox.Trash
     private let progress: ProgressHandler
@@ -40,7 +40,7 @@ public struct StepChainRunner: Sendable {
     ) {
         self.chainsRoot = chainsRoot
         self.inbox = inbox
-        self.executor = StepExecutor(runner: runner)
+        self.runner = runner
         self.time = time
         self.trash = trash
         self.progress = progress
@@ -81,11 +81,14 @@ public struct StepChainRunner: Sendable {
                 guard let path = source.devicePath(at: next.stepIndex), exists(path) else { return .stay }
             case .folder, .command:
                 try folders.prepare()
+                let process = StepProcessRecord(folders: folders)
+                process.stopLeftover()
+                try clearUnfinishedAttempt(of: next, in: folders)
                 progress(.collecting(sourceId: source.id))
                 progress(.step(sourceId: source.id, index: next.stepIndex, count: steps.count))
                 let before = contents(of: folders.output)
                 do {
-                    _ = try await executor.run(step.kind, in: folders) { [progress] text in
+                    _ = try await StepExecutor(runner: process.recording(runner)).run(step.kind, in: folders) { [progress] text in
                         progress(.status(sourceId: source.id, text: text))
                     }
                 } catch {
@@ -96,6 +99,7 @@ public struct StepChainRunner: Sendable {
                         next.stepIndex = device
                         next.stepId = steps[device].id
                         next.stepEnteredAt = time.now
+                        next.outputAtStepEntry = contents(of: folders.output).sorted()
                         return .moved(next)
                     }
                     throw error
@@ -108,6 +112,7 @@ public struct StepChainRunner: Sendable {
         next.stepIndex += 1
         next.stepId = next.stepIndex < steps.count ? steps[next.stepIndex].id : nil
         next.stepEnteredAt = time.now
+        next.outputAtStepEntry = contents(of: folders.output).sorted()
         return .moved(next)
     }
 
@@ -130,6 +135,7 @@ public struct StepChainRunner: Sendable {
     public func discard(sourceId: UUID) throws {
         let fileManager = FileManager.default
         let folders = folders(sourceId)
+        StepProcessRecord(folders: folders).stopLeftover()
         for directory in [folders.input, folders.output] {
             for item in (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] {
                 try trash(item)
@@ -142,6 +148,14 @@ public struct StepChainRunner: Sendable {
 
     private func exists(_ path: String) -> Bool {
         FileManager.default.fileExists(atPath: Paths.url(path).path)
+    }
+
+    /// The step was interrupted (the app quit or crashed) and runs again: what its earlier attempt added goes to the Trash.
+    private func clearUnfinishedAttempt(of chain: ChainState, in folders: WorkFolders) throws {
+        guard let atEntry = chain.outputAtStepEntry else { return }
+        for leftover in contents(of: folders.output).subtracting(atEntry) {
+            try trash(folders.output.appendingPathComponent(leftover))
+        }
     }
 
     private func contents(of directory: URL) -> Set<String> {

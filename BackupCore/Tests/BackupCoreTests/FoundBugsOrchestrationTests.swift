@@ -60,56 +60,6 @@ struct FoundBugsOrchestrationTests {
         try FileManager.default.moveItem(at: temp.path(from), to: temp.path(to))
     }
 
-    // MARK: Catch-up erases a failed scheduled run
-
-    /// The vault can no longer be read, so the scheduled backup fails. A catch-up copy of yesterday's snapshot to a newly
-    /// added disk must not make the source green and must not cancel the hourly retry of the failed backup.
-    @Test func catchUpOfAnOldCopyDoesNotHideThatTheSourceItselfFails() async throws {
-        defer { temp.remove() }
-        var source = vault([cloud])
-        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
-        _ = try await coordinator.tick()
-
-        time.advance(86_400)
-        try move("vault", to: "vault-moved")
-        let failed = try await coordinator.tick()
-        #expect(failed.runs.first?.collectError != nil)
-        #expect(try await coordinator.statusReport().overall == .error)
-        let retryAt = time.now.addingTimeInterval(SchedulePlanner.retryInterval)
-        #expect(try await coordinator.nextWake() == retryAt)
-
-        time.advance(600)
-        try temp.directory("second")
-        let second = Fixtures.localDestination("Second", at: temp.path("second"))
-        source.destinationIds.append(second.id)
-        try store.saveConfig(Config(sources: [source], destinations: [cloud, second]))
-        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
-
-        #expect(try await coordinator.statusReport().overall == .error)
-        let wake = try await coordinator.nextWake()
-        #expect(wake != nil && wake! <= retryAt)
-    }
-
-    // MARK: Disabled source keeps nagging about a disk
-
-    /// A disabled source is ignored by the status, and connecting the disk will never pay its debt: the app neither
-    /// collects a disabled source nor has a copy of it. It must not keep asking to connect the disk every day.
-    @Test func disabledSourceDoesNotKeepAskingToConnectTheDisk() async throws {
-        defer { temp.remove() }
-        var source = vault([disk])
-        try store.saveConfig(Config(sources: [source], destinations: [disk]))
-        _ = try await coordinator.tick()
-        #expect(try store.loadState().debts.count == 1)
-
-        source.enabled = false
-        try store.saveConfig(Config(sources: [source], destinations: [disk]))
-
-        time.advance(86_400 + 60)
-        let result = try await coordinator.tick()
-        #expect(!result.notices.contains { if case .connectDestination = $0 { true } else { false } })
-        #expect(try await coordinator.statusReport().items.isEmpty)
-    }
-
     // MARK: Unreadable folders are skipped silently
 
     /// A subfolder the app cannot read (permissions, macOS privacy protection) is silently left out of the copy,
@@ -130,67 +80,5 @@ struct FoundBugsOrchestrationTests {
         #expect(copied || reported, "secret.md is neither in the copy nor reported as a failure")
         let overall = try await coordinator.statusReport().overall
         #expect(copied || overall == .error)
-    }
-
-    // MARK: Interrupted command leaves its partial output in the copy
-
-    /// The app quit while the command of step 2 was writing. After the restart the step is run again from its start,
-    /// so the half-written file of the interrupted attempt must not end up in the copy.
-    @Test func restartedCommandStepStartsFromACleanPlace() async throws {
-        defer { temp.remove() }
-        let source = Fixtures.source(
-            name: "Database",
-            steps: [
-                .file("dump-request-*.txt", in: temp.path("Downloads").path, includeInCopy: false),
-                .command("dump", timeoutSeconds: 60, name: "Dump"),
-            ],
-            schedule: .monthly,
-            createdAt: created
-        )
-        let runner = StepChainRunner(
-            chainsRoot: temp.path("work/chains"),
-            inbox: inbox,
-            runner: FakeProcessRunner { call in
-                let output = URL(fileURLWithPath: call.environment["BACKUP_OUTPUT_DIR"]!)
-                try Data("complete".utf8).write(to: output.appendingPathComponent("dump-2026-09-28_1005.sql"))
-                return ProcessResult(exitCode: 0)
-            },
-            time: time,
-            trash: { _ in }
-        )
-        let interrupted = ChainState(
-            stepIndex: 1,
-            stepId: source.steps[1].id,
-            startedAt: start,
-            stepEnteredAt: start,
-            startedBy: .schedule
-        )
-        try temp.file("work/chains/\(source.id.uuidString)/input/dump-request-1.txt", "please")
-        try temp.file("work/chains/\(source.id.uuidString)/output/dump-2026-09-28_1000.sql", "half writ")
-
-        time.advance(300)
-        guard case let .moved(next) = await runner.advance(source, chain: interrupted, lastPickup: nil, permissions: ChainPermissions(mayStart: false, mayRetry: false)),
-              let afterCommand = next,
-              case let .completed(package) = await runner.advance(source, chain: afterCommand, lastPickup: nil, permissions: ChainPermissions(mayStart: false, mayRetry: false)) else {
-            Issue.record("the chain did not finish")
-            return
-        }
-        let delivered = try FileManager.default.contentsOfDirectory(atPath: package.directory.path).sorted()
-        #expect(delivered == ["dump-2026-09-28_1005.sql"])
-    }
-
-    // MARK: Command output that is not UTF-8 is lost
-
-    /// One byte that is not valid UTF-8 (a file name in another encoding, binary progress output) makes the whole
-    /// stdout disappear, so the error of a failed command loses its explanation.
-    @Test func commandOutputSurvivesBytesThatAreNotUTF8() async throws {
-        let result = try await SystemProcessRunner().run(
-            executable: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", #"printf 'copying caf\351.txt\n'; echo 'fatal: repository not found'; exit 1"#],
-            environment: [:],
-            timeout: 20
-        )
-        #expect(result.exitCode == 1)
-        #expect(result.stdout.contains("fatal: repository not found"))
     }
 }

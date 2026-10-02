@@ -158,7 +158,7 @@ public actor BackupCoordinator {
         reducer.dropOrphans(config: config, state: &state)
         forgetRemovedSources(config)
         let now = time.now
-        let debtorsBefore = Set(state.debts.map(\.destinationId))
+        let debtorsBefore = Set(state.pausingDisabledSources(of: config).debts.map(\.destinationId))
         var runs: [RunRecord] = []
         let missing = await verifyCopies(config: config, state: &state, now: now)
 
@@ -475,8 +475,9 @@ public actor BackupCoordinator {
         debtorsBefore: Set<UUID>
     ) async -> [Notice] {
         var notices = failureNotices(runs)
+        let active = state.pausingDisabledSources(of: config)
         for destination in config.destinations where debtorsBefore.contains(destination.id) {
-            guard case .days = destination.expectedEvery, state.debts(forDestination: destination.id).isEmpty else { continue }
+            guard case .days = destination.expectedEvery, active.debts(forDestination: destination.id).isEmpty else { continue }
             notices.append(.destinationCaughtUp(destinationId: destination.id, destinationName: destination.name))
         }
         let now = time.now
@@ -495,7 +496,7 @@ public actor BackupCoordinator {
                 }
             case let .connectDestination(destinationId):
                 if let destination = config.destination(destinationId) {
-                    let unique = Set(state.debts(forDestination: destinationId).filter { !$0.elsewhere }.map(\.sourceId))
+                    let unique = Set(active.debts(forDestination: destinationId).filter { !$0.elsewhere }.map(\.sourceId))
                     let names = config.sources.filter { unique.contains($0.id) }.map(\.name)
                     notices.append(.connectDestination(destinationId: destinationId, destinationName: destination.name, onlyCopyOf: names))
                 }
@@ -514,7 +515,8 @@ public actor BackupCoordinator {
 
     private func report(config: Config, state: AppState, now: Date) async -> StatusReport {
         var unavailable: Set<UUID> = []
-        for destination in config.destinations where !state.debts(forDestination: destination.id).isEmpty {
+        let active = state.pausingDisabledSources(of: config)
+        for destination in config.destinations where !active.debts(forDestination: destination.id).isEmpty {
             if !(await stores.store(for: destination).isAvailable()) {
                 unavailable.insert(destination.id)
             }

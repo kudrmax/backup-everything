@@ -23,9 +23,30 @@ public protocol ProcessRunner: Sendable {
         timeout: TimeInterval?,
         onOutput: (@Sendable (String) -> Void)?
     ) async throws -> ProcessResult
+
+    /// `onSpawn` learns the started process: its group is the command with everything it spawned.
+    func run(
+        executable: URL,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval?,
+        onOutput: (@Sendable (String) -> Void)?,
+        onSpawn: (@Sendable (ProcessIdentity) -> Void)?
+    ) async throws -> ProcessResult
 }
 
 public extension ProcessRunner {
+    func run(
+        executable: URL,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval?,
+        onOutput: (@Sendable (String) -> Void)?,
+        onSpawn: (@Sendable (ProcessIdentity) -> Void)?
+    ) async throws -> ProcessResult {
+        try await run(executable: executable, arguments: arguments, environment: environment, timeout: timeout, onOutput: onOutput)
+    }
+
     func run(
         executable: URL,
         arguments: [String],
@@ -36,10 +57,15 @@ public extension ProcessRunner {
     }
 }
 
+/// Runs each command in its own process group. Timeout, task cancellation and quitting the app stop the whole group.
 public struct SystemProcessRunner: ProcessRunner {
     private static let killGracePeriod: TimeInterval = 5
 
-    public init() {}
+    private let groups: ProcessGroups
+
+    public init(groups: ProcessGroups = .shared) {
+        self.groups = groups
+    }
 
     public func run(
         executable: URL,
@@ -48,28 +74,43 @@ public struct SystemProcessRunner: ProcessRunner {
         timeout: TimeInterval?,
         onOutput: (@Sendable (String) -> Void)?
     ) async throws -> ProcessResult {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global().async {
-                continuation.resume(with: Result {
-                    try Self.runBlocking(
-                        executable: executable,
-                        arguments: arguments,
-                        environment: environment,
-                        timeout: timeout,
-                        onOutput: onOutput
-                    )
-                })
-            }
-        }
+        try await run(executable: executable, arguments: arguments, environment: environment, timeout: timeout, onOutput: onOutput, onSpawn: nil)
     }
 
-    private static func runBlocking(
+    public func run(
         executable: URL,
         arguments: [String],
         environment: [String: String],
         timeout: TimeInterval?,
-        onOutput: (@Sendable (String) -> Void)?
-    ) throws -> ProcessResult {
+        onOutput: (@Sendable (String) -> Void)?,
+        onSpawn: (@Sendable (ProcessIdentity) -> Void)?
+    ) async throws -> ProcessResult {
+        try Task.checkCancellation()
+        let group = SpawnedGroup()
+        let launch = Launch(executable: executable, arguments: arguments, environment: environment, timeout: timeout, onOutput: onOutput, onSpawn: onSpawn)
+        let result = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global().async { [groups] in
+                    continuation.resume(with: Result { try Self.runBlocking(launch, group: group, groups: groups) })
+                }
+            }
+        } onCancel: {
+            group.stop(grace: Self.killGracePeriod)
+        }
+        try Task.checkCancellation()
+        return result
+    }
+
+    private struct Launch {
+        let executable: URL
+        let arguments: [String]
+        let environment: [String: String]
+        let timeout: TimeInterval?
+        let onOutput: (@Sendable (String) -> Void)?
+        let onSpawn: (@Sendable (ProcessIdentity) -> Void)?
+    }
+
+    private static func runBlocking(_ launch: Launch, group: SpawnedGroup, groups: ProcessGroups) throws -> ProcessResult {
         let fileManager = FileManager.default
         let capture = fileManager.temporaryDirectory.appendingPathComponent("process-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: capture, withIntermediateDirectories: true)
@@ -102,49 +143,57 @@ public struct SystemProcessRunner: ProcessRunner {
             POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
         ))
 
-        let mergedEnvironment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
-        let argv = ([executable.path] + arguments).map { strdup($0) } + [nil]
+        let mergedEnvironment = ProcessInfo.processInfo.environment.merging(launch.environment) { _, new in new }
+        let argv = ([launch.executable.path] + launch.arguments).map { strdup($0) } + [nil]
         let envp = mergedEnvironment.map { strdup("\($0.key)=\($0.value)") } + [nil]
         defer { (argv + envp).forEach { free($0) } }
 
         var spawned: pid_t = 0
-        let spawnCode = posix_spawn(&spawned, executable.path, &fileActions, &attributes, argv, envp)
+        let spawnCode = posix_spawn(&spawned, launch.executable.path, &fileActions, &attributes, argv, envp)
         guard spawnCode == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: spawnCode) ?? .ENOENT)
         }
-        let processGroup = spawned
+        groups.insert(group)
+        group.attach(spawned)
+        if let onSpawn = launch.onSpawn, let identity = ProcessIdentity.of(spawned) {
+            onSpawn(identity)
+        }
 
         let timedOut = OSAllocatedUnfairLock(initialState: false)
-        var deadlines: [DispatchWorkItem] = []
-        if let timeout {
+        let deadline = launch.timeout.map { timeout in
             let terminate = DispatchWorkItem {
                 timedOut.withLock { $0 = true }
-                kill(-processGroup, SIGTERM)
+                group.stop(grace: killGracePeriod)
             }
-            let forceKill = DispatchWorkItem { kill(-processGroup, SIGKILL) }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: terminate)
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout + killGracePeriod, execute: forceKill)
-            deadlines = [terminate, forceKill]
+            return terminate
         }
-        let watcher = onOutput.map { OutputWatcher(file: stdoutURL, report: $0) }
+        let watcher = launch.onOutput.map { OutputWatcher(file: stdoutURL, report: $0) }
         watcher?.start()
+        var exited = siginfo_t()
+        while waitid(P_PID, id_t(spawned), &exited, WEXITED | WNOWAIT) == -1, errno == EINTR {}
+        deadline?.cancel()
+        // The leader is not reaped yet, so the group id is still ours: whatever the stopped command left running dies with it.
+        if group.wasStopped { group.signal(SIGKILL) }
+        group.detach()
+        groups.remove(group)
         var status: Int32 = 0
         while waitpid(spawned, &status, 0) == -1, errno == EINTR {}
         watcher?.stop()
-        deadlines.forEach { $0.cancel() }
-        let didTimeOut = timedOut.withLock { $0 }
-        if didTimeOut {
-            kill(-processGroup, SIGKILL)
-        }
         let signal = status & 0x7f
         let exitCode = signal == 0 ? (status >> 8) & 0xff : signal
 
         return ProcessResult(
             exitCode: exitCode,
-            stdout: (try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? "",
-            stderr: (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? "",
-            timedOut: didTimeOut
+            stdout: text(of: stdoutURL),
+            stderr: text(of: stderrURL),
+            timedOut: timedOut.withLock { $0 }
         )
+    }
+
+    /// Bytes that are not UTF-8 (a file name in another encoding, binary progress) must not cost the whole output.
+    private static func text(of file: URL) -> String {
+        (try? Data(contentsOf: file)).map { String(decoding: $0, as: UTF8.self) } ?? ""
     }
 }
 

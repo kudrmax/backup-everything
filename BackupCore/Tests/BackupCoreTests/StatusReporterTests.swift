@@ -125,6 +125,23 @@ struct StatusReporterTests {
         #expect(report([source], state, unavailable: [disk.id]).items == [.connectDestination(destinationId: disk.id)])
     }
 
+    @Test func debtOfADisabledSourceAsksForNoDisk() {
+        var source = Fixtures.source(destinations: [disk, cloud])
+        source.enabled = false
+        var state = fresh(source)
+        state.debts = [
+            Debt(sourceId: source.id, destinationId: disk.id, since: now, elsewhere: false),
+            Debt(sourceId: source.id, destinationId: cloud.id, since: now),
+        ]
+        #expect(report([source], state, unavailable: [disk.id, cloud.id]).items.isEmpty)
+
+        let planner = SchedulePlanner(calendar: Fixtures.calendar)
+        let config = Config(sources: [source], destinations: [cloud, disk])
+        #expect(planner.nextWake(config: config, state: state, now: now, needsAttention: false) == nil)
+        #expect(state.pausingDisabledSources(of: config).debts.isEmpty)
+        #expect(state.pausingDisabledSources(of: Config(destinations: [cloud, disk])).debts == state.debts)
+    }
+
     @Test func periodicDiskIsAskedForAtOnceWhenAMissedBackupExistsNowhereElse() {
         let source = Fixtures.source(destinations: [disk])
         var state = fresh(source)

@@ -47,14 +47,22 @@ struct StepChainRunnerTests {
         Fixtures.source(name: "Claude", steps: steps, schedule: .monthly, createdAt: created)
     }
 
-    private func chain(_ source: Source, _ index: Int, startedAt: Date, stepEnteredAt: Date, failure: String? = nil) -> ChainState {
+    private func chain(
+        _ source: Source,
+        _ index: Int,
+        startedAt: Date,
+        stepEnteredAt: Date,
+        failure: String? = nil,
+        output: [String] = []
+    ) -> ChainState {
         ChainState(
             stepIndex: index,
             stepId: index < source.steps.count ? source.steps[index].id : nil,
             startedAt: startedAt,
             stepEnteredAt: stepEnteredAt,
             failure: failure,
-            startedBy: .schedule
+            startedBy: .schedule,
+            outputAtStepEntry: output
         )
     }
 
@@ -131,7 +139,7 @@ struct StepChainRunnerTests {
         }
         time.advance(10)
         let afterCommand = await runner.advance(source, chain: afterFile, lastPickup: nil, permissions: tickOnly)
-        #expect(afterCommand == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(10))))
+        #expect(afterCommand == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(10), output: ["archive.zip"])))
         #expect(seen.get() == ["manifest-a.json"])
         #expect(events.get() == [
             .collecting(sourceId: source.id),
@@ -173,7 +181,7 @@ struct StepChainRunnerTests {
 
         shouldFail.set(false)
         let retried = await runner.advance(source, chain: failed, lastPickup: nil, permissions: allowAll)
-        #expect(retried == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(7200))))
+        #expect(retried == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(7200), output: ["archive.zip"])))
     }
 
     @Test func freshFirstStepFileDoesNotRestartAStuckChainByItself() async throws {
@@ -211,7 +219,7 @@ struct StepChainRunnerTests {
 
         try temp.file("Downloads/export-new.csv", "new", modified: start.addingTimeInterval(300))
         let moved = await runner.advance(source, chain: waiting, lastPickup: nil, permissions: tickOnly)
-        #expect(moved == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(600))))
+        #expect(moved == .moved(chain(source, 2, startedAt: start, stepEnteredAt: start.addingTimeInterval(600), output: ["export-new.csv"])))
         #expect(temp.names(in: "Downloads") == ["export-old.csv"])
         #expect(temp.names(in: chainFolder(source, "output")) == ["export-new.csv"])
     }
@@ -368,5 +376,154 @@ struct StepChainRunnerTests {
         }
         #expect(temp.names(in: "Downloads") == ["export-1.csv", "export-2.csv"])
         #expect(temp.names(in: chainFolder(source, "output")) == ["export-2.csv"])
+    }
+
+    // MARK: Interrupted steps
+
+    private func interrupted(_ source: Source, output: [String]?) -> ChainState {
+        ChainState(stepIndex: 1, stepId: source.steps[1].id, startedAt: start, stepEnteredAt: start, startedBy: .schedule, outputAtStepEntry: output)
+    }
+
+    private func dumpSource() -> Source {
+        source([manual("dump-request-*.txt", includeInCopy: true), command("Dump")])
+    }
+
+    private func writeDump(_ call: FakeProcessRunner.Call) throws -> ProcessResult {
+        let output = URL(fileURLWithPath: call.environment["BACKUP_OUTPUT_DIR"]!)
+        try Data("complete".utf8).write(to: output.appendingPathComponent("dump-2026-09-28_1005.sql"))
+        return ProcessResult(exitCode: 0)
+    }
+
+    /// The app quit while the command of step 2 was writing. After the restart the step is run again from its start,
+    /// so the half-written file of the interrupted attempt must not end up in the copy.
+    @Test func restartedCommandStepStartsFromACleanPlace() async throws {
+        defer { temp.remove() }
+        let source = dumpSource()
+        try temp.file(chainFolder(source, "output") + "/dump-request-1.txt", "please")
+        try temp.file(chainFolder(source, "output") + "/dump-2026-09-28_1000.sql", "half writ")
+        let runner = runner { [self] in try writeDump($0) }
+
+        time.advance(300)
+        guard case let .moved(afterCommand?) = await runner.advance(source, chain: interrupted(source, output: ["dump-request-1.txt"]), lastPickup: nil, permissions: tickOnly),
+              case let .completed(package) = await runner.advance(source, chain: afterCommand, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the chain did not finish")
+            return
+        }
+        let delivered = try FileManager.default.contentsOfDirectory(atPath: package.directory.path).sorted()
+        #expect(delivered == ["dump-2026-09-28_1005.sql", "dump-request-1.txt"])
+        #expect(temp.names(in: "trash") == ["dump-2026-09-28_1000.sql"])
+    }
+
+    /// State saved by an older version does not know what the folder held when the step began: nothing is thrown away.
+    @Test func interruptedStepFromAnOlderVersionKeepsTheOutput() async throws {
+        defer { temp.remove() }
+        let source = dumpSource()
+        try temp.file(chainFolder(source, "output") + "/dump-request-1.txt", "please")
+        let runner = runner { [self] in try writeDump($0) }
+
+        guard case let .moved(afterCommand?) = await runner.advance(source, chain: interrupted(source, output: nil), lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the command did not run")
+            return
+        }
+        #expect(afterCommand.outputAtStepEntry == ["dump-2026-09-28_1005.sql", "dump-request-1.txt"])
+        #expect(temp.names(in: "trash").isEmpty)
+    }
+
+    @Test func partialOutputThatCannotBeTrashedFailsTheStep() async throws {
+        defer { temp.remove() }
+        let source = dumpSource()
+        try temp.file(chainFolder(source, "output") + "/dump-2026-09-28_1000.sql", "half writ")
+        let runner = StepChainRunner(
+            chainsRoot: temp.path("chains"),
+            inbox: inbox,
+            runner: FakeProcessRunner { [self] in try writeDump($0) },
+            time: time,
+            trash: { _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+
+        guard case let .failed(chain) = await runner.advance(source, chain: interrupted(source, output: []), lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("expected a step error")
+            return
+        }
+        #expect(chain.failure != nil)
+        #expect(temp.names(in: chainFolder(source, "output")) == ["dump-2026-09-28_1000.sql"])
+    }
+
+    /// A command still running from before a crash would keep writing into the folder the repeat works in.
+    @Test func commandLeftRunningByAnEarlierLaunchIsStoppedBeforeTheStepRunsAgain() async throws {
+        defer { temp.remove() }
+        let source = dumpSource()
+        let orphan = try await startOrphan(recordedFor: source)
+        let runner = runner { [self] call in
+            #expect(!orphan.identity.isRunning)
+            return try writeDump(call)
+        }
+
+        guard case .moved = await runner.advance(source, chain: interrupted(source, output: []), lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the command did not run")
+            return
+        }
+        _ = try await orphan.finished.value
+        #expect(!temp.exists("chains/\(source.id.uuidString)/process.json"))
+    }
+
+    @Test func startingOverStopsACommandLeftRunningByAnEarlierLaunch() async throws {
+        defer { temp.remove() }
+        let source = dumpSource()
+        let orphan = try await startOrphan(recordedFor: source)
+
+        try runner().discard(sourceId: source.id)
+
+        #expect(!orphan.identity.isRunning)
+        _ = try await orphan.finished.value
+        #expect(!temp.exists("chains/\(source.id.uuidString)"))
+    }
+
+    @Test func runningCommandIsRecordedAndForgottenWhenItEnds() async throws {
+        defer { temp.remove() }
+        var source = dumpSource()
+        let record = temp.path("chains/\(source.id.uuidString)/process.json")
+        source.steps[1] = SourceStep(name: "Dump", kind: .command(command: "cat \"\(record.path)\" > \"$BACKUP_OUTPUT_DIR/seen.json\"", timeoutSeconds: 20))
+        let runner = StepChainRunner(
+            chainsRoot: temp.path("chains"),
+            inbox: inbox,
+            runner: SystemProcessRunner(groups: ProcessGroups()),
+            time: time,
+            trash: { _ in }
+        )
+
+        guard case .moved = await runner.advance(source, chain: interrupted(source, output: []), lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the command did not run")
+            return
+        }
+        let data = try Data(contentsOf: temp.path(chainFolder(source, "output") + "/seen.json"))
+        let seen = try JSONDecoder().decode(ProcessIdentity.self, from: data)
+        #expect(seen.pid > 0)
+        #expect(!seen.isRunning)
+        #expect(!FileManager.default.fileExists(atPath: record.path))
+    }
+
+    private struct Orphan {
+        let identity: ProcessIdentity
+        let finished: Task<ProcessResult, Error>
+    }
+
+    private func startOrphan(recordedFor source: Source) async throws -> Orphan {
+        let spawned = LockedBox<ProcessIdentity?>(nil)
+        let finished = Task {
+            try await SystemProcessRunner(groups: ProcessGroups()).run(
+                executable: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "sleep 30"],
+                environment: [:],
+                timeout: 60,
+                onOutput: nil,
+                onSpawn: { spawned.set($0) }
+            )
+        }
+        while spawned.get() == nil { try await Task.sleep(for: .milliseconds(20)) }
+        let identity = try #require(spawned.get())
+        try temp.directory("chains/\(source.id.uuidString)")
+        try JSONEncoder().encode(identity).write(to: temp.path("chains/\(source.id.uuidString)/process.json"))
+        return Orphan(identity: identity, finished: finished)
     }
 }

@@ -95,9 +95,15 @@ public struct Store: Sendable {
             try line.write(to: url, options: .atomic)
             return
         }
-        let handle = try FileHandle(forWritingTo: url)
+        let handle = try FileHandle(forUpdating: url)
         defer { try? handle.close() }
-        try handle.seekToEnd()
+        let size = try handle.seekToEnd()
+        if size > 0 {
+            try handle.seek(toOffset: size - 1)
+            if try handle.read(upToCount: 1) != Data([0x0A]) {
+                line.insert(0x0A, at: 0)
+            }
+        }
         try handle.write(contentsOf: line)
     }
 
