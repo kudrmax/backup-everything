@@ -150,7 +150,6 @@ public struct Store: Sendable {
     private static func month(of date: Date) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
-        let parts = calendar.dateComponents([.year, .month], from: date)
-        return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
+        return String(format: "%04d-%02d", calendar.component(.year, from: date), calendar.component(.month, from: date))
     }
 }

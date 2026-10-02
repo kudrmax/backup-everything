@@ -131,4 +131,155 @@ struct RcloneDestinationTests {
         let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 3, stderr: "directory not found") }
         #expect(try await destination(runner).usedBytes() == 0)
     }
+
+    private func manifest(_ source: String = "Obsidian") -> SnapshotManifest {
+        SnapshotManifest(sourceId: UUID(), sourceName: source, collectedAt: date, fileCount: 1, totalBytes: 5)
+    }
+
+    @Test func purgesOnlyMarkedFoldersWithoutManifestWhateverTheListingLooksLike() async throws {
+        let runner = FakeProcessRunner { call in
+            if call.arguments.contains("--dirs-only") {
+                return ProcessResult(exitCode: 0, stdout: "2026-09-24_100000\n2026-09-25_100000/\n\n2026-09-26_100000\nnotes\n")
+            }
+            if call.arguments.contains("/*/_snapshot.json") {
+                return ProcessResult(exitCode: 0, stdout: "2026-09-25_100000/_snapshot.json\n")
+            }
+            if call.arguments.contains("/*/_unfinished") {
+                return ProcessResult(exitCode: 0, stdout: "2026-09-24_100000/_unfinished\n2026-09-25_100000/_unfinished\nnotes/_unfinished\n")
+            }
+            return ProcessResult(exitCode: 0)
+        }
+        try await destination(runner).removeIncomplete(sourceSlug: "obsidian")
+        #expect(runner.calls.filter { $0.arguments.first == "purge" }.map(\.arguments) == [
+            ["purge", "gdrive:backups/obsidian/2026-09-24_100000"],
+        ])
+    }
+
+    @Test func listingFailureStopsTheCleanupBeforeAnythingIsPurged() async throws {
+        for failing in ["--dirs-only", "/*/_snapshot.json", "/*/_unfinished"] {
+            let runner = FakeProcessRunner { call in
+                if call.arguments.contains(failing) { return ProcessResult(exitCode: 1, stderr: "rate limited") }
+                if call.arguments.contains("--dirs-only") { return ProcessResult(exitCode: 0, stdout: "2026-09-24_100000/\n") }
+                if call.arguments.contains("/*/_unfinished") { return ProcessResult(exitCode: 0, stdout: "2026-09-24_100000/_unfinished\n") }
+                return ProcessResult(exitCode: 0)
+            }
+            await #expect(throws: DestinationError.commandFailed("rate limited")) {
+                try await destination(runner).removeIncomplete(sourceSlug: "obsidian")
+            }
+            #expect(!runner.calls.contains { $0.arguments.first == "purge" })
+        }
+    }
+
+    @Test func failedPurgeIsReported() async throws {
+        let runner = FakeProcessRunner { call in
+            if call.arguments.contains("--dirs-only") { return ProcessResult(exitCode: 0, stdout: "2026-09-24_100000/\n") }
+            if call.arguments.contains("/*/_unfinished") { return ProcessResult(exitCode: 0, stdout: "2026-09-24_100000/_unfinished\n") }
+            if call.arguments.first == "purge" { return ProcessResult(exitCode: 1, stderr: "permission denied") }
+            return ProcessResult(exitCode: 0)
+        }
+        await #expect(throws: DestinationError.commandFailed("permission denied")) {
+            try await destination(runner).removeIncomplete(sourceSlug: "obsidian")
+        }
+    }
+
+    @Test func listingErrorIsNotTakenForAnEmptyFolder() async throws {
+        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 1, stderr: "token expired") }
+        await #expect(throws: DestinationError.commandFailed("token expired")) {
+            try await destination(runner).listSnapshots(sourceSlug: "obsidian")
+        }
+        await #expect(throws: DestinationError.commandFailed("token expired")) {
+            try await destination(runner).usedBytes()
+        }
+    }
+
+    @Test func failedManifestUploadLeavesTheCopyMarkedUnfinished() async throws {
+        let temp = try TempDirectory()
+        defer { temp.remove() }
+        let file = try temp.file("export.csv", "1;2;3")
+        let runner = FakeProcessRunner { call in
+            call.arguments.last?.hasSuffix("/_snapshot.json") == true ? ProcessResult(exitCode: 1, stderr: "connection reset") : ProcessResult(exitCode: 0)
+        }
+        await #expect(throws: DestinationError.commandFailed("connection reset")) {
+            try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: manifest(), sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
+        }
+        #expect(runner.calls.map { $0.arguments.first } == ["copyto", "copy", "copyto"])
+        #expect(!runner.calls.contains { $0.arguments.first == "deletefile" })
+    }
+
+    @Test func failedMarkRemovalIsReportedAfterTheManifestIsUp() async throws {
+        let temp = try TempDirectory()
+        defer { temp.remove() }
+        let file = try temp.file("export.csv", "1;2;3")
+        let uploadedManifest = LockedBox<SnapshotManifest?>(nil)
+        let runner = FakeProcessRunner { call in
+            if call.arguments.last?.hasSuffix("/_snapshot.json") == true {
+                let data = try Data(contentsOf: URL(fileURLWithPath: call.arguments[1]))
+                uploadedManifest.set(try JSONCoding.decoder().decode(SnapshotManifest.self, from: data))
+            }
+            return call.arguments.first == "deletefile" ? ProcessResult(exitCode: 1, stderr: "busy") : ProcessResult(exitCode: 0)
+        }
+        let expected = manifest("Finance")
+        await #expect(throws: DestinationError.commandFailed("busy")) {
+            try await destination(runner).write(Payload(root: file, collectedAt: date), manifest: expected, sourceSlug: "finance", snapshotName: name, reusingStoredFiles: true)
+        }
+        #expect(uploadedManifest.get() == expected)
+        #expect(runner.calls[1].arguments == ["copy", file.path, "gdrive:backups/finance/\(name)"])
+    }
+
+    @Test func onlyRegularFilesAreSentToTheCloud() async throws {
+        let temp = try TempDirectory()
+        defer { temp.remove() }
+        try temp.file("vault/Мои заметки/план на год.md", "plan")
+        try temp.file("vault/with space.md", "space")
+        try temp.directory("vault/empty")
+        try FileManager.default.createSymbolicLink(atPath: temp.path("vault/link.md").path, withDestinationPath: "with space.md")
+        let listedFiles = LockedBox<String>("")
+        let runner = FakeProcessRunner { call in
+            if let index = call.arguments.firstIndex(of: "--files-from-raw") {
+                listedFiles.set((try? String(contentsOfFile: call.arguments[index + 1], encoding: .utf8)) ?? "")
+            }
+            return ProcessResult(exitCode: 0)
+        }
+        try await destination(runner).write(Payload(root: temp.path("vault"), collectedAt: date), manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+        #expect(listedFiles.get() == "with space.md\nМои заметки/план на год.md")
+    }
+
+    @Test func cloudCopiesNeverShareData() async {
+        #expect(await destination(FakeProcessRunner()).canShareUnchangedFiles() == false)
+    }
+
+    @Test func unreadableSizeIsAnError() async {
+        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 0, stdout: "Total size: 1.2 KiB") }
+        await #expect(throws: DestinationError.commandFailed("Could not parse the output of rclone size.")) {
+            try await destination(runner).usedBytes()
+        }
+    }
+
+    @Test func errorKeepsOnlyTheTailOfLongOutput() async {
+        let noise = String(repeating: "x", count: 5000) + "the real reason"
+        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 1, stderr: noise) }
+        await #expect(throws: DestinationError.commandFailed(String(noise.suffix(2000)))) {
+            try await destination(runner).delete(Snapshot(name: name, date: date), sourceSlug: "obsidian")
+        }
+    }
+
+    @Test func runnerFailureMeansUnavailable() async {
+        let runner = FakeProcessRunner { _ in throw POSIXError(.ENOENT) }
+        #expect(await destination(runner).isAvailable() == false)
+    }
+
+    @Test func remoteAndPathAreJoinedWithoutDoubleSlashes() async throws {
+        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 0, stdout: #"{"bytes":1}"#) }
+        _ = try await RcloneDestination(executable: executable, remote: "gdrive", path: "a/b///", runner: runner, naming: Fixtures.naming).usedBytes()
+        _ = try await RcloneDestination(executable: executable, remote: "gdrive:", path: "", runner: runner, naming: Fixtures.naming).usedBytes()
+        #expect(runner.calls.map { $0.arguments[1] } == ["gdrive:a/b", "gdrive:"])
+        #expect(runner.calls.allSatisfy { $0.executable == executable && $0.timeout == nil })
+    }
+
+    @Test func availabilityChecksTheRemoteRootWithATimeout() async {
+        let runner = FakeProcessRunner()
+        _ = await destination(runner, path: "not/created/yet").isAvailable()
+        #expect(runner.calls.map(\.arguments) == [["lsf", "gdrive:", "--max-depth", "1", "--contimeout", "10s", "--retries", "1"]])
+        #expect(runner.calls.first?.timeout == 15)
+    }
 }

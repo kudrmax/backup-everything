@@ -193,4 +193,40 @@ struct StatusReporterTests {
         #expect(items(InboxScan(files: [manifest], totalBytes: 2, downloadInProgress: false)) == [.runFailed(sourceId: source.id, message: "links expired")])
         #expect(items(.empty) == [.runFailed(sourceId: source.id, message: "links expired")])
     }
+
+    @Test func unpluggedDestinationThatOwesNothingIsNotMentioned() {
+        let source = Fixtures.source(destinations: [cloud, disk])
+        #expect(report([source], fresh(source), unavailable: [cloud.id, disk.id]).items.isEmpty)
+    }
+
+    @Test func chainBusyWithAnAutomaticStepAsksNothingOfThePerson() {
+        let source = Fixtures.source(
+            name: "Claude",
+            steps: [.file("manifest-*.json", in: "/d"), .command("download", timeoutSeconds: 60)],
+            schedule: .monthly,
+            destinations: [cloud]
+        )
+        var state = fresh(source)
+        state.updateSource(source.id) {
+            $0.chain = ChainState(stepIndex: 1, stepId: source.steps[1].id, startedAt: now, stepEnteredAt: now, startedBy: .schedule)
+        }
+        #expect(report([source], state).items.isEmpty)
+    }
+
+    @Test func connectedDeviceIsNotWaitedFor() {
+        let source = Fixtures.source(name: "PocketBook", steps: [.device("/Volumes/PB"), .folder("/Volumes/PB/Books")], destinations: [cloud])
+        var state = fresh(source)
+        state.updateSource(source.id) {
+            $0.chain = ChainState(stepIndex: 0, stepId: source.steps[0].id, startedAt: now, stepEnteredAt: now, startedBy: .button)
+        }
+        let result = reporter.report(
+            config: Config(sources: [source], destinations: [cloud]),
+            state: state,
+            now: now,
+            unavailableDestinations: [],
+            inboxScans: [:],
+            missingDevices: []
+        )
+        #expect(result.items.isEmpty)
+    }
 }

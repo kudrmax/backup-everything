@@ -107,4 +107,11 @@ struct ConfigEditorTests {
         #expect(editor.maskConflicts(for: chain, in: config).map(\.name) == ["Export"])
         #expect(editor.maskConflicts(for: export, in: config).map(\.name) == ["Claude"])
     }
+
+    @Test func orderingWithARepeatedIdUsesItsFirstPlaceAndKeepsTheRestInOrder() {
+        let a = Fixtures.source(name: "A"), b = Fixtures.source(name: "B"), c = Fixtures.source(name: "C"), d = Fixtures.source(name: "D")
+        var config = Config(sources: [a, b, c, d])
+        editor.orderSources([c.id, a.id, c.id], in: &config)
+        #expect(config.sources.map(\.name) == ["C", "A", "B", "D"])
+    }
 }

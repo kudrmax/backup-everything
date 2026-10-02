@@ -148,4 +148,21 @@ struct StateReducerTests {
         reducer.apply(record([], collectError: "auth"), to: &state)
         #expect(state.sourceState(sourceId).lastSuccess == nil)
     }
+
+    @Test func unpluggedDiskDoesNotPostponeTheRetryOfAFailedWrite() {
+        var state = AppState()
+        reducer.apply(record([(disk, .failed(message: "I/O error"))]), to: &state)
+        #expect(state.debts.map(\.lastAttempt) == [finished])
+
+        var later = record([(disk, .unavailable)])
+        later.finishedAt = finished.addingTimeInterval(7200)
+        reducer.apply(later, to: &state)
+        #expect(state.debts.map(\.lastAttempt) == [finished])
+
+        var retried = record([(disk, .failed(message: "I/O error"))])
+        retried.finishedAt = finished.addingTimeInterval(10_800)
+        reducer.apply(retried, to: &state)
+        #expect(state.debts.map(\.lastAttempt) == [retried.finishedAt])
+        #expect(state.debts.count == 1)
+    }
 }

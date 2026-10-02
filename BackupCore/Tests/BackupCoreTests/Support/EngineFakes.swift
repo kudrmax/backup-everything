@@ -28,14 +28,23 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
     var snapshots: [Snapshot] = []
     var writeError: Error?
     var deleteError: Error?
+    var listError: Error?
+    var removeIncompleteError: Error?
+    var materialized: URL?
     private(set) var log: [String] = []
     private(set) var reusedStoredFiles: [Bool] = []
+    private(set) var writtenManifests: [SnapshotManifest] = []
+    private(set) var writtenPayloads: [Payload] = []
 
     func isAvailable() async -> Bool { available }
 
-    func listSnapshots(sourceSlug: String) async throws -> [Snapshot] { snapshots }
+    func listSnapshots(sourceSlug: String) async throws -> [Snapshot] {
+        if let listError { throw listError }
+        return snapshots
+    }
 
     func removeIncomplete(sourceSlug: String) async throws {
+        if let removeIncompleteError { throw removeIncompleteError }
         log.append("removeIncomplete")
     }
 
@@ -43,6 +52,8 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         if let writeError { throw writeError }
         log.append("write:\(snapshotName)")
         reusedStoredFiles.append(reusingStoredFiles)
+        writtenManifests.append(manifest)
+        writtenPayloads.append(payload)
         snapshots.append(Snapshot(name: snapshotName, date: manifest.collectedAt))
     }
 
@@ -51,7 +62,9 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
     func canShareUnchangedFiles() async -> Bool? { true }
 
     func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
-        throw DestinationError.unavailable
+        guard let materialized else { throw DestinationError.unavailable }
+        log.append("materialize:\(snapshot.name)")
+        return materialized
     }
 
     func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {

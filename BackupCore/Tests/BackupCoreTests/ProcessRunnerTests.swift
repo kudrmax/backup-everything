@@ -81,4 +81,34 @@ struct ProcessRunnerTests {
         #expect(result.exitCode == 0)
         #expect(lines.get() == ["1 of 2", "2 of 2"])
     }
+
+    @Test func givenVariablesWinOverInheritedOnes() async throws {
+        let result = try await runner.run(executable: shell, arguments: ["-c", "echo \"$HOME\""], environment: ["HOME": "/custom home"], timeout: nil)
+        #expect(result.stdout == "/custom home\n")
+    }
+
+    @Test func commandThatIgnoresStopIsKilledAfterTheGracePeriod() async throws {
+        let started = Date()
+        let result = try await runner.run(
+            executable: shell,
+            arguments: ["-c", "trap '' TERM; while :; do sleep 0.1; done"],
+            environment: [:],
+            timeout: 0.3
+        )
+        #expect(result.timedOut)
+        #expect(result.exitCode == SIGKILL)
+        #expect(Date().timeIntervalSince(started) < 15)
+    }
+
+    @Test func latestLineIsFoundAfterLongOutput() async throws {
+        let lines = LockedBox<[String]>([])
+        _ = try await runner.run(
+            executable: shell,
+            arguments: ["-c", "head -c 20000 /dev/zero | tr '\\0' 'x'; echo; echo 'last step'"],
+            environment: [:],
+            timeout: 20,
+            onOutput: { line in lines.set(lines.get() + [line]) }
+        )
+        #expect(lines.get().last == "last step")
+    }
 }

@@ -133,4 +133,88 @@ struct StoreTests {
         #expect(state.lastDelivered.isEmpty)
         #expect(temp.names(in: "data") == ["state.json"])
     }
+
+    @Test func unreadableStateIsAnErrorAndIsNotReset() throws {
+        defer { temp.remove() }
+        try temp.directory("data/state.json")
+        #expect(throws: StoreError.unreadable(file: "state.json")) { try store.loadState() }
+        #expect(temp.names(in: "data") == ["state.json"])
+    }
+
+    @Test func stateOfANewerVersionIsRejectedAndKept() throws {
+        defer { temp.remove() }
+        let newer = #"{"schemaVersion":7,"sources":{},"destinations":{},"debts":[],"lastReminders":{}}"#
+        try temp.file("data/state.json", newer)
+        #expect(throws: StoreError.unsupportedVersion(file: "state.json", version: 7)) { try store.loadState() }
+        #expect(try String(contentsOf: store.stateURL, encoding: .utf8) == newer)
+    }
+
+    @Test func minimalStateFillsInTheRest() throws {
+        defer { temp.remove() }
+        let sourceId = UUID()
+        let destinationId = UUID()
+        try temp.file("data/state.json", """
+        {"schemaVersion":1,"debts":[{"sourceId":"\(sourceId.uuidString)","destinationId":"\(destinationId.uuidString)","since":"2026-09-28T10:00:00Z"}]}
+        """)
+        let state = try store.loadState()
+        #expect(state.sources.isEmpty)
+        #expect(state.destinations.isEmpty)
+        #expect(state.lastReminders.isEmpty)
+        #expect(state.debts == [Debt(sourceId: sourceId, destinationId: destinationId, since: Fixtures.date("2026-09-28 10:00:00"), elsewhere: true)])
+    }
+
+    @Test func copyOfTheOldConfigIsNeverOverwritten() throws {
+        defer { temp.remove() }
+        try temp.file("data/config.v1.json", "the first old config")
+        try temp.file("data/config.json", #"{"schemaVersion":1,"destinations":[],"sources":[]}"#)
+        try store.saveConfig(try store.loadConfig())
+        #expect(try String(contentsOf: temp.path("data/config.v1.json"), encoding: .utf8) == "the first old config")
+        #expect(try store.loadConfig().schemaVersion == Config.currentSchemaVersion)
+    }
+
+    @Test func unreadableHistoryMonthIsSkipped() throws {
+        defer { temp.remove() }
+        let start = Fixtures.date("2026-09-01 08:00:00")
+        try store.appendRun(RunRecord(sourceId: UUID(), sourceName: "A", trigger: .manual, startedAt: start, finishedAt: start))
+        try Data([0xFF, 0xFE, 0x00, 0x80]).write(to: temp.path("data/history/2026-10.jsonl"))
+        try temp.file("data/history/notes.txt", "not history")
+        #expect(store.loadRuns().map(\.sourceName) == ["A"])
+    }
+
+    @Test func historyMonthIsTakenInUTC() throws {
+        defer { temp.remove() }
+        let lastSecondOfYear = Fixtures.date("2026-12-31 23:59:59")
+        try store.appendRun(RunRecord(sourceId: UUID(), sourceName: "A", trigger: .manual, startedAt: lastSecondOfYear, finishedAt: lastSecondOfYear))
+        try store.appendRun(RunRecord(sourceId: UUID(), sourceName: "B", trigger: .manual, startedAt: lastSecondOfYear.addingTimeInterval(1), finishedAt: lastSecondOfYear))
+        #expect(temp.names(in: "data/history") == ["2026-12.jsonl", "2027-01.jsonl"])
+    }
+
+    @Test func folderLayoutAndErrorMessages() {
+        defer { temp.remove() }
+        #expect(store.iconsDirectory.path == temp.path("data/icons").path)
+        #expect(store.templatesDirectory.path == temp.path("data/templates").path)
+        #expect(StoreError.corrupted(file: "config.json").localizedDescription == "The file config.json is damaged and cannot be read.")
+        #expect(StoreError.unreadable(file: "state.json").localizedDescription == "Could not read the file state.json. Check the access permissions.")
+        #expect(StoreError.unsupportedVersion(file: "config.json", version: 3).localizedDescription
+            == "The file config.json was created by a newer version of the app (format 3).")
+    }
+
+    @Test func configWithAStepOfUnknownKindIsReportedAsDamaged() throws {
+        defer { temp.remove() }
+        let config = Config(sources: [Fixtures.source()], destinations: [])
+        try store.saveConfig(config)
+        let text = try String(contentsOf: store.configURL, encoding: .utf8)
+        let unknown = text.replacingOccurrences(of: #""folder""#, with: #""teleport""#)
+        #expect(unknown != text)
+        try unknown.write(to: store.configURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: StoreError.corrupted(file: "config.json")) { try store.loadConfig() }
+        #expect(try String(contentsOf: store.configURL, encoding: .utf8) == unknown)
+    }
+
+    @Test func stateWithOnlyItsVersionIsEmpty() throws {
+        defer { temp.remove() }
+        try temp.file("data/state.json", #"{"schemaVersion":1}"#)
+        #expect(try store.loadState() == AppState())
+    }
 }
