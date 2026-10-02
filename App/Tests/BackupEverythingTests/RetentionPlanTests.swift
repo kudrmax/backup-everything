@@ -8,39 +8,24 @@ struct RetentionPlanTests {
     }
 
     private func sentences(_ rules: RetentionRules) -> [String] {
-        RetentionPlan.stages(rules).filter(\.isKept).map { "\($0.prefix) \($0.count) \($0.unitName) — \($0.effect)" }
+        RetentionPlan.stages(rules).filter(\.isKept).map(\.sentence)
     }
 
-    @Test func stagesTellWhatHappensToACopyAsItAges() {
-        #expect(sentences(.standard) == [
-            "First 7 days — every copy is kept",
-            "Then up to 4 weeks — one per week is kept",
-            "Then up to 12 months — one per month is kept",
+    @Test func eachStageSaysHowManyPeriodsWithABackupKeepACopy() {
+        #expect(sentences(rules(7, 4, 12, 5)) == [
+            "Keep one copy per day for the last 7 days you backed up",
+            "Keep one copy per week for the last 4 weeks you backed up",
+            "Keep one copy per month for the last 12 months you backed up",
+            "Keep one copy per year for the last 5 years you backed up",
         ])
-        #expect(sentences(rules(7, 4, 12, 5)).last == "Then up to 5 years — one per year is kept")
-    }
-
-    @Test func storyStartsFromTheFirstStageThatKeepsCopies() {
-        #expect(sentences(rules(0, 4, 6, 0)) == [
-            "First 4 weeks — one per week is kept",
-            "Then up to 6 months — one per month is kept",
-        ])
-        #expect(sentences(rules(0, 0, 0, 2)) == ["First 2 years — one per year is kept"])
     }
 
     @Test func wordsAgreeWithTheNumber() {
         #expect(sentences(rules(1, 1, 1, 1)) == [
-            "First 1 day — every copy is kept",
-            "Then up to 1 week — one per week is kept",
-            "Then up to 1 month — one per month is kept",
-            "Then up to 1 year — one per year is kept",
-        ])
-        #expect(sentences(rules(0, 1, 0, 0)) == ["First 1 week — one per week is kept"])
-        #expect(sentences(rules(3, 21, 2, 11)) == [
-            "First 3 days — every copy is kept",
-            "Then up to 21 weeks — one per week is kept",
-            "Then up to 2 months — one per month is kept",
-            "Then up to 11 years — one per year is kept",
+            "Keep one copy per day for the last 1 day you backed up",
+            "Keep one copy per week for the last 1 week you backed up",
+            "Keep one copy per month for the last 1 month you backed up",
+            "Keep one copy per year for the last 1 year you backed up",
         ])
     }
 
@@ -48,17 +33,14 @@ struct RetentionPlanTests {
         let stages = RetentionPlan.stages(rules(7, 0, 12, 0))
         #expect(stages.map(\.unit) == [.day, .week, .month, .year])
         #expect(stages.map(\.isKept) == [true, false, true, false])
-        #expect(stages[1].prefix == "—")
-        #expect(stages[1].unitName == "weeks")
-        #expect(stages[1].effect == "not used")
-        #expect(RetentionPlan.stages(rules(0, 4, 0, 0))[0].unitName == "days")
+        #expect(stages[1].tail == "weeks you backed up")
     }
 
-    @Test func summaryNamesHowFarBackCopiesGo() {
-        #expect(RetentionPlan.summary(.standard) == "up to 12 months")
-        #expect(RetentionPlan.summary(rules(7, 0, 0, 0)) == "up to 7 days")
-        #expect(RetentionPlan.summary(rules(0, 1, 0, 0)) == "up to 1 week")
-        #expect(RetentionPlan.summary(rules(7, 4, 12, 5)) == "up to 5 years")
-        #expect(RetentionPlan.summary(rules(0, 0, 0, 0)) == "only the latest copy")
+    @Test func summaryNamesTheLongestStage() {
+        #expect(RetentionPlan.summary(.standard) == "last 12 months you backed up")
+        #expect(RetentionPlan.summary(rules(7, 0, 0, 0)) == "last 7 days you backed up")
+        #expect(RetentionPlan.summary(rules(0, 1, 0, 0)) == "last 1 week you backed up")
+        #expect(RetentionPlan.summary(rules(7, 4, 12, 5)) == "last 5 years you backed up")
+        #expect(RetentionPlan.summary(rules(0, 0, 0, 0)) == "only the newest copy")
     }
 }

@@ -10,36 +10,21 @@ struct RetentionEditor: View {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 8) {
                 ForEach(RetentionPlan.stages(rules)) { stage in
                     GridRow {
-                        Text(stage.prefix)
-                            .gridColumnAlignment(.trailing)
+                        Text(stage.lead)
+                        Text("for the last")
                         Stepper(value: count(of: stage.unit), in: 0...range(of: stage.unit)) {
                             Text("\(stage.count)").monospacedDigit()
                         }
                         .gridColumnAlignment(.trailing)
                         .pointing()
-                        Text(stage.unitName)
-                        Text(stage.effect)
+                        Text(stage.isKept ? stage.tail : "\(stage.tail) — not used")
                             .fixedSize()
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 8)
                     }
                     .opacity(stage.isKept ? 1 : 0.45)
                 }
-                if keepsHistory {
-                    GridRow {
-                        Text("Then")
-                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                        Text("deleted")
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 8)
-                    }
-                }
             }
-            if !keepsHistory {
-                Text("Only the latest copy is kept.")
-                    .foregroundStyle(.secondary)
-            }
+            Text(keepsHistory ? RetentionPlan.footnote : RetentionPlan.newestOnly)
+                .foregroundStyle(.secondary)
             if let showCopies {
                 Button("Show copies by date…", action: showCopies)
                     .controlSize(.small)

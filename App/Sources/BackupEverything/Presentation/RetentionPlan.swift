@@ -10,48 +10,44 @@ struct RetentionStage: Equatable, Identifiable {
 
     let unit: Unit
     let count: Int
-    let opensStory: Bool
 
     var id: Unit { unit }
     var isKept: Bool { count > 0 }
 
-    var prefix: String {
-        guard isKept else { return "—" }
-        return opensStory ? "First" : "Then up to"
+    var lead: String {
+        switch unit {
+        case .day: "Keep one copy per day"
+        case .week: "Keep one copy per week"
+        case .month: "Keep one copy per month"
+        case .year: "Keep one copy per year"
+        }
     }
 
-    var unitName: String {
-        switch unit {
+    var tail: String {
+        let units = switch unit {
         case .day: Texts.plural(count, "day", "days")
         case .week: Texts.plural(count, "week", "weeks")
         case .month: Texts.plural(count, "month", "months")
         case .year: Texts.plural(count, "year", "years")
         }
+        return "\(units) you backed up"
     }
 
-    var effect: String {
-        guard isKept else { return "not used" }
-        switch unit {
-        case .day: return "every copy is kept"
-        case .week: return "one per week is kept"
-        case .month: return "one per month is kept"
-        case .year: return "one per year is kept"
-        }
-    }
-
-    var limit: String { "up to \(count) \(unitName)" }
+    var sentence: String { "\(lead) for the last \(count) \(tail)" }
 }
 
 enum RetentionPlan {
+    static let footnote = "Older copies are deleted. The newest copy is always kept."
+    static let newestOnly = "Only the newest copy is kept."
+
     static func stages(_ rules: RetentionRules) -> [RetentionStage] {
         let counts: [(RetentionStage.Unit, Int)] = [
             (.day, rules.daily), (.week, rules.weekly), (.month, rules.monthly), (.year, rules.yearly),
         ]
-        let opening = counts.first { $0.1 > 0 }?.0 ?? .day
-        return counts.map { RetentionStage(unit: $0.0, count: $0.1, opensStory: $0.0 == opening) }
+        return counts.map { RetentionStage(unit: $0.0, count: $0.1) }
     }
 
     static func summary(_ rules: RetentionRules) -> String {
-        stages(rules).last(where: \.isKept)?.limit ?? "only the latest copy"
+        stages(rules).last(where: \.isKept).map { "last \($0.count) \($0.tail)" } ?? "only the newest copy"
     }
 }
