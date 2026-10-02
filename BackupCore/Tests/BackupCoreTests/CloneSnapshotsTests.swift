@@ -284,10 +284,12 @@ struct CloneSnapshotsTests {
         try await backUp(destination, at: second)
         try temp.file("disk/notes.txt", "12")
 
-        let manifests = try [first, second].map { date in
-            try FileManager.default.attributesOfItem(atPath: snapshot(date).appendingPathComponent(SnapshotManifest.fileName).path)[.size] as! NSNumber
-        }
-        #expect(try await destination.usedBytes() == 5 + 3 + 7 + 2 + manifests.reduce(0) { $0 + $1.int64Value })
+        let (one, two) = ("disk/obsidian/\(name(first))", "disk/obsidian/\(name(second))")
+        let expected = try temp.allocatedBytes(
+            "\(one)/a.md", "\(one)/b.md", "\(two)/b.md", "disk/notes.txt",
+            "\(one)/\(SnapshotManifest.fileName)", "\(two)/\(SnapshotManifest.fileName)"
+        )
+        #expect(try await destination.usedBytes() == expected)
     }
 
     @Test func usedBytesCountsFullCopiesInFull() async throws {
@@ -297,9 +299,28 @@ struct CloneSnapshotsTests {
         try await backUp(destination, at: first)
         try await backUp(destination, at: second)
 
-        let manifests = try [first, second].map { date in
-            try FileManager.default.attributesOfItem(atPath: snapshot(date).appendingPathComponent(SnapshotManifest.fileName).path)[.size] as! NSNumber
+        let (one, two) = ("disk/obsidian/\(name(first))", "disk/obsidian/\(name(second))")
+        let expected = try temp.allocatedBytes(
+            "\(one)/a.md", "\(two)/a.md",
+            "\(one)/\(SnapshotManifest.fileName)", "\(two)/\(SnapshotManifest.fileName)"
+        )
+        #expect(try await destination.usedBytes() == expected)
+    }
+
+    @Test func usedBytesDoesNotNeedManifests() async throws {
+        defer { temp.remove() }
+        try temp.file("vault/photo.jpg", String(repeating: "x", count: 100_000))
+        let destination = destination(RecordingCloning())
+        for date in [first, second, third] {
+            try await backUp(destination, at: date)
         }
-        #expect(try await destination.usedBytes() == 10 + manifests.reduce(0) { $0 + $1.int64Value })
+        for date in [first, second, third] {
+            try FileManager.default.moveItem(
+                at: snapshot(date).appendingPathComponent(SnapshotManifest.fileName),
+                to: temp.path("\(name(date)).json")
+            )
+        }
+
+        #expect(try await destination.usedBytes() == temp.allocatedBytes("disk/obsidian/\(name(first))/photo.jpg"))
     }
 }

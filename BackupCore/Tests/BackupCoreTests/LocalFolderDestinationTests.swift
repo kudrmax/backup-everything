@@ -136,6 +136,7 @@ struct LocalFolderDestinationTests {
         defer { temp.remove() }
         try temp.file("disk/obsidian/\(name)/a.md", "alpha")
         try temp.file("disk/obsidian/\(name)/sub/b.md", "abc")
-        #expect(try await destination.usedBytes() == 8)
+        let files = ["disk/obsidian/\(name)/a.md", "disk/obsidian/\(name)/sub/b.md"]
+        #expect(try await destination.usedBytes() == temp.allocatedBytes(files[0], files[1]))
     }
 }

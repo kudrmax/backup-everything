@@ -39,6 +39,12 @@ struct TempDirectory {
         FileManager.default.fileExists(atPath: path(relative).path)
     }
 
+    func allocatedBytes(_ relatives: String...) throws -> Int64 {
+        try relatives.reduce(0) { total, relative in
+            total + Int64(try path(relative).resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize ?? 0)
+        }
+    }
+
     func names(in relative: String = "") -> [String] {
         let target = relative.isEmpty ? url : path(relative)
         return ((try? FileManager.default.contentsOfDirectory(atPath: target.path)) ?? []).sorted()
