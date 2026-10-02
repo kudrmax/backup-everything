@@ -1,7 +1,9 @@
 import Foundation
 
 /// A source made of automatic steps only: every run builds the copy from scratch in a temporary folder.
+/// What a failed run leaves there and cannot delete is deleted with the whole `staging` at the next launch.
 public struct StepsSource: SourceProvider {
+    private let removal = FolderRemoval()
     private let sourceId: UUID
     private let steps: [SourceStep]
     private let stagingRoot: URL
@@ -30,13 +32,13 @@ public struct StepsSource: SourceProvider {
                 }
             }
         } catch {
-            try? FileManager.default.removeItem(at: folders.root)
+            try? removal.remove(folders.root.path)
             throw error
         }
         return Payload(root: folders.output, collectedAt: date, details: details.flatMap { $0.isEmpty ? nil : $0 })
     }
 
-    public func finish(_ payload: Payload, deliveredEverywhere: Bool) {
-        try? FileManager.default.removeItem(at: payload.root.deletingLastPathComponent())
+    public func finish(_ payload: Payload, deliveredEverywhere: Bool) throws {
+        try removal.remove(payload.root.deletingLastPathComponent().path)
     }
 }

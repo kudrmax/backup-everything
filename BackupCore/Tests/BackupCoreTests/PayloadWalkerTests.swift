@@ -116,4 +116,24 @@ struct PayloadWalkerTests {
         let payload = Payload(root: temp.path("copy"), excludedAtTop: SnapshotManifest.serviceFileNames, collectedAt: date)
         #expect(try walker.entries(of: payload).map(\.relativePath) == ["site", "site/_snapshot.json"])
     }
+
+    /// Live folders (caches, app data) change while they are walked: what vanished after the listing is simply not in the copy.
+    @Test func itemThatVanishedAfterTheListingIsLeftOut() throws {
+        defer { temp.remove() }
+        #expect(try walker.entry(at: temp.path("vault/gone.md"), relativePath: "gone.md") == nil)
+        #expect(try walker.names(in: temp.path("vault/gone")) == nil)
+    }
+
+    @Test func itemThatCannotBeExaminedIsAnError() throws {
+        defer {
+            Permissions.unlockTree(temp.url)
+            temp.remove()
+        }
+        try temp.file("vault/closed/b.md")
+        chmod(temp.path("vault/closed").path, 0o444)
+        let item = temp.path("vault/closed/b.md")
+        #expect(throws: SourceError.unreadable(item.path)) {
+            try walker.entry(at: item, relativePath: "closed/b.md")
+        }
+    }
 }

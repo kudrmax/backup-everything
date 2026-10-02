@@ -16,6 +16,18 @@ public enum DeliveryOutcome: Codable, Sendable, Equatable {
         if case .delivered = self { return true }
         return false
     }
+
+    /// The same outcome with one more problem told about it. An undelivered copy keeps its reason first.
+    func adding(_ problem: String) -> DeliveryOutcome {
+        switch self {
+        case let .delivered(pruned, warning):
+            .delivered(pruned: pruned, warning: warning.map { "\($0) \(problem)" } ?? problem)
+        case let .failed(message):
+            .failed(message: "\(message) \(problem)")
+        case .unavailable:
+            .unavailable
+        }
+    }
 }
 
 public struct Delivery: Codable, Sendable, Equatable {

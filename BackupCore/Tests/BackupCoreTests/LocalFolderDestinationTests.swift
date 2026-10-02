@@ -558,4 +558,32 @@ struct LocalFolderDestinationTests {
         }
         #expect(await LocalFolderDestination(root: temp.path("disk"), naming: Fixtures.naming, volumes: volumes).isAvailable())
     }
+
+    @Test(arguments: ["", "/", "a/b", ".", "..", "../disk"])
+    func folderNameThatIsNotOneFolderIsRefused(slug: String) async throws {
+        defer { temp.remove() }
+        let payload = try vaultPayload()
+        try temp.file("disk/2026-09-27_100000/_snapshot.json", "{}")
+        let snapshot = Snapshot(name: "2026-09-27_100000", date: Fixtures.date("2026-09-27 10:00:00"))
+        let refused = DestinationError.invalidFolderName(slug)
+        await #expect(throws: refused) { try await destination.listSnapshots(sourceSlug: slug) }
+        await #expect(throws: refused) { try await destination.owners(sourceSlug: slug) }
+        await #expect(throws: refused) { try await destination.removeIncomplete(sourceSlug: slug) }
+        await #expect(throws: refused) { try await destination.delete(snapshot, sourceSlug: slug) }
+        await #expect(throws: refused) { try await destination.materialize(snapshot, sourceSlug: slug, scratch: temp.path("scratch")) }
+        await #expect(throws: refused) {
+            try await destination.write(payload, manifest: manifest(), sourceSlug: slug, snapshotName: name, reusingStoredFiles: false)
+        }
+        #expect(temp.names(in: "disk") == ["2026-09-27_100000"])
+        #expect(temp.names(in: "Trash").isEmpty)
+    }
+
+    @Test func leftoverFolderReachedAroundVolumesIsUnavailable() async throws {
+        defer { temp.remove() }
+        try temp.directory("Volumes/HDD/Backups")
+        try FileManager.default.createSymbolicLink(at: temp.path("shortcut"), withDestinationURL: temp.path("Volumes/HDD/Backups"))
+        let volumes = VolumeMounts(volumesRoot: temp.path("Volumes").path)
+        let stale = LocalFolderDestination(root: temp.path("shortcut"), naming: Fixtures.naming, volumes: volumes)
+        #expect(await stale.isAvailable() == false)
+    }
 }

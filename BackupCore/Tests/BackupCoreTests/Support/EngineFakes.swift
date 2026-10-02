@@ -5,6 +5,7 @@ final class FakeSourceProvider: SourceProvider, @unchecked Sendable {
     var result: Result<Payload, Error>
     private(set) var collectCount = 0
     private(set) var finished: [Bool] = []
+    var finishError: Error?
 
     init(result: Result<Payload, Error>) {
         self.result = result
@@ -18,8 +19,9 @@ final class FakeSourceProvider: SourceProvider, @unchecked Sendable {
         return try result.get()
     }
 
-    func finish(_ payload: Payload, deliveredEverywhere: Bool) {
+    func finish(_ payload: Payload, deliveredEverywhere: Bool) throws {
         finished.append(deliveredEverywhere)
+        if let finishError { throw finishError }
     }
 }
 

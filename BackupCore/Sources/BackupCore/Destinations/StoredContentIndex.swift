@@ -25,9 +25,10 @@ struct StoredContentIndex {
         bySize[size] != nil
     }
 
-    /// A file with this content that nobody has changed since it was written to the copy.
-    func original(sha256: String) -> URL? {
-        byHash[sha256]?.first { isUntouched($0) }?.url
+    /// A file with this content that nobody has changed since it was written to the copy. Its size is checked against
+    /// the file it stands in for as well: a manifest written by an earlier version can describe a file that was emptied.
+    func original(sha256: String, size: Int64) -> URL? {
+        byHash[sha256]?.first { $0.file.size == size && isUntouched($0) }?.url
     }
 
     mutating func add(_ url: URL, _ file: SnapshotFile) {

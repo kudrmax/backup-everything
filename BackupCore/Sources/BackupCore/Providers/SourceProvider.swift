@@ -4,7 +4,7 @@ public typealias StatusHandler = @Sendable (String) -> Void
 
 public protocol SourceProvider: Sendable {
     func collect(at date: Date, status: @escaping StatusHandler) async throws -> Payload
-    func finish(_ payload: Payload, deliveredEverywhere: Bool)
+    func finish(_ payload: Payload, deliveredEverywhere: Bool) throws
 }
 
 public extension SourceProvider {

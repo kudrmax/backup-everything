@@ -42,7 +42,7 @@ public struct StepChainRunner: Sendable {
         self.inbox = inbox
         self.runner = runner
         self.time = time
-        self.trash = trash
+        self.trash = { url in try FolderRemoval().trash(url, using: trash) }
         self.progress = progress
     }
 
@@ -99,7 +99,7 @@ public struct StepChainRunner: Sendable {
                     }
                 } catch {
                     for added in contents(of: folders.output).subtracting(before) {
-                        try? FileManager.default.removeItem(at: folders.output.appendingPathComponent(added))
+                        try trash(folders.output.appendingPathComponent(added))
                     }
                     if let device = unpluggedDevice(before: next.stepIndex, in: source) {
                         next.stepIndex = device
@@ -148,7 +148,7 @@ public struct StepChainRunner: Sendable {
             }
         }
         if fileManager.fileExists(atPath: folders.root.path) {
-            try fileManager.removeItem(at: folders.root)
+            try FolderRemoval().remove(folders.root.path)
         }
     }
 

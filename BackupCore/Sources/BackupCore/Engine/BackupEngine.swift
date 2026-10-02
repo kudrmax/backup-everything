@@ -69,8 +69,10 @@ public struct BackupEngine: Sendable {
             stats = walker.stats(of: entries)
             guard stats.fileCount > 0 else { throw SourceError.emptyResult }
         } catch {
-            provider.finish(payload, deliveredEverywhere: false)
             record.collectError = error.localizedDescription
+            if let problem = release(payload, of: provider, deliveredEverywhere: false) {
+                record.collectError = "\(error.localizedDescription) \(problem)"
+            }
             record.finishedAt = time.now
             return record
         }
@@ -101,7 +103,13 @@ public struct BackupEngine: Sendable {
             }
             record.deliveries.append(Delivery(destinationId: destination.id, destinationName: destination.name, outcome: outcome))
         }
-        provider.finish(payload, deliveredEverywhere: record.deliveries.allSatisfy(\.outcome.isDelivered))
+        if let problem = release(payload, of: provider, deliveredEverywhere: record.deliveries.allSatisfy(\.outcome.isDelivered)) {
+            record.deliveries = record.deliveries.map { delivery in
+                var delivery = delivery
+                delivery.outcome = delivery.outcome.adding(problem)
+                return delivery
+            }
+        }
         record.finishedAt = time.now
         return record
     }
@@ -195,6 +203,16 @@ public struct BackupEngine: Sendable {
             }
         }
         return .delivered(pruned: pruned, warning: problems.isEmpty ? nil : cleanupWarning(problems))
+    }
+
+    /// What went wrong while the provider cleared its work folder; nil when it did.
+    private func release(_ payload: Payload, of provider: any SourceProvider, deliveredEverywhere: Bool) -> String? {
+        do {
+            try provider.finish(payload, deliveredEverywhere: deliveredEverywhere)
+            return nil
+        } catch {
+            return "Could not clear the work folder: \(error.localizedDescription)"
+        }
     }
 
     private func cleanupWarning(_ problems: [String]) -> String {

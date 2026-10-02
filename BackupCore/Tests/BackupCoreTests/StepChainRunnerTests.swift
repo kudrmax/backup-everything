@@ -646,4 +646,165 @@ struct StepChainRunnerTests {
         try JSONEncoder().encode(identity).write(to: temp.path("chains/\(source.id.uuidString)/process.json"))
         return Orphan(identity: identity, finished: finished)
     }
+
+    // MARK: Work folders holding what the originals locked
+
+    /// A folder step copies locks, read-only folders and “deny delete” access lists into the work folders.
+    private func protectedDevice() throws -> Source {
+        try temp.directory("device")
+        try temp.file("camera/readonly/a.jpg", "a")
+        try temp.file("camera/protected/b.jpg", "b")
+        try temp.file("camera/locked.jpg", "c")
+        try Permissions.lock(temp.path("camera/locked.jpg"))
+        try Permissions.denyDeleting(temp.path("camera/protected"))
+        chmod(temp.path("camera/readonly").path, 0o555)
+        return source([.device(temp.path("device").path), .folder(temp.path("camera").path)])
+    }
+
+    private func runToCompletion(_ runner: StepChainRunner, _ source: Source) async -> PendingPackage? {
+        var chain: ChainState?
+        for _ in 0..<source.steps.count + 1 {
+            switch await runner.advance(source, chain: chain, lastPickup: nil, permissions: allowAll) {
+            case let .moved(next): chain = next
+            case let .completed(package): return package
+            case let .failed(failed):
+                Issue.record("the chain failed: \(failed.failure ?? "")")
+                return nil
+            case .stay:
+                Issue.record("the chain stopped")
+                return nil
+            }
+        }
+        return nil
+    }
+
+    @Test(arguments: [true, false])
+    func deliveredPackageWithProtectedFoldersLeavesPendingAndTheNextRunCompletes(trashAfterDelivery: Bool) async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let source = try protectedDevice()
+        let runner = runner()
+        let package = try #require(await runToCompletion(runner, source))
+        #expect(!temp.exists("chains/\(source.id.uuidString)"))
+        let pending = PendingSource(sourceId: source.id, trashAfterDelivery: trashAfterDelivery, inbox: inbox)
+        let payload = try await pending.collect(at: start)
+        #expect(payload.root == package.directory)
+
+        try pending.finish(payload, deliveredEverywhere: true)
+
+        #expect(temp.names(in: "pending").isEmpty)
+        #expect(temp.names(in: "trash").count == (trashAfterDelivery ? 3 : 0))
+        time.advance(86400)
+        #expect(await runToCompletion(runner, source) != nil)
+    }
+
+    @Test func newPackageReplacesAnUndeliveredOneWithProtectedFolders() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let source = try protectedDevice()
+        let runner = runner()
+        _ = await runToCompletion(runner, source)
+        time.advance(86400)
+
+        let second = try #require(await runToCompletion(runner, source))
+
+        #expect(temp.names(in: "pending/\(source.id.uuidString)") == [second.directory.lastPathComponent])
+    }
+
+    @Test func cancellingAChainWithProtectedFoldersEmptiesItsWorkFolder() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let source = try protectedDevice()
+        let runner = runner()
+        var chain: ChainState?
+        for _ in 0..<2 {
+            guard case let .moved(next) = await runner.advance(source, chain: chain, lastPickup: nil, permissions: allowAll) else {
+                Issue.record("the chain did not move")
+                return
+            }
+            chain = next
+        }
+
+        try runner.discard(sourceId: source.id)
+
+        #expect(!temp.exists("chains/\(source.id.uuidString)"))
+        #expect(temp.names(in: "trash") == ["locked.jpg", "protected", "readonly"])
+    }
+
+    /// The disk was unplugged while the folder step copied it: what the attempt copied (locked files too) goes away, and the
+    /// copy runs again from a clean place once the disk is back.
+    @Test func copyInterruptedByAnUnpluggedDeviceStartsAgainFromACleanPlace() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let source = try protectedDevice()
+        try temp.file("camera/z-unreadable.jpg", "z")
+        chmod(temp.path("camera/z-unreadable.jpg").path, 0)
+        let runner = runner()
+        guard case let .moved(atFolder?) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the device was not accepted")
+            return
+        }
+        try FileManager.default.removeItem(at: temp.path("device"))
+
+        guard case let .moved(waiting?) = await runner.advance(source, chain: atFolder, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the chain did not go back to the device")
+            return
+        }
+        #expect(waiting.stepIndex == 0)
+        #expect(waiting.outputAtStepEntry == [])
+        #expect(temp.names(in: chainFolder(source, "output")).isEmpty)
+
+        chmod(temp.path("camera/z-unreadable.jpg").path, 0o644)
+        try temp.directory("device")
+        guard case let .moved(again?) = await runner.advance(source, chain: waiting, lastPickup: nil, permissions: allowAll),
+              case .moved = await runner.advance(source, chain: again, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the copy did not run again")
+            return
+        }
+        #expect(temp.names(in: chainFolder(source, "output")) == ["locked.jpg", "protected", "readonly", "z-unreadable.jpg"])
+    }
+
+    /// A command may move originals into its output before it fails: they go to the Trash, not away for good.
+    @Test func whatAFailedCommandAddedGoesToTheTrash() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let source = source([manual("dump-request-*.txt"), command("Dump")])
+        try temp.file("Downloads/dump-request-1.txt", "please", modified: start.addingTimeInterval(-60))
+        try temp.file("Documents/original.md", "the only copy")
+        let runner = runner { [temp] call in
+            let moved = URL(fileURLWithPath: call.environment["BACKUP_OUTPUT_DIR"]!).appendingPathComponent("original.md")
+            try FileManager.default.moveItem(at: temp.path("Documents/original.md"), to: moved)
+            try Permissions.lock(moved)
+            return ProcessResult(exitCode: 1)
+        }
+        guard case let .moved(afterFile) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: armed),
+              case .failed = await runner.advance(source, chain: afterFile, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("expected a step error")
+            return
+        }
+
+        #expect(try String(contentsOf: temp.path("trash/original.md"), encoding: .utf8) == "the only copy")
+        #expect(temp.names(in: chainFolder(source, "output")).isEmpty)
+    }
+
+    @Test func addedOutputThatCannotBeTrashedFailsTheStepAndIsNotTakenAsItsStart() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let source = try protectedDevice()
+        try temp.file("camera/z-unreadable.jpg", "z")
+        chmod(temp.path("camera/z-unreadable.jpg").path, 0)
+        let runner = StepChainRunner(
+            chainsRoot: temp.path("chains"),
+            inbox: inbox,
+            runner: FakeProcessRunner(),
+            time: time,
+            trash: { _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+        guard case let .moved(atFolder?) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the device was not accepted")
+            return
+        }
+        try FileManager.default.removeItem(at: temp.path("device"))
+
+        guard case let .failed(failed) = await runner.advance(source, chain: atFolder, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("expected a step error")
+            return
+        }
+        #expect(failed.stepIndex == 1)
+        #expect(failed.outputAtStepEntry == [])
+    }
 }
