@@ -364,4 +364,115 @@ struct CloneSnapshotsTests {
         let permissions = try FileManager.default.attributesOfItem(atPath: stored.appendingPathComponent("photo.jpg").path)[.posixPermissions] as? NSNumber
         #expect(permissions?.intValue == 0o600)
     }
+
+    @Test func cloneTakesTheHiddenFlagCreationDateAndAccessListOfTheSourceFile() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let created = Fixtures.date("2026-01-02 03:04:05")
+        let file = try temp.file("vault/a.md", "alpha")
+        try await backUp(destination(RecordingCloning()), at: first)
+
+        #expect(chflags(file.path, UInt32(UF_HIDDEN)) == 0)
+        try FileManager.default.setAttributes([.creationDate: created], ofItemAtPath: file.path)
+        try Permissions.denyDeleting(file)
+        try await backUp(destination(RecordingCloning()), at: second)
+
+        let stored = snapshot(second).appendingPathComponent("a.md")
+        var info = stat()
+        #expect(lstat(stored.path, &info) == 0)
+        #expect(info.st_flags & UInt32(UF_HIDDEN) != 0)
+        #expect(try FileManager.default.attributesOfItem(atPath: stored.path)[.creationDate] as? Date == created)
+        #expect(Permissions.accessList(of: stored)?.contains("deny") == true)
+    }
+
+    // MARK: Files kept compressed by APFS
+
+    private func compressedVault() throws -> URL {
+        let file = try temp.directory("vault").appendingPathComponent("notes.txt")
+        try Compression.write(Compression.sample, compressedAt: file)
+        return file
+    }
+
+    @Test func compressedFileStaysWholeInEveryCopy() async throws {
+        defer { temp.remove() }
+        let cloning = RecordingCloning()
+        try compressedVault()
+
+        for date in [first, second, third] {
+            try await backUp(destination(cloning), at: date)
+        }
+
+        #expect(cloning.clones.count == 2)
+        for date in [first, second, third] {
+            #expect(try content(date, "notes.txt") == Compression.sample)
+            #expect(try manifest(date).files?.first?.size == Int64(Compression.sample.utf8.count))
+        }
+        let kept = FileSpace(path: snapshot(third).appendingPathComponent("notes.txt").path)?.clone
+        #expect(kept != nil)
+        #expect(kept?.id == FileSpace(path: snapshot(first).appendingPathComponent("notes.txt").path)?.clone?.id, "the clone is kept, not replaced by a copy")
+        #expect(Compression.isCompressed(snapshot(third).appendingPathComponent("notes.txt")))
+    }
+
+    @Test func plainFileClonedFromACompressedCopyStaysWhole() async throws {
+        defer { temp.remove() }
+        let cloning = RecordingCloning()
+        let file = try compressedVault()
+        try await backUp(destination(cloning), at: first)
+
+        try FileManager.default.removeItem(at: file)
+        try temp.file("vault/notes.txt", Compression.sample)
+        try await backUp(destination(cloning), at: second)
+
+        #expect(cloning.clonedTargets(relativeTo: snapshot(second)) == ["notes.txt"])
+        #expect(try content(second, "notes.txt") == Compression.sample)
+    }
+
+    @Test func compressedFileCaughtUpToAnotherDiskStaysWhole() async throws {
+        defer { temp.remove() }
+        try compressedVault()
+        try await backUp(destination(RecordingCloning()), at: first)
+        try await backUp(destination(RecordingCloning()), at: second)
+        let other = LocalFolderDestination(root: try temp.directory("other"), naming: Fixtures.naming, cloning: RecordingCloning())
+
+        for date in [first, second] {
+            let payload = Payload(root: snapshot(date), excludedAtTop: SnapshotManifest.serviceFileNames, collectedAt: date)
+            let manifest = SnapshotManifest(sourceId: UUID(), sourceName: "Obsidian", collectedAt: date, fileCount: 1, totalBytes: 1)
+            try await other.write(payload, manifest: manifest, sourceSlug: "obsidian", snapshotName: name(date), reusingStoredFiles: true)
+        }
+
+        for date in [first, second] {
+            let copied = temp.path("other/obsidian/\(name(date))/notes.txt")
+            #expect(try String(contentsOf: copied, encoding: .utf8) == Compression.sample)
+        }
+    }
+
+    /// An earlier version emptied compressed clones and wrote size 0 with the hash of the source into the manifest.
+    @Test func storedFileOfAnotherSizeThanTheSourceIsNotUsedAsOriginal() async throws {
+        defer { temp.remove() }
+        let cloning = RecordingCloning()
+        try temp.file("vault/a.md", "alpha")
+        try await backUp(destination(cloning), at: first)
+        let stored = snapshot(first).appendingPathComponent("a.md")
+        let modified = try FileManager.default.attributesOfItem(atPath: stored.path)[.modificationDate] as? Date
+        try Data().write(to: stored)
+        try FileManager.default.setAttributes([.modificationDate: modified as Any], ofItemAtPath: stored.path)
+        var broken = try manifest(first)
+        broken.files = broken.files?.map { SnapshotFile(path: $0.path, size: 0, sha256: $0.sha256, modified: $0.modified) }
+        try JSONCoding.encoder().encode(broken).write(to: snapshot(first).appendingPathComponent(SnapshotManifest.fileName))
+
+        try await backUp(destination(cloning), at: second)
+
+        #expect(cloning.clones.isEmpty)
+        #expect(try content(second, "a.md") == "alpha")
+    }
+
+    @Test func cloneOfAnotherSizeIsReplacedByACopy() async throws {
+        defer { temp.remove() }
+        try temp.file("vault/a.md", "alpha")
+        try await backUp(destination(RecordingCloning()), at: first)
+
+        try await backUp(destination(RecordingCloning(.truncating)), at: second)
+
+        #expect(try content(second, "a.md") == "alpha")
+        #expect(try manifest(second).files?.first?.size == 5)
+    }
 }

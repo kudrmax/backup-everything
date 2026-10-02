@@ -6,6 +6,8 @@ final class RecordingCloning: FileCloning, @unchecked Sendable {
         case real
         case unsupported
         case failing
+        /// The clone comes out shorter than its original.
+        case truncating
     }
 
     private let mode: Mode
@@ -31,6 +33,7 @@ final class RecordingCloning: FileCloning, @unchecked Sendable {
     func clone(_ original: URL, to targetPath: String) throws {
         if mode == .failing { throw POSIXError(.ENOTSUP) }
         try APFSCloning().clone(original, to: targetPath)
+        if mode == .truncating { truncate(targetPath, 1) }
         lock.withLock { recorded.append((original, URL(fileURLWithPath: targetPath))) }
     }
 }

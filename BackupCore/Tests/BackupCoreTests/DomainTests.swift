@@ -11,6 +11,16 @@ struct DomainTests {
         #expect(Slug.make(from: "GitHub", existing: ["github", "github-2"]) == "github-3")
     }
 
+    @Test func ordinarySlugIsAFolderName() throws {
+        #expect(try Slug.folderName("настройки-backup-everything") == "настройки-backup-everything")
+    }
+
+    @Test func deliveryOutcomeTellsAnExtraProblem() {
+        #expect(DeliveryOutcome.delivered(pruned: 1, warning: "Could not clean up old copies.").adding("Stuck.")
+            == .delivered(pruned: 1, warning: "Could not clean up old copies. Stuck."))
+        #expect(DeliveryOutcome.unavailable.adding("Stuck.") == .unavailable)
+    }
+
     @Test func slugFallsBackWhenNameHasNoLetters() {
         #expect(Slug.make(from: "!!!", existing: []) == "source")
     }

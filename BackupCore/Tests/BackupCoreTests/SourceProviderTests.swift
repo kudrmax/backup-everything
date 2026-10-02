@@ -34,7 +34,7 @@ struct SourceProviderTests {
         let payload = try await source.collect(at: date)
         #expect(try FileManager.default.contentsOfDirectory(atPath: payload.root.path).sorted() == ["collection.anki2", "notes.csv"])
         #expect(events.get() == [.step(sourceId: sourceId, index: 0, count: 2), .step(sourceId: sourceId, index: 1, count: 2)])
-        source.finish(payload, deliveredEverywhere: true)
+        try source.finish(payload, deliveredEverywhere: true)
         #expect(temp.names(in: "staging").isEmpty)
     }
 
@@ -74,7 +74,7 @@ struct SourceProviderTests {
         #expect(try String(contentsOf: payload.root.appendingPathComponent("out.txt"), encoding: .utf8) == "hello\n")
         #expect(payload.details?.hasSuffix("done") == true)
 
-        source.finish(payload, deliveredEverywhere: true)
+        try source.finish(payload, deliveredEverywhere: true)
         #expect(temp.names(in: "staging").isEmpty)
     }
 
@@ -106,7 +106,7 @@ struct SourceProviderTests {
         let source = commandSource("gh repo list", timeoutSeconds: 30, runner: runner)
         let statuses = LockedBox<[String]>([])
         let payload = try await source.collect(at: date) { status in statuses.set(statuses.get() + [status]) }
-        source.finish(payload, deliveredEverywhere: true)
+        try source.finish(payload, deliveredEverywhere: true)
         #expect(statuses.get() == ["1 of 2 · first", "2 of 2 · second"])
     }
 

@@ -104,6 +104,26 @@ struct BackupEngineTests {
         #expect(provider.finished == [false])
     }
 
+    @Test func workFolderThatCannotBeClearedIsReportedWithTheDeliveries() async {
+        defer { temp.remove() }
+        provider.finishError = Boom()
+        diskStore.writeError = Boom()
+        let record = await run()
+        #expect(record.deliveries.map(\.outcome) == [
+            .failed(message: "disk disconnected Could not clear the work folder: disk disconnected"),
+            .delivered(pruned: 0, warning: "Could not clear the work folder: disk disconnected"),
+        ])
+    }
+
+    @Test func workFolderThatCannotBeClearedAfterAFailedCollectIsReported() async throws {
+        defer { temp.remove() }
+        try temp.directory("emptied")
+        provider.result = .success(Payload(root: temp.path("emptied"), collectedAt: now))
+        provider.finishError = Boom()
+        let record = await run()
+        #expect(record.collectError == "\(SourceError.emptyResult.localizedDescription) Could not clear the work folder: disk disconnected")
+    }
+
     @Test func passesStatusFromTheSourceWhileCollecting() async {
         defer { temp.remove() }
         provider.statuses = ["1 of 2", "2 of 2"]

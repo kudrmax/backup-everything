@@ -76,9 +76,9 @@ struct ManualExportInboxTests {
         let payload = try await source.collect(at: now.addingTimeInterval(3600))
         #expect(payload == Payload(root: package.directory, collectedAt: now))
 
-        source.finish(payload, deliveredEverywhere: false)
+        try source.finish(payload, deliveredEverywhere: false)
         #expect(inbox.pendingPackage(for: sourceId) != nil)
-        source.finish(payload, deliveredEverywhere: true)
+        try source.finish(payload, deliveredEverywhere: true)
         #expect(inbox.pendingPackage(for: sourceId) == nil)
         #expect(temp.names(in: "trash") == ["takeout-001.zip"])
     }
@@ -88,7 +88,7 @@ struct ManualExportInboxTests {
         let source = PendingSource(sourceId: sourceId, trashAfterDelivery: false, inbox: inbox)
         try temp.file("run/book.epub", "epub")
         _ = try inbox.adopt(sourceId: sourceId, directory: temp.path("run"), at: now)
-        source.finish(try await source.collect(at: now), deliveredEverywhere: true)
+        try source.finish(try await source.collect(at: now), deliveredEverywhere: true)
         #expect(inbox.pendingPackage(for: sourceId) == nil)
         #expect(temp.names(in: "trash").isEmpty)
     }

@@ -32,7 +32,7 @@ public struct RcloneDestination: DestinationStore {
 
     private func directories(containing fileName: String, in sourceSlug: String) async throws -> [String] {
         let result = try await rclone([
-            "lsf", target(sourceSlug),
+            "lsf", try target(sourceSlug),
             "--files-only", "--recursive", "--max-depth", "2",
             "--include", "/*/\(fileName)",
         ])
@@ -42,11 +42,12 @@ public struct RcloneDestination: DestinationStore {
     }
 
     public func owners(sourceSlug: String) async throws -> [String: UUID] {
+        let folder = try target(sourceSlug)
         let fileManager = FileManager.default
         let scratch = fileManager.temporaryDirectory.appendingPathComponent("rclone-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: scratch) }
-        let result = try await rclone(["copy", target(sourceSlug), scratch.path, "--include", "/*/\(SnapshotManifest.fileName)"])
+        let result = try await rclone(["copy", folder, scratch.path, "--include", "/*/\(SnapshotManifest.fileName)"])
         if result.exitCode == Self.directoryNotFoundExitCode { return [:] }
         try check(result)
         var owners: [String: UUID] = [:]
@@ -57,24 +58,24 @@ public struct RcloneDestination: DestinationStore {
     }
 
     public func removeIncomplete(sourceSlug: String) async throws {
-        let result = try await rclone(["lsf", target(sourceSlug), "--dirs-only"])
+        let result = try await rclone(["lsf", try target(sourceSlug), "--dirs-only"])
         if result.exitCode == Self.directoryNotFoundExitCode { return }
         try check(result)
         let complete = Set(try await listSnapshots(sourceSlug: sourceSlug).map(\.name))
         let unfinished = Set(try await directories(containing: SnapshotManifest.unfinishedMarker, in: sourceSlug))
         let directories = lines(result.stdout).map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
         for name in directories where naming.date(from: name) != nil && unfinished.contains(name) && !complete.contains(name) {
-            try check(try await rclone(["purge", target(sourceSlug, name)]))
+            try check(try await rclone(["purge", try target(sourceSlug, name)]))
         }
     }
 
     public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws {
+        let destination = try target(sourceSlug, snapshotName)
         let fileManager = FileManager.default
         let scratch = fileManager.temporaryDirectory.appendingPathComponent("rclone-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: scratch) }
 
-        let destination = target(sourceSlug, snapshotName)
         try await clearTheWay(to: destination)
         let markerURL = scratch.appendingPathComponent(SnapshotManifest.unfinishedMarker)
         try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
@@ -110,13 +111,14 @@ public struct RcloneDestination: DestinationStore {
 
     public func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
         guard naming.date(from: snapshot.name) != nil else { return }
-        try check(try await rclone(["purge", target(sourceSlug, snapshot.name)]))
+        try check(try await rclone(["purge", try target(sourceSlug, snapshot.name)]))
     }
 
     public func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
+        let remote = try target(sourceSlug, snapshot.name)
         let local = scratch.appendingPathComponent(snapshot.name, isDirectory: true)
         try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
-        try check(try await rclone(["copy", target(sourceSlug, snapshot.name), local.path]))
+        try check(try await rclone(["copy", remote, local.path]))
         return local
     }
 
@@ -128,7 +130,7 @@ public struct RcloneDestination: DestinationStore {
         struct Size: Decodable {
             let bytes: Int64
         }
-        let result = try await rclone(["size", target(), "--json"])
+        let result = try await rclone(["size", location([]), "--json"])
         if result.exitCode == Self.directoryNotFoundExitCode { return 0 }
         try check(result)
         guard let size = try? JSONDecoder().decode(Size.self, from: Data(result.stdout.utf8)) else {
@@ -137,7 +139,11 @@ public struct RcloneDestination: DestinationStore {
         return size.bytes
     }
 
-    private func target(_ components: String...) -> String {
+    private func target(_ sourceSlug: String, _ snapshotName: String? = nil) throws -> String {
+        location([try Slug.folderName(sourceSlug)] + (snapshotName.map { [$0] } ?? []))
+    }
+
+    private func location(_ components: [String]) -> String {
         var base = path
         while base.count > 1, base.hasSuffix("/") { base.removeLast() }
         let parts = (base.isEmpty ? [] : [base]) + components

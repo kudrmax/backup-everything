@@ -99,15 +99,18 @@ public struct ManualExportInbox: Sendable {
         return names.compactMap(UUID.init(uuidString:))
     }
 
+    /// The package keeps the locks, permissions and access lists of the originals; they are lifted where they are in the way.
     public func removePackage(for sourceId: UUID, toTrash: Bool) throws {
         let fileManager = FileManager.default
+        let removal = FolderRemoval()
         guard fileManager.fileExists(atPath: sourceDirectory(sourceId).path) else { return }
         if toTrash, let package = pendingPackage(for: sourceId) {
+            try removal.unlock(package.directory.path)
             for file in try fileManager.contentsOfDirectory(at: package.directory, includingPropertiesForKeys: nil) {
-                try trash(file)
+                try removal.trash(file, using: trash)
             }
         }
-        try fileManager.removeItem(at: sourceDirectory(sourceId))
+        try removal.remove(sourceDirectory(sourceId).path)
     }
 
     private func sourceDirectory(_ sourceId: UUID) -> URL {

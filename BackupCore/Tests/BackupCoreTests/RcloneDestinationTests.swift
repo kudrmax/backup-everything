@@ -342,4 +342,30 @@ struct RcloneDestinationTests {
         }
         #expect(runner.calls.map { $0.arguments.first } == ["lsf", "purge"])
     }
+
+    /// A hand-edited `config.json` can leave a source without a usable folder name: the destination root is never touched then.
+    @Test(arguments: ["", "/", "a/b", ".", "..", "../photos"])
+    func folderNameThatIsNotOneFolderIsRefused(slug: String) async throws {
+        let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 0) }
+        let destination = destination(runner)
+        let snapshot = Snapshot(name: name, date: date)
+        let refused = DestinationError.invalidFolderName(slug)
+        await #expect(throws: refused) { try await destination.listSnapshots(sourceSlug: slug) }
+        await #expect(throws: refused) { try await destination.owners(sourceSlug: slug) }
+        await #expect(throws: refused) { try await destination.removeIncomplete(sourceSlug: slug) }
+        await #expect(throws: refused) { try await destination.delete(snapshot, sourceSlug: slug) }
+        await #expect(throws: refused) {
+            try await destination.materialize(snapshot, sourceSlug: slug, scratch: FileManager.default.temporaryDirectory)
+        }
+        await #expect(throws: refused) {
+            try await destination.write(
+                Payload(root: FileManager.default.temporaryDirectory, collectedAt: date),
+                manifest: SnapshotManifest(sourceId: UUID(), sourceName: "Obsidian", collectedAt: date, fileCount: 1, totalBytes: 1),
+                sourceSlug: slug,
+                snapshotName: name,
+                reusingStoredFiles: false
+            )
+        }
+        #expect(runner.calls.isEmpty)
+    }
 }

@@ -19,6 +19,10 @@ struct CoreSupportTests {
         #expect(DestinationError.commandFailed("quota exceeded").localizedDescription == "rclone failed: quota exceeded")
         #expect(DestinationError.folderInTheWay("/Volumes/HDD/obsidian/2026-09-28_143000").localizedDescription
             == "A folder that is not a finished copy is in the way: /Volumes/HDD/obsidian/2026-09-28_143000. It was left as is; move it away and retry.")
+        #expect(DestinationError.invalidFolderName("../photos").localizedDescription
+            == "The folder for copies of this source is named “../photos”, which is not a single folder name. Nothing was read, written or deleted. Fix “slug” of the source in config.json.")
+        #expect(DestinationError.copyMismatch(path: "/Users/max/a.mov", expected: 5, actual: 0).localizedDescription
+            == "The copy of “/Users/max/a.mov” came out 0 bytes long instead of 5. The copy was stopped so as not to keep a broken file.")
     }
 
     @Test func sourceErrorsExplainThemselves() {
@@ -76,7 +80,7 @@ struct CoreSupportTests {
         #expect(stepsProvider is StepsSource)
         let payload = try await stepsProvider.collect(at: date) { _ in }
         #expect(try FileManager.default.contentsOfDirectory(atPath: payload.root.path) == ["a.md"])
-        stepsProvider.finish(payload, deliveredEverywhere: true)
+        try stepsProvider.finish(payload, deliveredEverywhere: true)
         #expect(temp.names(in: "staging").isEmpty)
     }
 
@@ -134,6 +138,33 @@ struct CoreSupportTests {
         #expect(volumes.isOnMountedVolume(temp.path("Volumes/Macintosh HD/Backups")))
         #expect(volumes.isOnMountedVolume(temp.path("elsewhere")))
         #expect(volumes.isOnMountedVolume(temp.path("Volumes")))
+    }
+
+    /// The same folder can be reached by another spelling or through a link; the check looks at where the path really leads.
+    @Test func volumeFoldersAreRecognisedWhateverThePathLeadsThere() throws {
+        defer { temp.remove() }
+        try temp.directory("Volumes/HDD/Backups")
+        try temp.directory("elsewhere")
+        try FileManager.default.createSymbolicLink(at: temp.path("to-hdd"), withDestinationURL: temp.path("Volumes/HDD"))
+        try FileManager.default.createSymbolicLink(at: temp.path("to-volumes"), withDestinationURL: temp.path("Volumes"))
+        try FileManager.default.createSymbolicLink(at: temp.path("to-elsewhere"), withDestinationURL: temp.path("elsewhere"))
+        let volumes = VolumeMounts(volumesRoot: temp.path("Volumes").path)
+
+        #expect(volumes.isOnMountedVolume(temp.path("to-hdd/Backups")) == false)
+        #expect(volumes.isOnMountedVolume(temp.path("to-volumes/HDD/Backups")) == false)
+        #expect(volumes.isOnMountedVolume(temp.path("to-volumes/Gone/Backups")) == false)
+        #expect(volumes.isOnMountedVolume(temp.path("elsewhere/../Volumes/HDD")) == false)
+        #expect(volumes.isOnMountedVolume(temp.path("to-elsewhere/Backups")))
+    }
+
+    @Test func systemSpellingsOfVolumesAreRecognised() {
+        defer { temp.remove() }
+        let volumes = VolumeMounts()
+        for path in ["/System/Volumes/Data/Volumes/NoSuchDisk/Backups", "/volumes/NoSuchDisk", "/Volumes/./NoSuchDisk/../NoSuchDisk/x"] {
+            #expect(volumes.isOnMountedVolume(URL(fileURLWithPath: path)) == false, "\(path)")
+        }
+        #expect(volumes.isOnMountedVolume(URL(fileURLWithPath: "/Volumes/Macintosh HD/Users")))
+        #expect(VolumeMounts(volumesRoot: temp.path("missing").path).isOnMountedVolume(temp.path("missing/HDD")))
     }
 
     @Test func realMountPointsCount() {

@@ -59,7 +59,7 @@ public struct LocalFolderDestination: DestinationStore {
     public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws {
         guard await isAvailable() else { throw DestinationError.unavailable }
         let fileManager = FileManager.default
-        let sourceDirectory = directory(sourceSlug)
+        let sourceDirectory = try directory(sourceSlug)
         let snapshotDirectory = sourceDirectory.appendingPathComponent(snapshotName, isDirectory: true)
         let entries = try walker.entries(of: payload)
         try SnapshotManifest.checkTopLevelNames(of: entries)
@@ -92,7 +92,7 @@ public struct LocalFolderDestination: DestinationStore {
 
     public func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
         guard naming.date(from: snapshot.name) != nil else { return }
-        let folder = directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true).path
+        let folder = try directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true).path
         let doomed = folder + Self.removalSuffix
         if FileManager.default.fileExists(atPath: doomed) { try removal.remove(doomed) }
         try removal.unlock(folder)
@@ -102,7 +102,7 @@ public struct LocalFolderDestination: DestinationStore {
 
     public func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
         guard await isAvailable() else { throw DestinationError.unavailable }
-        return directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true)
+        return try directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true)
     }
 
     public func usedBytes() async throws -> Int64 {
@@ -115,8 +115,8 @@ public struct LocalFolderDestination: DestinationStore {
         return cloning.isSupported(at: root)
     }
 
-    private func directory(_ sourceSlug: String) -> URL {
-        root.appendingPathComponent(sourceSlug, isDirectory: true)
+    private func directory(_ sourceSlug: String) throws -> URL {
+        root.appendingPathComponent(try Slug.folderName(sourceSlug), isDirectory: true)
     }
 
     /// Written copies of the source, newest first.

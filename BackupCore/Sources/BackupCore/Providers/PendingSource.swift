@@ -19,8 +19,8 @@ public struct PendingSource: SourceProvider {
         return Payload(root: package.directory, collectedAt: package.collectedAt)
     }
 
-    public func finish(_ payload: Payload, deliveredEverywhere: Bool) {
+    public func finish(_ payload: Payload, deliveredEverywhere: Bool) throws {
         guard deliveredEverywhere else { return }
-        try? inbox.removePackage(for: sourceId, toTrash: trashAfterDelivery)
+        try inbox.removePackage(for: sourceId, toTrash: trashAfterDelivery)
     }
 }

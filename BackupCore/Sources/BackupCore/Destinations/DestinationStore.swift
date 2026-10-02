@@ -6,6 +6,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case rcloneMissing
     case commandFailed(String)
     case folderInTheWay(String)
+    case invalidFolderName(String)
+    case copyMismatch(path: String, expected: Int64, actual: Int64)
 
     public var errorDescription: String? {
         switch self {
@@ -19,6 +21,10 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "rclone failed: \(output)"
         case let .folderInTheWay(path):
             "A folder that is not a finished copy is in the way: \(path). It was left as is; move it away and retry."
+        case let .invalidFolderName(name):
+            "The folder for copies of this source is named “\(name)”, which is not a single folder name. Nothing was read, written or deleted. Fix “slug” of the source in config.json."
+        case let .copyMismatch(path, expected, actual):
+            "The copy of “\(path)” came out \(actual) bytes long instead of \(expected). The copy was stopped so as not to keep a broken file."
         }
     }
 }
