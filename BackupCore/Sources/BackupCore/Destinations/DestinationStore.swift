@@ -2,12 +2,16 @@ import Foundation
 
 public enum DestinationError: Error, Equatable, LocalizedError {
     case unavailable
-    case outOfSpace
+    /// The destination filled up while the copy was written. `needed`: the size of the source, which a copy needs before
+    /// it saves space; `free`: what is free there once the attempt is removed, when it can be told.
+    case outOfSpace(needed: Int64, free: Int64?)
+    /// Another copy of the source is being written into this unfinished copy folder right now (by another running instance).
+    case copyInProgress(String)
     case rcloneMissing
     case commandFailed(String)
     case folderInTheWay(String)
     case invalidFolderName(String)
-    /// A listed item is not in the finished copy although its original is still there.
+    /// A listed item the copy engine wrote is not in the finished copy.
     case missingFromCopy(String)
     /// An item of the finished copy is of another type, size or link target than its original.
     case changedInCopy(String)
@@ -31,8 +35,12 @@ public enum DestinationError: Error, Equatable, LocalizedError {
         switch self {
         case .unavailable:
             "The destination is unavailable."
-        case .outOfSpace:
-            "The destination is out of space."
+        case let .outOfSpace(needed, free):
+            "The destination is out of space: this copy needs about \(Self.bytes(needed)) (the size of the source)"
+                + (free.map { ", and \(Self.bytes($0)) is free there" } ?? "")
+                + ". Free up space on it or choose a larger one: old copies are removed only after a new copy is complete."
+        case let .copyInProgress(path):
+            "Another copy of this source is being written into “\(path)” right now (is a second Backup Everything running?). It was left alone; the backup is retried later."
         case .rcloneMissing:
             "rclone is not installed. Install it with “brew install rclone”."
         case let .commandFailed(output):
@@ -42,7 +50,7 @@ public enum DestinationError: Error, Equatable, LocalizedError {
         case let .invalidFolderName(name):
             "The folder for copies of this source is named “\(name)”, which is not a single folder name. Nothing was read, written or deleted. Fix “slug” of the source in config.json."
         case let .missingFromCopy(path):
-            "“\(path)” is missing from the copy although its original is still there. The copy was left unfinished so as not to pass for a complete one."
+            "“\(path)” was written to the copy but is missing from it now. The copy was left unfinished so as not to pass for a complete one."
         case let .changedInCopy(path):
             "“\(path)” in the copy is not as its original (another type, size or link target). The copy was left unfinished so as not to pass for a complete one."
         case let .collisionInCopy(path):
@@ -67,15 +75,31 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     }
 }
 
+extension DestinationError {
+    /// A size the way Finder shows it (1 KB = 1000 bytes), the same in every language of the system.
+    static func bytes(_ count: Int64) -> String {
+        let units = ["bytes", "KB", "MB", "GB", "TB"]
+        var value = Double(count)
+        var unit = 0
+        while value >= 1000, unit < units.count - 1 {
+            value /= 1000
+            unit += 1
+        }
+        let shown = unit == 0 || value >= 100 ? String(format: "%.0f", value.rounded()) : String(format: "%.1f", value)
+        return (shown.hasSuffix(".0") ? String(shown.dropLast(2)) : shown) + " " + units[unit]
+    }
+}
+
 public protocol DestinationStore: Sendable {
     func isAvailable() async -> Bool
     /// Every finished copy in the folder of the slug, whoever wrote it.
     func listSnapshots(sourceSlug: String) async throws -> [Snapshot]
     /// The source that wrote each copy in the folder of the slug, by copy name, as its manifest says. A copy whose manifest cannot be read is absent.
     func owners(sourceSlug: String) async throws -> [String: UUID]
-    /// Cleans up copies this app began and did not finish (marked `_unfinished`, no manifest). Anything else is left alone.
-    /// When only finishing earlier deletions fails, the error is `DestinationError.unfinishedDeletions`.
-    func removeIncomplete(sourceSlug: String) async throws
+    /// Removes for good the attempts of the source this app began and did not finish (marked `_unfinished`, no manifest, the
+    /// mark naming this source or none), so that their space is free again; one being written right now is left alone.
+    /// Anything else is left alone. When only finishing earlier deletions fails, the error is `DestinationError.unfinishedDeletions`.
+    func removeIncomplete(sourceSlug: String, sourceId: UUID) async throws
     /// `reusingStoredFiles`: content already present in earlier copies of the source may be cloned instead of written again.
     /// Returns what the copy holds, when the destination knows it: files may vanish from a live source while it is copied.
     @discardableResult

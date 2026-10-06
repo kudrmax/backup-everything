@@ -20,8 +20,7 @@ struct CopyCollisionTests {
 
     private func copy(_ root: URL, into copy: URL, afterEachItem: @escaping (String) -> Void = { _ in }) throws {
         let listing = try listing(root)
-        try PayloadCopier().copy(listing, into: copy.path, afterEachItem: afterEachItem)
-        try WrittenCopy(listing: listing).check(in: copy.path)
+        try PayloadCopier().copy(listing, into: copy.path, afterEachItem: afterEachItem).check(in: copy.path)
     }
 
     private func content(_ relative: String) -> String? {
@@ -140,7 +139,7 @@ struct CopyCollisionTests {
         let listing = try listing(pair)
         try temp.file("copy/a.txt", "same")
 
-        let error = #expect(throws: DestinationError.self) { try WrittenCopy(listing: listing).check(in: temp.path("copy").path) }
+        let error = #expect(throws: DestinationError.self) { try WrittenCopy(listing: listing, written: Set(listing.entries.map(\.relativePath))).check(in: temp.path("copy").path) }
         #expect(error.flatMap(collision).map { ($0 as NSString).deletingLastPathComponent } == temp.path("copy").path)
     }
 

@@ -41,6 +41,8 @@ public struct PayloadEntry: Sendable, Equatable {
     public let size: Int64
     /// The disk the item was on when it was listed.
     let device: dev_t
+    /// Which item of that disk it was: another item may take its name later.
+    var inode: ino_t = 0
 }
 
 public struct PayloadStats: Sendable, Equatable {

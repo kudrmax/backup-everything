@@ -3,6 +3,16 @@ import Foundation
 
 /// How an item that cannot be read any more went missing.
 enum PayloadLoss: Equatable {
+    /// Whether the error says that the item was not found.
+    static func isNotFound(_ error: Error) -> Bool {
+        let error = error as NSError
+        if error.domain == NSPOSIXErrorDomain { return error.code == Int(ENOENT) }
+        if error.domain == NSCocoaErrorDomain, error.code == CocoaError.fileReadNoSuchFile.rawValue || error.code == CocoaError.fileNoSuchFile.rawValue {
+            return true
+        }
+        return (error.userInfo[NSUnderlyingErrorKey] as? Error).map(isNotFound) ?? false
+    }
+
     /// The item is gone while the payload around it is in place: live folders and caches change.
     case vanished
     /// The payload folder is gone or is not the same one (its disk was ejected, it was renamed or replaced), or a disk
@@ -37,6 +47,24 @@ struct PayloadOrigin: Sendable {
     func loss(of url: URL, wasOn device: dev_t? = nil) -> PayloadLoss? {
         var info = stat()
         guard lstat(url.path, &info) != 0, errno == ENOENT else { return nil }
+        return lossOfMissing(url, wasOn: device)
+    }
+
+    /// Why a listed item is no longer there: it is missing, or another item has taken its name (it was deleted and created
+    /// anew); nil when it is the listed item itself, or when what is wrong is not that it is gone.
+    func loss(ofListed entry: PayloadEntry) -> PayloadLoss? {
+        var info = stat()
+        if lstat(entry.url.path, &info) == 0 {
+            guard info.st_dev == entry.device, entry.inode != 0, info.st_ino != entry.inode else { return nil }
+            return lossOfMissing(entry.url, wasOn: entry.device)
+        }
+        return errno == ENOENT ? lossOfMissing(entry.url, wasOn: entry.device) : nil
+    }
+
+    /// Why an item that was found missing (`ENOENT`) is missing. It is not looked at again: an item created anew under the
+    /// same name since was still absent when it was looked for. Only whether the payload and its disks are in place is.
+    func lossOfMissing(_ url: URL, wasOn device: dev_t? = nil) -> PayloadLoss? {
+        var info = stat()
         guard isInPlace else { return .gone(.sourceDisappeared(path)) }
         var folder = (url.path as NSString).deletingLastPathComponent
         while lstat(folder, &info) != 0 {

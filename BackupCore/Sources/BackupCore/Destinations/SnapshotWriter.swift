@@ -39,10 +39,10 @@ struct SnapshotWriter {
 
     /// `previous`: the newest finished copy of the source here, whose unchanged files the new one shares.
     func write(_ listing: PayloadListing, into snapshotDirectory: URL, sharingWith previous: StoredCopy?) throws -> SnapshotContents {
-        try copier.copy(listing, into: snapshotDirectory.path, afterEachItem: afterEachItem)
+        let written = try copier.copy(listing, into: snapshotDirectory.path, afterEachItem: afterEachItem)
         beforeReadingBack()
         let read = try contents(of: snapshotDirectory)
-        let vanished = try WrittenCopy(listing: listing).check(in: snapshotDirectory.path)
+        let vanished = try written.check(in: snapshotDirectory.path)
         let contents = read.removing(Set(vanished.map(\.relativePath)))
         if let previous { try savings.share(contents.files, in: snapshotDirectory, with: previous) }
         return contents

@@ -51,7 +51,7 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         owners
     }
 
-    func removeIncomplete(sourceSlug: String) async throws {
+    func removeIncomplete(sourceSlug: String, sourceId: UUID) async throws {
         if let removeIncompleteError { throw removeIncompleteError }
         log.append("removeIncomplete")
     }

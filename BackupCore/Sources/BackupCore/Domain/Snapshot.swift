@@ -12,9 +12,29 @@ public struct Snapshot: Sendable, Equatable, Hashable {
 
 public struct SnapshotManifest: Codable, Sendable, Equatable {
     public static let fileName = "_snapshot.json"
-    /// Put into a copy folder before writing starts and removed after the manifest: only such folders are ever cleaned up as unfinished.
+    /// Put into a copy folder before writing starts and removed after the manifest: only such folders are ever cleaned up as
+    /// unfinished. It names the source whose copy is being written.
     public static let unfinishedMarker = "_unfinished"
-    static let unfinishedNote = "Backup Everything was writing this copy and did not finish. It will be cleaned up after the next successful backup.\n"
+    private static let unfinishedOwnerPrefix = "source: "
+
+    static func unfinishedNote(sourceId: UUID) -> String {
+        "Backup Everything was writing this copy and did not finish. It is removed before the next backup of this source here.\n"
+            + unfinishedOwnerPrefix + sourceId.uuidString + "\n"
+    }
+
+    /// The source named in an unfinished mark; nil for a mark that names none (written by earlier versions) or cannot be read.
+    static func unfinishedOwner(of mark: Data) -> UUID? {
+        String(decoding: mark, as: UTF8.self)
+            .split(separator: "\n")
+            .first { $0.hasPrefix(unfinishedOwnerPrefix) }
+            .flatMap { UUID(uuidString: String($0.dropFirst(unfinishedOwnerPrefix.count))) }
+    }
+
+    /// Whether an unfinished copy with this mark is one of the source's own attempts: the mark names the source, or names
+    /// none (the folder of the source's slug is then all there is to go by).
+    static func unfinishedAttempt(withMark mark: Data?, belongsTo sourceId: UUID) -> Bool {
+        mark.flatMap(unfinishedOwner).map { $0 == sourceId } ?? true
+    }
     /// Names of the app's own files at the top of every copy.
     public static let serviceFileNames = [fileName, unfinishedMarker]
 

@@ -7,7 +7,9 @@ public struct LocalFolderDestination: DestinationStore {
     private let volumes: VolumeMounts
     private let expectedDisk: DiskIdentity?
     private let disks: any DiskLocating
-    private let trash: ManualExportInbox.Trash
+    /// Removes an unfinished attempt; by default for good, so its space is free again (the Trash of an external disk is on
+    /// that disk). Tests replace it to watch or fail it.
+    private let discardAttempt: (@Sendable (URL) throws -> Void)?
     private let walker = PayloadWalker()
     private let removal = FolderRemoval()
     /// A copy being deleted is first renamed so: if deleting stops halfway, the rest is never taken for a copy.
@@ -23,7 +25,7 @@ public struct LocalFolderDestination: DestinationStore {
         volumes: VolumeMounts = VolumeMounts(),
         expectedDisk: DiskIdentity? = nil,
         disks: (any DiskLocating)? = nil,
-        trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+        discardAttempt: (@Sendable (URL) throws -> Void)? = nil
     ) {
         self.root = root
         self.naming = naming
@@ -31,7 +33,7 @@ public struct LocalFolderDestination: DestinationStore {
         self.volumes = volumes
         self.expectedDisk = expectedDisk
         self.disks = disks ?? SystemDisks(mounts: volumes)
-        self.trash = trash
+        self.discardAttempt = discardAttempt
     }
 
     public func isAvailable() async -> Bool {
@@ -67,10 +69,11 @@ public struct LocalFolderDestination: DestinationStore {
     }
 
     /// Also finishes deleting copies whose deletion stopped halfway; what still cannot be deleted is reported after the rest is done.
-    public func removeIncomplete(sourceSlug: String) async throws {
+    public func removeIncomplete(sourceSlug: String, sourceId: UUID) async throws {
         try requireOwnDisk()
-        for directory in try snapshotDirectories(sourceSlug) where isUnfinished(directory.url) {
-            try trash(directory.url)
+        for directory in try snapshotDirectories(sourceSlug) where isUnfinished(directory.url, of: sourceId) {
+            guard let mark = try UnfinishedMark.claim(in: directory.url) else { continue }
+            try withExtendedLifetime(mark) { try discard(directory.url) }
         }
         var problems: [String] = []
         for leftover in try interruptedRemovals(sourceSlug) {
@@ -92,48 +95,87 @@ public struct LocalFolderDestination: DestinationStore {
         let snapshotDirectory = sourceDirectory.appendingPathComponent(snapshotName, isDirectory: true)
         let listing = try walker.listing(of: payload)
         try SnapshotManifest.checkTopLevelNames(of: listing.entries)
+        var created = false
         do {
             if !fileManager.fileExists(atPath: sourceDirectory.path) {
                 try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: false)
             }
             if fileManager.fileExists(atPath: snapshotDirectory.path) {
-                guard isUnfinished(snapshotDirectory) else { throw DestinationError.folderInTheWay(snapshotDirectory.path) }
-                try trash(snapshotDirectory)
+                guard isUnfinished(snapshotDirectory, of: manifest.sourceId) else { throw DestinationError.folderInTheWay(snapshotDirectory.path) }
+                guard let earlier = try UnfinishedMark.claim(in: snapshotDirectory) else { throw DestinationError.copyInProgress(snapshotDirectory.path) }
+                try withExtendedLifetime(earlier) { try discard(snapshotDirectory) }
             }
             try fileManager.createDirectory(at: snapshotDirectory, withIntermediateDirectories: false)
-            let markerURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker)
-            try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
-            afterWritingItem(markerURL.path)
-            let sharesData = reusingStoredFiles && cloning.isSupported(at: root)
-            let previous = sharesData ? try storedCopies(sourceSlug).first { $0.manifest.sourceId == manifest.sourceId } : nil
-            let writer = SnapshotWriter(cloning: cloning, afterEachItem: afterWritingItem)
-            let contents = try writer.write(listing, into: snapshotDirectory, sharingWith: previous)
-            guard contents.itemCount > 0 else { throw SourceError.vanishedWhileCopied }
-            var manifest = manifest
-            manifest.fileCount = contents.itemCount
-            manifest.totalBytes = contents.totalBytes
-            manifest.files = contents.files
-            manifest.sharesData = sharesData
-            let manifestURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.fileName)
-            try JSONCoding.encoder(pretty: false).encode(manifest).write(to: manifestURL, options: .atomic)
-            try fileManager.removeItem(at: markerURL)
-            return PayloadStats(fileCount: contents.itemCount, totalBytes: contents.totalBytes)
-        } catch let error as CocoaError where error.code == .fileWriteOutOfSpace {
-            throw DestinationError.outOfSpace
-        } catch let error as POSIXError where error.code == .ENOSPC {
-            throw DestinationError.outOfSpace
+            created = true
+            let mark = try UnfinishedMark.create(in: snapshotDirectory, sourceId: manifest.sourceId)
+            afterWritingItem(mark.path)
+            return try withExtendedLifetime(mark) {
+                try finishWriting(listing, manifest: manifest, sourceSlug: sourceSlug, into: snapshotDirectory, reusingStoredFiles: reusingStoredFiles)
+            }
+        } catch where Self.isOutOfSpace(error) {
+            if created { try? discard(snapshotDirectory) }
+            throw DestinationError.outOfSpace(needed: walker.stats(of: listing.entries).totalBytes, free: freeBytes())
         }
     }
 
-    public func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
-        try requireOwnDisk()
-        guard naming.date(from: snapshot.name) != nil else { return }
-        let folder = try directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true).path
+    private func finishWriting(
+        _ listing: PayloadListing,
+        manifest: SnapshotManifest,
+        sourceSlug: String,
+        into snapshotDirectory: URL,
+        reusingStoredFiles: Bool
+    ) throws -> PayloadStats {
+        let fileManager = FileManager.default
+        let sharesData = reusingStoredFiles && cloning.isSupported(at: root)
+        let previous = sharesData ? try storedCopies(sourceSlug).first { $0.manifest.sourceId == manifest.sourceId } : nil
+        let writer = SnapshotWriter(cloning: cloning, afterEachItem: afterWritingItem)
+        let contents = try writer.write(listing, into: snapshotDirectory, sharingWith: previous)
+        guard contents.itemCount > 0 else { throw SourceError.vanishedWhileCopied }
+        var manifest = manifest
+        manifest.fileCount = contents.itemCount
+        manifest.totalBytes = contents.totalBytes
+        manifest.files = contents.files
+        manifest.sharesData = sharesData
+        let manifestURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.fileName)
+        try JSONCoding.encoder(pretty: false).encode(manifest).write(to: manifestURL, options: .atomic)
+        try fileManager.removeItem(at: snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker))
+        return PayloadStats(fileCount: contents.itemCount, totalBytes: contents.totalBytes)
+    }
+
+    private static func isOutOfSpace(_ error: Error) -> Bool {
+        switch error {
+        case let error as CocoaError: error.code == .fileWriteOutOfSpace
+        case let error as POSIXError: error.code == .ENOSPC
+        default: false
+        }
+    }
+
+    /// Measured now: what a URL tells is kept from its first look.
+    private func freeBytes() -> Int64? {
+        var volume = statfs()
+        guard statfs(root.path, &volume) == 0 else { return nil }
+        return Int64(volume.f_bavail) * Int64(volume.f_bsize)
+    }
+
+    /// Removes an unfinished attempt (or copy) whose mark is held: renamed first, so a removal that stops halfway is never
+    /// taken for a copy and is finished by the next cleanup.
+    private func discard(_ folder: URL) throws {
+        if let discardAttempt { return try discardAttempt(folder) }
+        try removeForGood(folder.path)
+    }
+
+    private func removeForGood(_ folder: String) throws {
         let doomed = folder + Self.removalSuffix
         if FileManager.default.fileExists(atPath: doomed) { try removal.remove(doomed) }
         try removal.unlock(folder)
         try FileManager.default.moveItem(atPath: folder, toPath: doomed)
         try removal.remove(doomed)
+    }
+
+    public func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
+        try requireOwnDisk()
+        guard naming.date(from: snapshot.name) != nil else { return }
+        try removeForGood(try directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true).path)
     }
 
     public func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
@@ -194,9 +236,12 @@ public struct LocalFolderDestination: DestinationStore {
             }
     }
 
-    private func isUnfinished(_ snapshotDirectory: URL) -> Bool {
-        !hasManifest(snapshotDirectory)
-            && FileManager.default.fileExists(atPath: snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker).path)
+    /// An attempt of the source this app began and did not finish.
+    private func isUnfinished(_ snapshotDirectory: URL, of sourceId: UUID) -> Bool {
+        let mark = snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker)
+        return !hasManifest(snapshotDirectory)
+            && FileManager.default.fileExists(atPath: mark.path)
+            && SnapshotManifest.unfinishedAttempt(withMark: try? Data(contentsOf: mark), belongsTo: sourceId)
     }
 
     private func hasManifest(_ snapshotDirectory: URL) -> Bool {

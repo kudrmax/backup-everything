@@ -48,7 +48,7 @@ struct BackupEngineTests {
         #expect(record.details == "log tail")
         #expect(record.collectError == nil)
         #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .delivered(pruned: 0, warning: nil)])
-        #expect(diskStore.log == ["write:\(name)", "removeIncomplete"])
+        #expect(diskStore.log == ["removeIncomplete", "write:\(name)"])
         #expect(provider.finished == [.everywhere])
     }
 
@@ -165,7 +165,7 @@ struct BackupEngineTests {
         #expect(record.deliveries.map(\.outcome) == [.failed(message: "disk disconnected"), .delivered(pruned: 0, warning: nil)])
         #expect(record.firstFailure == "disk disconnected")
         #expect(diskStore.snapshots.count == 3)
-        #expect(!diskStore.log.contains("removeIncomplete"))
+        #expect(diskStore.log == ["removeIncomplete"])
         #expect(provider.finished == [.partly])
     }
 
@@ -174,7 +174,7 @@ struct BackupEngineTests {
         cloudStore.snapshots = ["2026-09-25 10:00:00", "2026-09-26 10:00:00", "2026-09-27 10:00:00"].map(Fixtures.snapshot)
         let record = await run()
         #expect(record.deliveries[1].outcome == .delivered(pruned: 2, warning: nil))
-        #expect(cloudStore.log == ["write:\(name)", "removeIncomplete", "delete:2026-09-25_100000", "delete:2026-09-26_100000"])
+        #expect(cloudStore.log == ["removeIncomplete", "write:\(name)", "delete:2026-09-25_100000", "delete:2026-09-26_100000"])
         #expect(cloudStore.snapshots.map(\.name) == ["2026-09-27_100000", name])
     }
 
@@ -292,7 +292,7 @@ struct BackupEngineTests {
         #expect(record.fileCount == 2)
         #expect(record.totalBytes == 9)
         #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil)])
-        #expect(cloudStore.log == ["write:\(name)", "removeIncomplete"])
+        #expect(cloudStore.log == ["removeIncomplete", "write:\(name)"])
         #expect(cloudStore.writtenManifests.map(\.fileCount) == [2])
         #expect(cloudStore.writtenManifests.first?.sourceId == source.id)
         #expect(cloudStore.writtenPayloads.first?.excludedAtTop == SnapshotManifest.serviceFileNames)
@@ -338,7 +338,7 @@ struct BackupEngineTests {
         cloudStore.listError = Boom()
         let record = await run()
         #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .failed(message: "disk disconnected")])
-        #expect(cloudStore.log.isEmpty)
+        #expect(cloudStore.log == ["removeIncomplete"])
         #expect(provider.finished == [.partly])
     }
 

@@ -29,7 +29,7 @@ struct RcloneIntegrationTests {
         try temp.file("remote/obsidian/2026-09-26_100000/partial.md")
         try temp.file("remote/obsidian/2026-09-26_100000/_unfinished")
         try temp.file("remote/obsidian/2026-09-27_100000/mine.md")
-        try await destination.removeIncomplete(sourceSlug: "obsidian")
+        try await destination.removeIncomplete(sourceSlug: "obsidian", sourceId: UUID())
         #expect(!temp.exists("remote/obsidian/2026-09-26_100000"))
         #expect(temp.exists("remote/obsidian/2026-09-27_100000/mine.md"))
 

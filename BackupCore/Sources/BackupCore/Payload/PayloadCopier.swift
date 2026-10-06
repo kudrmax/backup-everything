@@ -10,13 +10,14 @@ import Foundation
 /// Every item is created anew (`COPYFILE_EXCL`): whatever is already at a target — a file, a link, a folder, or an item of
 /// this copy whose name the destination does not tell apart — stops the copy and is neither written over nor followed.
 /// An original that vanished after the payload was listed is left out, as if it had vanished a moment earlier; when the
-/// payload itself or a disk mounted inside it is gone (ejected), copying stops with an error that says so. What is in the
-/// copy in the end is told by `WrittenCopy`.
+/// payload itself or a disk mounted inside it is gone (ejected), copying stops with an error that says so. The engine tells
+/// which listed items it wrote; the copy is then checked against that by the returned `WrittenCopy`.
 struct PayloadCopier {
     private static let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_NOFOLLOW_SRC | COPYFILE_EXCL)
 
     /// `afterEachItem` learns the path of each file and link in the copy right after it is written (tests use it to meddle).
-    func copy(_ listing: PayloadListing, into base: String, afterEachItem: @escaping (String) -> Void = { _ in }) throws {
+    @discardableResult
+    func copy(_ listing: PayloadListing, into base: String, afterEachItem: @escaping (String) -> Void = { _ in }) throws -> WrittenCopy {
         let session = CopySession(listing, base: base, afterEachItem: afterEachItem)
         for entry in listing.entries where !entry.relativePath.contains("/") {
             if entry.kind == .directory {
@@ -26,6 +27,7 @@ struct PayloadCopier {
             }
             if let failure = session.failure { throw failure }
         }
+        return WrittenCopy(listing: listing, written: session.written, originalsAfterCopy: session.originalsAfterCopy)
     }
 
     /// What one copy has learnt so far; the engine's callback reaches it through its context pointer.
@@ -37,6 +39,9 @@ struct PayloadCopier {
         private let entries: [String: PayloadEntry]
         private let links: [String: [PayloadEntry]]
         private var skippedFolders: Set<String> = []
+        /// Listed items the engine wrote into the copy, by relative path.
+        private(set) var written: Set<String> = []
+        private(set) var originalsAfterCopy: [String: WrittenCopy.OriginalAfterCopy] = [:]
         private(set) var failure: Error?
 
         init(_ listing: PayloadListing, base: String, afterEachItem: @escaping (String) -> Void) {
@@ -72,6 +77,8 @@ struct PayloadCopier {
                 _ = goesOnWithout(entry, at: target, error: Self.currentError())
                 return
             }
+            written.insert(entry.relativePath)
+            if entry.kind == .file { originalsAfterCopy[entry.relativePath] = Self.original(at: entry.url.path) }
             afterEachItem(target)
         }
 
@@ -85,9 +92,14 @@ struct PayloadCopier {
                     skippedFolders.insert(relative)
                     return COPYFILE_SKIP
                 }
+                written.insert(relative)
             case (COPYFILE_RECURSE_FILE, COPYFILE_START):
                 return entry?.kind == .file ? COPYFILE_CONTINUE : COPYFILE_SKIP
             case (COPYFILE_RECURSE_FILE, COPYFILE_FINISH):
+                if entry?.kind == .file {
+                    written.insert(relative)
+                    originalsAfterCopy[relative] = Self.original(at: source)
+                }
                 if let target { afterEachItem(target) }
             case (COPYFILE_RECURSE_DIR_CLEANUP, COPYFILE_START):
                 if skippedFolders.contains(relative) { return COPYFILE_SKIP }
@@ -112,8 +124,12 @@ struct PayloadCopier {
                 fail(DestinationError.collisionInCopy(Self.withoutTrailingSlashes(target)))
                 return false
             }
-            switch listing.origin.loss(of: entry.url, wasOn: entry.device) {
+            let loss = error.code == .ENOENT
+                ? listing.origin.lossOfMissing(entry.url, wasOn: entry.device)
+                : listing.origin.loss(ofListed: entry)
+            switch loss {
             case .vanished:
+                written.remove(entry.relativePath)
                 return true
             case let .gone(loss):
                 fail(loss)
@@ -137,6 +153,13 @@ struct PayloadCopier {
             var path = path
             while path.hasSuffix("/") { path.removeLast() }
             return path
+        }
+
+        /// How the original looks right after it was copied; nil when it cannot be looked at.
+        private static func original(at path: String) -> WrittenCopy.OriginalAfterCopy? {
+            var info = stat()
+            guard lstat(path, &info) == 0 else { return errno == ENOENT ? .absent : nil }
+            return .size(Int64(info.st_size))
         }
 
         private static func currentError() -> POSIXError {

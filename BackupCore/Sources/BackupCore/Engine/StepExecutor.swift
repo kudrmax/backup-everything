@@ -25,7 +25,6 @@ struct StepExecutor: Sendable {
 
     private func copy(_ payload: Payload, into directory: URL) throws {
         let listing = try walker.listing(of: payload)
-        try copier.copy(listing, into: directory.path)
-        try WrittenCopy(listing: listing).check(in: directory.path)
+        try copier.copy(listing, into: directory.path).check(in: directory.path)
     }
 }

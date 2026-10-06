@@ -28,11 +28,11 @@ struct VanishingSourceTests {
         let listing = try PayloadWalker().listing(of: payload)
         let copy = try temp.directory("copy").path
         var placed = 0
-        try PayloadCopier().copy(listing, into: copy) { _ in
+        let written = try PayloadCopier().copy(listing, into: copy) { _ in
             placed += 1
             if placed == 1 { try? interrupt() }
         }
-        return try WrittenCopy(listing: listing).check(in: copy)
+        return try written.check(in: copy)
     }
 
     private func copiedFiles() -> [String] {

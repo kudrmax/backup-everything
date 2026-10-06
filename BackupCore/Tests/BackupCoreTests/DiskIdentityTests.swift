@@ -37,7 +37,7 @@ struct DiskIdentityTests {
 
     private func destination(expecting disk: DiskIdentity?, on location: DiskLocation) -> LocalFolderDestination {
         LocalFolderDestination(root: temp.path("disk"), naming: Fixtures.naming, expectedDisk: disk, disks: FakeDisks(location)) { _ in
-            Issue.record("Nothing goes to the Trash")
+            Issue.record("Nothing is discarded")
         }
     }
 
@@ -126,7 +126,7 @@ struct DiskIdentityTests {
         #expect(await destination.canShareUnchangedFiles() == nil)
         await #expect(throws: refusal) { try await write(to: destination) }
         await #expect(throws: refusal) { try await destination.delete(old, sourceSlug: "obsidian") }
-        await #expect(throws: refusal) { try await destination.removeIncomplete(sourceSlug: "obsidian") }
+        await #expect(throws: refusal) { try await destination.removeIncomplete(sourceSlug: "obsidian", sourceId: UUID()) }
         await #expect(throws: refusal) { try await destination.listSnapshots(sourceSlug: "obsidian") }
         await #expect(throws: refusal) { try await destination.owners(sourceSlug: "obsidian") }
         await #expect(throws: refusal) { try await destination.materialize(old, sourceSlug: "obsidian", scratch: temp.path("scratch")) }

@@ -42,29 +42,41 @@ public struct RcloneDestination: DestinationStore {
     }
 
     public func owners(sourceSlug: String) async throws -> [String: UUID] {
+        try await downloaded(SnapshotManifest.fileName, in: sourceSlug) { folder in
+            SnapshotManifest.owner(of: folder)
+        }
+    }
+
+    /// `read` for each copy folder of the slug whose `fileName` was downloaded, by folder name.
+    private func downloaded<Value>(_ fileName: String, in sourceSlug: String, read: (URL) -> Value?) async throws -> [String: Value] {
         let folder = try target(sourceSlug)
         let fileManager = FileManager.default
         let scratch = fileManager.temporaryDirectory.appendingPathComponent("rclone-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: scratch) }
-        let result = try await rclone(["copy", folder, scratch.path, "--include", "/*/\(SnapshotManifest.fileName)"])
+        let result = try await rclone(["copy", folder, scratch.path, "--include", "/*/\(fileName)"])
         if result.exitCode == Self.directoryNotFoundExitCode { return [:] }
         try check(result)
-        var owners: [String: UUID] = [:]
+        var values: [String: Value] = [:]
         for name in (try? fileManager.contentsOfDirectory(atPath: scratch.path)) ?? [] {
-            owners[name] = SnapshotManifest.owner(of: scratch.appendingPathComponent(name, isDirectory: true))
+            values[name] = read(scratch.appendingPathComponent(name, isDirectory: true))
         }
-        return owners
+        return values
     }
 
-    public func removeIncomplete(sourceSlug: String) async throws {
+    public func removeIncomplete(sourceSlug: String, sourceId: UUID) async throws {
         let result = try await rclone(["lsf", try target(sourceSlug), "--dirs-only"])
         if result.exitCode == Self.directoryNotFoundExitCode { return }
         try check(result)
         let complete = Set(try await listSnapshots(sourceSlug: sourceSlug).map(\.name))
         let unfinished = Set(try await directories(containing: SnapshotManifest.unfinishedMarker, in: sourceSlug))
         let directories = lines(result.stdout).map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
-        for name in directories where naming.date(from: name) != nil && unfinished.contains(name) && !complete.contains(name) {
+        let candidates = directories.filter { naming.date(from: $0) != nil && unfinished.contains($0) && !complete.contains($0) }
+        guard !candidates.isEmpty else { return }
+        let marks = try await downloaded(SnapshotManifest.unfinishedMarker, in: sourceSlug) { folder in
+            try? Data(contentsOf: folder.appendingPathComponent(SnapshotManifest.unfinishedMarker))
+        }
+        for name in candidates where SnapshotManifest.unfinishedAttempt(withMark: marks[name], belongsTo: sourceId) {
             try check(try await rclone(["purge", try target(sourceSlug, name)]))
         }
     }
@@ -79,7 +91,7 @@ public struct RcloneDestination: DestinationStore {
 
         try await clearTheWay(to: destination)
         let markerURL = scratch.appendingPathComponent(SnapshotManifest.unfinishedMarker)
-        try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
+        try Data(SnapshotManifest.unfinishedNote(sourceId: manifest.sourceId).utf8).write(to: markerURL)
         try check(try await rclone(["copyto", markerURL.path, "\(destination)/\(SnapshotManifest.unfinishedMarker)"]))
         let root = payload.root.resolvingSymlinksInPath()
         if walker.isDirectory(payload) {

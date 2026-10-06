@@ -34,7 +34,7 @@ struct RcloneDestinationTests {
     @Test func missingSourceDirectoryMeansNoSnapshots() async throws {
         let runner = FakeProcessRunner { _ in ProcessResult(exitCode: 3, stderr: "directory not found") }
         #expect(try await destination(runner).listSnapshots(sourceSlug: "obsidian").isEmpty)
-        try await destination(runner).removeIncomplete(sourceSlug: "obsidian")
+        try await destination(runner).removeIncomplete(sourceSlug: "obsidian", sourceId: UUID())
         #expect(!runner.calls.contains { $0.arguments.first == "purge" })
     }
 
@@ -51,7 +51,7 @@ struct RcloneDestinationTests {
             }
             return ProcessResult(exitCode: 0)
         }
-        try await destination(runner).removeIncomplete(sourceSlug: "obsidian")
+        try await destination(runner).removeIncomplete(sourceSlug: "obsidian", sourceId: UUID())
         #expect(runner.calls.filter { $0.arguments.first == "purge" }.map(\.arguments) == [
             ["purge", "gdrive:backups/obsidian/2026-09-26_100000"],
         ])
@@ -152,7 +152,7 @@ struct RcloneDestinationTests {
             }
             return ProcessResult(exitCode: 0)
         }
-        try await destination(runner).removeIncomplete(sourceSlug: "obsidian")
+        try await destination(runner).removeIncomplete(sourceSlug: "obsidian", sourceId: UUID())
         #expect(runner.calls.filter { $0.arguments.first == "purge" }.map(\.arguments) == [
             ["purge", "gdrive:backups/obsidian/2026-09-24_100000"],
         ])
@@ -167,7 +167,7 @@ struct RcloneDestinationTests {
                 return ProcessResult(exitCode: 0)
             }
             await #expect(throws: DestinationError.commandFailed("rate limited")) {
-                try await destination(runner).removeIncomplete(sourceSlug: "obsidian")
+                try await destination(runner).removeIncomplete(sourceSlug: "obsidian", sourceId: UUID())
             }
             #expect(!runner.calls.contains { $0.arguments.first == "purge" })
         }
@@ -181,7 +181,7 @@ struct RcloneDestinationTests {
             return ProcessResult(exitCode: 0)
         }
         await #expect(throws: DestinationError.commandFailed("permission denied")) {
-            try await destination(runner).removeIncomplete(sourceSlug: "obsidian")
+            try await destination(runner).removeIncomplete(sourceSlug: "obsidian", sourceId: UUID())
         }
     }
 
@@ -352,7 +352,7 @@ struct RcloneDestinationTests {
         let refused = DestinationError.invalidFolderName(slug)
         await #expect(throws: refused) { try await destination.listSnapshots(sourceSlug: slug) }
         await #expect(throws: refused) { try await destination.owners(sourceSlug: slug) }
-        await #expect(throws: refused) { try await destination.removeIncomplete(sourceSlug: slug) }
+        await #expect(throws: refused) { try await destination.removeIncomplete(sourceSlug: slug, sourceId: UUID()) }
         await #expect(throws: refused) { try await destination.delete(snapshot, sourceSlug: slug) }
         await #expect(throws: refused) {
             try await destination.materialize(snapshot, sourceSlug: slug, scratch: FileManager.default.temporaryDirectory)

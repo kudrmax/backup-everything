@@ -143,11 +143,11 @@ struct SnapshotFilesTests {
         try temp.file("vault/b.md", "beta")
         let copy = try temp.directory("copy")
         let listing = try listing()
-        try PayloadCopier().copy(listing, into: copy.path)
+        let written = try PayloadCopier().copy(listing, into: copy.path)
         try FileManager.default.removeItem(at: copy.appendingPathComponent("a.md"))
 
         #expect(throws: DestinationError.missingFromCopy(copy.path + "/a.md")) {
-            try WrittenCopy(listing: listing).check(in: copy.path)
+            try written.check(in: copy.path)
         }
     }
 
@@ -157,9 +157,8 @@ struct SnapshotFilesTests {
         try temp.directory("vault/folder")
         try FileManager.default.createSymbolicLink(atPath: temp.path("vault/link").path, withDestinationPath: "a.md")
         let listing = try listing()
-        let check = WrittenCopy(listing: listing)
         let copy = try temp.directory("copy")
-        try PayloadCopier().copy(listing, into: copy.path)
+        let check = try PayloadCopier().copy(listing, into: copy.path)
         try check.check(in: copy.path)
 
         truncate(copy.path + "/a.md", 2)
@@ -183,9 +182,9 @@ struct SnapshotFilesTests {
         let listing = try listing()
         let copy = try temp.directory("copy")
         try temp.file("vault/a.md", "alpha, appended")
-        try PayloadCopier().copy(listing, into: copy.path)
+        let written = try PayloadCopier().copy(listing, into: copy.path)
 
-        try WrittenCopy(listing: listing).check(in: copy.path)
+        try written.check(in: copy.path)
     }
 
     /// Part of a file whose original vanished while it was copied is not taken for the whole: it leaves the copy, even
@@ -196,12 +195,12 @@ struct SnapshotFilesTests {
         try temp.file("vault/b.md", "beta")
         let listing = try listing()
         let copy = try temp.directory("copy")
-        try PayloadCopier().copy(listing, into: copy.path)
+        let written = try PayloadCopier().copy(listing, into: copy.path)
         truncate(copy.path + "/a.md", 2)
         chflags(copy.path + "/a.md", UInt32(UF_IMMUTABLE))
         try FileManager.default.removeItem(at: temp.path("vault/a.md"))
 
-        let vanished = try WrittenCopy(listing: listing).check(in: copy.path)
+        let vanished = try written.check(in: copy.path)
 
         #expect(vanished.map(\.relativePath) == ["a.md"])
         #expect(!temp.exists("copy/a.md"))
@@ -217,12 +216,12 @@ struct SnapshotFilesTests {
         try temp.file("vault/sub/a.md", "alpha")
         let listing = try listing()
         let copy = try temp.directory("copy")
-        try PayloadCopier().copy(listing, into: copy.path)
+        let written = try PayloadCopier().copy(listing, into: copy.path)
         truncate(copy.path + "/sub/a.md", 2)
         chmod(copy.path + "/sub", 0o555)
         try FileManager.default.removeItem(at: temp.path("vault/sub/a.md"))
 
-        #expect(throws: DestinationError.vanishedWhileCopied(copy.path + "/sub/a.md")) { try WrittenCopy(listing: listing).check(in: copy.path) }
+        #expect(throws: DestinationError.vanishedWhileCopied(copy.path + "/sub/a.md")) { try written.check(in: copy.path) }
     }
 
     @Test func partOfAFileFromAnEjectedDiskIsTheSourceGone() throws {
@@ -236,11 +235,11 @@ struct SnapshotFilesTests {
         try Data("alpha".utf8).write(to: vault.appendingPathComponent("a.md"))
         let listing = try PayloadWalker().listing(of: Payload(root: vault, collectedAt: date))
         let copy = try temp.directory("copy")
-        try PayloadCopier().copy(listing, into: copy.path)
+        let written = try PayloadCopier().copy(listing, into: copy.path)
         truncate(copy.path + "/a.md", 2)
         disk.detach()
 
-        #expect(throws: SourceError.sourceDisappeared(vault.path)) { try WrittenCopy(listing: listing).check(in: copy.path) }
+        #expect(throws: SourceError.sourceDisappeared(vault.path)) { try written.check(in: copy.path) }
     }
 
     @Test func partOfAFileWhoseOriginalCannotBeLookedAtIsAnError() throws {
@@ -251,11 +250,11 @@ struct SnapshotFilesTests {
         try temp.file("vault/sub/a.md", "alpha")
         let listing = try listing()
         let copy = try temp.directory("copy")
-        try PayloadCopier().copy(listing, into: copy.path)
+        let written = try PayloadCopier().copy(listing, into: copy.path)
         truncate(copy.path + "/sub/a.md", 2)
         chmod(temp.path("vault/sub").path, 0)
 
-        #expect(throws: POSIXError(.EACCES)) { try WrittenCopy(listing: listing).check(in: copy.path) }
+        #expect(throws: POSIXError(.EACCES)) { try written.check(in: copy.path) }
     }
 
     @Test func itemThatLeftTheCopyBeforeItsListWasMadeLeavesTheCopyUnfinished() throws {
@@ -302,15 +301,15 @@ struct SnapshotFilesTests {
         try temp.file("vault/sub/a.md", "alpha")
         let listing = try listing()
         let copy = try temp.directory("copy")
-        try PayloadCopier().copy(listing, into: copy.path)
+        let written = try PayloadCopier().copy(listing, into: copy.path)
         chmod(copy.path + "/sub", 0)
 
-        #expect(throws: POSIXError(.EACCES)) { try WrittenCopy(listing: listing).check(in: copy.path) }
+        #expect(throws: POSIXError(.EACCES)) { try written.check(in: copy.path) }
     }
 
     @Test func messagesOfAWrongCopyNameThePath() {
         #expect(DestinationError.missingFromCopy("/d/a.md").localizedDescription
-            == "“/d/a.md” is missing from the copy although its original is still there. The copy was left unfinished so as not to pass for a complete one.")
+            == "“/d/a.md” was written to the copy but is missing from it now. The copy was left unfinished so as not to pass for a complete one.")
         #expect(DestinationError.changedInCopy("/d/a.md").localizedDescription
             == "“/d/a.md” in the copy is not as its original (another type, size or link target). The copy was left unfinished so as not to pass for a complete one.")
         #expect(DestinationError.vanishedWhileCopied("/d/a.md").localizedDescription

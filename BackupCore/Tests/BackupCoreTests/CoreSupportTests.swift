@@ -14,7 +14,12 @@ struct CoreSupportTests {
     @Test func destinationErrorsExplainThemselves() {
         defer { temp.remove() }
         #expect(DestinationError.unavailable.localizedDescription == "The destination is unavailable.")
-        #expect(DestinationError.outOfSpace.localizedDescription == "The destination is out of space.")
+        #expect(DestinationError.outOfSpace(needed: 1_200_000_000, free: 300_000_000).localizedDescription
+            == "The destination is out of space: this copy needs about 1.2 GB (the size of the source), and 300 MB is free there. Free up space on it or choose a larger one: old copies are removed only after a new copy is complete.")
+        #expect(DestinationError.outOfSpace(needed: 1_200_000_000, free: nil).localizedDescription
+            == "The destination is out of space: this copy needs about 1.2 GB (the size of the source). Free up space on it or choose a larger one: old copies are removed only after a new copy is complete.")
+        #expect(DestinationError.copyInProgress("/d/obsidian/2026-09-28_143000").localizedDescription
+            == "Another copy of this source is being written into “/d/obsidian/2026-09-28_143000” right now (is a second Backup Everything running?). It was left alone; the backup is retried later.")
         #expect(DestinationError.rcloneMissing.localizedDescription == "rclone is not installed. Install it with “brew install rclone”.")
         #expect(DestinationError.commandFailed("quota exceeded").localizedDescription == "rclone failed: quota exceeded")
         #expect(DestinationError.folderInTheWay("/Volumes/HDD/obsidian/2026-09-28_143000").localizedDescription

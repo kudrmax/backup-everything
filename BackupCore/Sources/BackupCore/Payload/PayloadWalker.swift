@@ -23,7 +23,7 @@ public struct PayloadWalker: Sendable {
         var origin = try PayloadOrigin(root)
         guard isDirectory(payload) else {
             let attributes = try attributes(of: root)
-            let entry = PayloadEntry(url: root, relativePath: payload.root.lastPathComponent, kind: .file, size: size(in: attributes), device: device(in: attributes))
+            let entry = PayloadEntry(url: root, relativePath: payload.root.lastPathComponent, kind: .file, size: size(in: attributes), device: device(in: attributes), inode: inode(in: attributes))
             return PayloadListing(origin: origin, entries: [entry])
         }
         var entries: [PayloadEntry] = []
@@ -81,7 +81,7 @@ public struct PayloadWalker: Sendable {
         } catch let error as DirectoryNamesError {
             throw error
         } catch {
-            return try unlessVanished(directory, origin: origin)
+            return try unlessVanished(directory, origin: origin, error: error)
         }
     }
 
@@ -91,7 +91,7 @@ public struct PayloadWalker: Sendable {
         do {
             attributes = try self.attributes(of: url)
         } catch {
-            return try unlessVanished(url, origin: origin)
+            return try unlessVanished(url, origin: origin, error: error)
         }
         let kind: PayloadEntry.Kind
         switch attributes[.type] as? FileAttributeType {
@@ -100,12 +100,13 @@ public struct PayloadWalker: Sendable {
         case FileAttributeType.typeRegular: kind = .file
         default: return nil
         }
-        return PayloadEntry(url: url, relativePath: relativePath, kind: kind, size: kind == .file ? size(in: attributes) : 0, device: device(in: attributes))
+        return PayloadEntry(url: url, relativePath: relativePath, kind: kind, size: kind == .file ? size(in: attributes) : 0, device: device(in: attributes), inode: inode(in: attributes))
     }
 
-    /// Nothing for an item that vanished; an error when it cannot be read or its disk is gone.
-    private func unlessVanished<Item>(_ url: URL, origin: PayloadOrigin) throws -> Item? {
-        switch origin.loss(of: url) {
+    /// Nothing for an item that vanished (was not found when it was read, even if it is back by now); an error when it
+    /// cannot be read or its disk is gone.
+    private func unlessVanished<Item>(_ url: URL, origin: PayloadOrigin, error: Error) throws -> Item? {
+        switch PayloadLoss.isNotFound(error) ? origin.lossOfMissing(url) : origin.loss(of: url) {
         case .vanished: return nil
         case let .gone(error): throw error
         case nil: throw SourceError.unreadable(url.path)
@@ -118,6 +119,10 @@ public struct PayloadWalker: Sendable {
 
     private func device(in attributes: [FileAttributeKey: Any]) -> dev_t {
         (attributes[.systemNumber] as? NSNumber)?.int32Value ?? 0
+    }
+
+    private func inode(in attributes: [FileAttributeKey: Any]) -> ino_t {
+        (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
     }
 
     private func isSymbolicLink(_ url: URL) throws -> Bool {

@@ -168,6 +168,9 @@ public struct BackupEngine: Sendable {
     }
 
     /// `written`: what the first copy written in this run holds, once a destination that knows it has written one.
+    /// The source's unfinished attempts there are removed first, so their space is free for this copy. A failed cleanup is
+    /// told with the delivery and does not stop the write; unless only earlier deletions could not be finished, nothing is
+    /// pruned then.
     private func deliver(
         _ payload: Payload,
         manifest: SnapshotManifest,
@@ -176,6 +179,14 @@ public struct BackupEngine: Sendable {
         to store: any DestinationStore,
         written: inout PayloadStats?
     ) async -> DeliveryOutcome {
+        var problems: [String] = []
+        var prunes = true
+        do {
+            try await store.removeIncomplete(sourceSlug: source.slug, sourceId: source.id)
+        } catch {
+            problems.append(error.localizedDescription)
+            if case DestinationError.unfinishedDeletions = error {} else { prunes = false }
+        }
         do {
             let existing = try await store.copies(of: source)
             if !existing.contains(where: { $0.name == snapshotName }) {
@@ -191,15 +202,9 @@ public struct BackupEngine: Sendable {
         } catch {
             return .failed(message: error.localizedDescription)
         }
-        var problems: [String] = []
+        guard prunes else { return .delivered(pruned: 0, warning: cleanupWarning(problems)) }
         let doomed: [Snapshot]
         do {
-            do {
-                try await store.removeIncomplete(sourceSlug: source.slug)
-            } catch let error as DestinationError {
-                guard case .unfinishedDeletions = error else { throw error }
-                problems.append(error.localizedDescription)
-            }
             let snapshots = try await store.copies(of: source)
             doomed = retention.snapshotsToDelete(snapshots, rules: source.retention).filter { $0.name != snapshotName }
         } catch {
