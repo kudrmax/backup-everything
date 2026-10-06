@@ -101,3 +101,28 @@ final class FakeDisks: DiskLocating, @unchecked Sendable {
         location
     }
 }
+
+/// Stands in for macOS: the folders of unplugged disks, by path; everything else is on the system disk.
+final class UnpluggedDisks: DiskLocating, @unchecked Sendable {
+    static let disk = DiskIdentity(uuid: "33333333-CCCC-4CCC-8CCC-333333333333", name: "TEST-BE-OFF")
+    private let lock = NSLock()
+    private var folders: Set<String> = []
+
+    func unplug(_ path: String) {
+        lock.withLock { _ = folders.insert(path) }
+    }
+
+    func location(of url: URL) -> DiskLocation {
+        lock.withLock { folders.contains(url.path) } ? .notConnected : .systemDisk
+    }
+}
+
+extension ModelFixture {
+    /// A destination on a disk that is confirmed and unplugged.
+    func unpluggedDisk(_ name: String, every days: Int? = nil, on disks: UnpluggedDisks) throws -> Destination {
+        var destination = try disk(name, connected: false, every: days)
+        destination.disk = UnpluggedDisks.disk
+        if case let .localFolder(path) = destination.kind { disks.unplug(path) }
+        return destination
+    }
+}

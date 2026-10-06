@@ -134,8 +134,21 @@ struct LocalFolderDestinationTests {
         defer { temp.remove() }
         try temp.file("disk/obsidian/\(name)/a.md", "alpha")
         try temp.file("disk/obsidian/\(name)/sub/b.md", "abc")
-        let files = ["disk/obsidian/\(name)/a.md", "disk/obsidian/\(name)/sub/b.md"]
-        #expect(try await destination.usedBytes() == temp.allocatedBytes(files[0], files[1]))
+        try temp.file("disk/obsidian/\(name)/sub/._c.md", String(repeating: "c", count: 10_000))
+        let files = ["disk/obsidian/\(name)/a.md", "disk/obsidian/\(name)/sub/b.md", "disk/obsidian/\(name)/sub/._c.md"]
+        #expect(try await destination.usedBytes() == temp.allocatedBytes(files[0], files[1], files[2]))
+    }
+
+    /// The size is an estimate for showing: a folder that cannot be read is left out, not the whole measurement.
+    @Test func usedBytesLeavesOutFoldersThatCannotBeRead() async throws {
+        defer {
+            Permissions.unlockTree(temp.url)
+            temp.remove()
+        }
+        try temp.file("disk/obsidian/\(name)/a.md", "alpha")
+        try temp.file("disk/obsidian/closed/b.md", "beta")
+        #expect(chmod(temp.path("disk/obsidian/closed").path, 0o000) == 0)
+        #expect(try await destination.usedBytes() == temp.allocatedBytes("disk/obsidian/\(name)/a.md"))
     }
 
     private func storedManifest(_ slug: String = "obsidian", _ snapshotName: String? = nil) throws -> SnapshotManifest {

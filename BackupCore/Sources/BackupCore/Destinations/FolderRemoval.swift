@@ -17,6 +17,8 @@ enum FolderRemovalError: Error, Equatable, LocalizedError {
 /// to its owner. Links are never followed. A file with other names (hard links, say to a person's file) is never changed:
 /// only its name here is removed, which loses nothing. exFAT lists names decomposed (“й” as “и” and a breve) but deletes
 /// a name only in the form it was stored in, so a listed item that is not found when deleted is deleted under the other form.
+/// Disks without extended attributes of their own delete the “._x” companion together with “x”, so an item inside a folder
+/// that is gone by the time it is reached is already deleted.
 struct FolderRemoval {
     private enum Item {
         case folder
@@ -27,22 +29,27 @@ struct FolderRemoval {
     private let lockFlags = UInt32(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND)
 
     func remove(_ path: String) throws {
-        switch try unlockItem(path) {
+        try remove(path, isListed: false)
+    }
+
+    private func remove(_ path: String, isListed: Bool) throws {
+        guard let item = try unlockItem(path, isListed: isListed) else { return }
+        switch item {
         case .folder:
-            for name in try FileManager.default.contentsOfDirectory(atPath: path) {
-                try remove(path + "/" + name)
+            for name in try DirectoryNames.of(path) {
+                try remove(path + "/" + name, isListed: true)
             }
             try check(delete(path, with: rmdir))
         case .linkedFile:
-            try removeName(path)
+            try removeName(path, isListed: isListed)
         case .other:
-            try check(delete(path, with: unlink))
+            try check(delete(path, with: unlink), isListed: isListed)
         }
     }
 
     /// Lifts what keeps this one item from being renamed or deleted.
     func unlock(_ path: String) throws {
-        _ = try unlockItem(path)
+        _ = try unlockItem(path, isListed: false)
     }
 
     /// The item goes to the Trash as it is; only when it cannot, it is unlocked whole and moved again.
@@ -56,21 +63,25 @@ struct FolderRemoval {
     }
 
     private func unlockTree(_ path: String) throws {
-        switch try unlockItem(path) {
+        switch try unlockItem(path, isListed: false) {
         case .folder:
-            for name in try FileManager.default.contentsOfDirectory(atPath: path) {
+            for name in try DirectoryNames.of(path) {
                 try unlockTree(path + "/" + name)
             }
         case .linkedFile:
-            try removeName(path)
-        case .other:
+            try removeName(path, isListed: false)
+        case .other, nil:
             break
         }
     }
 
-    private func unlockItem(_ path: String) throws -> Item {
+    /// Nil for a listed item that is already gone.
+    private func unlockItem(_ path: String, isListed: Bool) throws -> Item? {
         var info = stat()
-        guard lstat(path, &info) == 0 else { throw currentError() }
+        guard lstat(path, &info) == 0 else {
+            if isListed && errno == ENOENT { return nil }
+            throw currentError()
+        }
         let type = info.st_mode & S_IFMT
         if type == S_IFREG && info.st_nlink > 1 { return .linkedFile }
         if info.st_flags & lockFlags != 0 && lchflags(path, info.st_flags & ~lockFlags) != 0 { throw currentError() }
@@ -83,10 +94,10 @@ struct FolderRemoval {
         return .folder
     }
 
-    private func removeName(_ path: String) throws {
+    private func removeName(_ path: String, isListed: Bool) throws {
         let failure = delete(path, with: unlink)
         if failure == EPERM || failure == EACCES { throw FolderRemovalError.protectedLinkedFile(path) }
-        try check(failure)
+        try check(failure, isListed: isListed)
     }
 
     /// Deletes an item that was just found and returns the error code, 0 on success.
@@ -106,8 +117,8 @@ struct FolderRemoval {
             .map { String(path[..<cut]) + $0 }
     }
 
-    private func check(_ failure: Int32) throws {
-        guard failure != 0 else { return }
+    private func check(_ failure: Int32, isListed: Bool = false) throws {
+        guard failure != 0, !(isListed && failure == ENOENT) else { return }
         throw POSIXError(POSIXErrorCode(rawValue: failure) ?? .EIO)
     }
 

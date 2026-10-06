@@ -12,6 +12,7 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case unfinishedDeletions([String])
     case diskNotConfirmed
     case otherDisk(name: String)
+    case diskUnidentified(name: String)
 
     public var errorDescription: String? {
         switch self {
@@ -35,6 +36,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "The disk of this destination is not confirmed yet. Nothing was read, written or deleted. Press “Read from connected disk” in its settings."
         case let .otherDisk(name):
             "Another disk named “\(name)” is connected instead of this destination’s disk. Nothing was read, written or deleted there."
+        case let .diskUnidentified(name):
+            "Could not read the ID of the disk “\(name)”, so it is not known whether it is this destination’s disk. Nothing was read, written or deleted there. The app checks again on its own."
         }
     }
 }

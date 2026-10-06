@@ -25,6 +25,18 @@ struct PayloadWalkerTests {
         #expect(walker.stats(of: entries) == PayloadStats(fileCount: 3, totalBytes: 8))
     }
 
+    /// Foundation leaves names starting with “._” out of folder listings; on APFS they are ordinary files of the person.
+    @Test func namesStartingWithDotUnderscoreAreFilesOfThePerson() throws {
+        defer { temp.remove() }
+        try temp.file("vault/notes.md", "a")
+        try temp.file("vault/._notes.md", "user data")
+        try temp.file("vault/._only", "b")
+        try temp.file("vault/._folder/._deeper", "c")
+
+        let entries = try walker.entries(of: Payload(root: temp.path("vault"), collectedAt: date))
+        #expect(entries.map(\.relativePath) == ["._folder", "._folder/._deeper", "._notes.md", "._only", "notes.md"])
+    }
+
     @Test func appliesExcludesToNamesAndPathsIncludingCyrillic() throws {
         defer { temp.remove() }
         try temp.file("vault/keep.md")

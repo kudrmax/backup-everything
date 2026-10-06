@@ -106,8 +106,8 @@ public struct ManualExportInbox: Sendable {
         guard fileManager.fileExists(atPath: sourceDirectory(sourceId).path) else { return }
         if toTrash, let package = pendingPackage(for: sourceId) {
             try removal.unlock(package.directory.path)
-            for file in try fileManager.contentsOfDirectory(at: package.directory, includingPropertiesForKeys: nil) {
-                try removal.trash(file, using: trash)
+            for name in try DirectoryNames.of(package.directory.path) {
+                try removal.trash(package.directory.appendingPathComponent(name), using: trash)
             }
         }
         try removal.remove(sourceDirectory(sourceId).path)

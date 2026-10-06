@@ -224,8 +224,9 @@ struct OverviewPresentationTests {
 @MainActor
 struct DestinationDetailsTests {
     @Test func tipSaysWhetherTheDiskIsNeededAndWhatWaits() async throws {
-        let fixture = try ModelFixture()
-        let hdd = try fixture.disk("HDD", connected: false, every: 30)
+        let disks = UnpluggedDisks()
+        let fixture = try ModelFixture(disks: disks)
+        let hdd = try fixture.unpluggedDisk("HDD", every: 30, on: disks)
         let ssd = try fixture.disk("SSD")
         let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [hdd, ssd])
         let photos = fixture.source("Photos", steps: [.folder("~/Photos")], to: [hdd])

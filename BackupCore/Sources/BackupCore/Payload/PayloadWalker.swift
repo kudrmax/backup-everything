@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct PayloadWalker: Sendable {
@@ -71,10 +72,12 @@ public struct PayloadWalker: Sendable {
         return true
     }
 
-    /// The names in a folder; nil when the folder vanished after its parent was listed (live folders, caches).
+    /// The names in a folder, without companions that only hold attributes of another item; nil when the folder vanished after its parent was listed (live folders, caches).
     func names(in directory: URL, origin: PayloadOrigin) throws -> [String]? {
         do {
-            return try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            let names = try DirectoryNames.of(directory.path)
+            guard access(directory.path, X_OK) == 0 else { throw POSIXError(.EACCES) }
+            return AppleDoubleCompanions.leftOut(of: names, in: directory.path)
         } catch {
             return try unlessVanished(directory, origin: origin)
         }

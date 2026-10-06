@@ -29,13 +29,17 @@ enum SourceLinks {
         return nil
     }
 
-    static func copies(of source: Source, config: Config, state: AppState) -> [CopyPlace] {
+    /// `disks`: whether the disk of each destination is the confirmed one; a copy elsewhere is not opened.
+    static func copies(of source: Source, config: Config, state: AppState, disks: [UUID: DiskCheck] = [:]) -> [CopyPlace] {
         config.destinations(of: source).map { destination in
             guard case let .localFolder(path) = destination.kind else {
                 return CopyPlace(destination: destination, folder: nil, unavailableReason: "The copy is in the cloud and can’t be opened in Finder")
             }
             guard let snapshot = state.lastDeliveredSnapshot(sourceId: source.id, destinationId: destination.id) else {
                 return CopyPlace(destination: destination, folder: nil, unavailableReason: "No copies yet")
+            }
+            if let reason = DiskTexts.copyUnavailable(disks[destination.id]) {
+                return CopyPlace(destination: destination, folder: nil, unavailableReason: reason)
             }
             let folder = AppPaths.expand(path).appendingPathComponent(source.slug).appendingPathComponent(snapshot)
             return CopyPlace(destination: destination, folder: folder, unavailableReason: nil)

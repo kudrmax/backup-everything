@@ -103,6 +103,56 @@ struct ForeignFileSystemTests {
         #expect(!FileManager.default.fileExists(atPath: staging.path))
     }
 
+    // MARK: AppleDouble companions
+
+    /// Without extended attributes of their own, these disks keep those of “x” in a companion file “._x”: it is metadata that
+    /// travels with “x”, not a file of the person. A “._” name without its “x” is a file like any other.
+    @Test(arguments: [DiskImage.Format.exFAT, .fat32])
+    func appleDoubleCompanionsOnASourceDiskTravelAsAttributes(_ format: DiskImage.Format) async throws {
+        defer { Permissions.removeTree(temp.url) }
+        let disk = try DiskImage(format)
+        let vault = disk.root.appendingPathComponent("vault")
+        let notes = vault.appendingPathComponent("notes")
+        try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+        let note = notes.appendingPathComponent("b.md")
+        try Data("beta".utf8).write(to: note)
+        try Data("orphan".utf8).write(to: vault.appendingPathComponent("._orphan"))
+        try Permissions.setAttribute(tags, value: "Red", on: note)
+        try Permissions.setAttribute(tags, value: "Blue", on: notes)
+        #expect(Set(try DirectoryNames.of(notes.path)).isSuperset(of: ["b.md", "._b.md"]), "the companion is a file of its own here")
+        #expect(Set(try DirectoryNames.of(vault.path)).isSuperset(of: ["notes", "._notes", "._orphan"]))
+        let payload = Payload(root: vault, collectedAt: first)
+
+        #expect(try PayloadWalker().entries(of: payload).map(\.relativePath) == ["._orphan", "notes", "notes/b.md"])
+
+        let apfs = LocalFolderDestination(root: try temp.directory("ssd"), naming: Fixtures.naming)
+        try await apfs.write(payload, manifest: manifest(first), sourceSlug: "obsidian", snapshotName: name(first), reusingStoredFiles: true)
+        let stored = temp.path("ssd/obsidian/\(name(first))")
+        #expect(try DirectoryNames.of(stored.appendingPathComponent("notes").path) == ["b.md"])
+        #expect(try Permissions.attribute(tags, of: stored.appendingPathComponent("notes/b.md")) == "Red")
+        #expect(try Permissions.attribute(tags, of: stored.appendingPathComponent("notes")) == "Blue")
+        #expect(try String(contentsOf: stored.appendingPathComponent("._orphan"), encoding: .utf8) == "orphan")
+    }
+
+    @Test(arguments: [DiskImage.Format.exFAT, .fat32])
+    func foldersWithAppleDoubleCompanionsAreRemoved(_ format: DiskImage.Format) throws {
+        let disk = try DiskImage(format)
+        let tree = disk.root.appendingPathComponent("tree")
+        let sub = tree.appendingPathComponent("sub")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        for name in ["a.txt", "z.txt", "m.txt"] {
+            let file = sub.appendingPathComponent(name)
+            try Data("x".utf8).write(to: file)
+            try Permissions.setAttribute(tags, value: "Red", on: file)
+        }
+        try Permissions.setAttribute(tags, value: "Red", on: sub)
+        try Data("orphan".utf8).write(to: sub.appendingPathComponent("._orphan"))
+
+        try FolderRemoval().remove(tree.path)
+
+        #expect(!FileManager.default.fileExists(atPath: tree.path))
+    }
+
     // MARK: Names with letters beyond ASCII
 
     /// Precomposed names, as people type them: “й” and “é” as one character each.

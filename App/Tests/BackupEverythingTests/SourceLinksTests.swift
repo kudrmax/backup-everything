@@ -34,4 +34,24 @@ struct SourceLinksTests {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         #expect(SourceLinks.copies(of: anki, config: config, state: state).first?.folder?.path == "\(home)/Files/Backups/anki/2026-10-01_012056")
     }
+
+    /// A folder of the same path on another disk, or on no disk at all, is not the copy.
+    @Test(arguments: [
+        (DiskCheck.notConnected, "The disk isn’t connected"),
+        (.notConfirmed(connected: nil), "The disk isn’t confirmed"),
+        (.otherDisk(DiskIdentity(uuid: "22222222-BBBB-4BBB-8BBB-222222222222", name: "TEST-BE-B")), "Another disk is connected"),
+        (.unidentified(name: "TEST-BE-B"), "The disk’s ID can’t be read"),
+    ])
+    func copyOnADiskThatIsNotConfirmedHereCannotBeOpened(check: DiskCheck, reason: String) {
+        let disk = Destination(name: "HDD", kind: .localFolder(path: "/Volumes/TEST-BE-A/Backups"))
+        let anki = source([.folder("~/Anki")], to: [disk])
+        var state = AppState()
+        state.lastDelivered[AppState.deliveryKey(sourceId: anki.id, destinationId: disk.id)] = "2026-10-01_012056"
+        let config = Config(sources: [anki], destinations: [disk])
+
+        #expect(SourceLinks.copies(of: anki, config: config, state: state, disks: [disk.id: check]) == [
+            CopyPlace(destination: disk, folder: nil, unavailableReason: reason),
+        ])
+        #expect(SourceLinks.copies(of: anki, config: config, state: state, disks: [disk.id: .confirmed]).first?.folder != nil)
+    }
 }

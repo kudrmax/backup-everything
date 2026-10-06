@@ -72,6 +72,12 @@ struct DiskIdentityTests {
         #expect(DiskCheck.of(.connected(stranger), expected: mine).connectedDisk == stranger)
         #expect(DiskCheck.of(.connected(mine), expected: nil).connectedDisk == mine)
         #expect(DiskCheck.of(.connected(mine), expected: mine).connectedDisk == nil)
+        for expected in [nil, mine, unreadable] {
+            #expect(DiskCheck.of(.unidentified(name: "TEST-BE-DISK"), expected: expected) == .unidentified(name: "TEST-BE-DISK"))
+        }
+        #expect(DiskCheck.of(.unidentified(name: "TEST-BE-DISK"), expected: nil).connectedDisk == nil)
+        #expect(!DiskCheck.unidentified(name: "TEST-BE-DISK").allowsAccess)
+        #expect(!DiskCheck.notConnected.allowsAccess)
     }
 
     @Test func folderOnTheConfirmedDiskIsUsed() async throws {
@@ -99,18 +105,22 @@ struct DiskIdentityTests {
         #expect(temp.exists("disk/obsidian/\(name)/a.md"))
     }
 
-    /// Whatever is there stays untouched and unread: not written, not deleted, not listed, not measured.
+    /// Whatever is there stays untouched and unread: not written, not deleted, not listed, not measured. A folder left in
+    /// `/Volumes` on the system disk while the disk is away is refused too, even when the caller did not ask `isAvailable` first.
     @Test(arguments: [
-        (DiskIdentity?.none, DestinationError.diskNotConfirmed),
-        (DiskIdentity(uuid: "11111111-AAAA-4AAA-8AAA-111111111111", name: "TEST-BE-DISK"), DestinationError.otherDisk(name: "TEST-BE-DISK")),
-        (DiskIdentity(uuid: nil, name: "TEST-BE-DISK"), DestinationError.otherDisk(name: "TEST-BE-DISK")),
+        (DiskIdentity?.none, DiskLocation.connected(DiskIdentity(uuid: "22222222-BBBB-4BBB-8BBB-222222222222", name: "TEST-BE-DISK")), DestinationError.diskNotConfirmed),
+        (DiskIdentity(uuid: "11111111-AAAA-4AAA-8AAA-111111111111", name: "TEST-BE-DISK"), .connected(DiskIdentity(uuid: "22222222-BBBB-4BBB-8BBB-222222222222", name: "TEST-BE-DISK")), .otherDisk(name: "TEST-BE-DISK")),
+        (DiskIdentity(uuid: nil, name: "TEST-BE-DISK"), .connected(DiskIdentity(uuid: "22222222-BBBB-4BBB-8BBB-222222222222", name: "TEST-BE-DISK")), .otherDisk(name: "TEST-BE-DISK")),
+        (DiskIdentity(uuid: nil, name: "TEST-BE-DISK"), .unidentified(name: "TEST-BE-DISK"), .diskUnidentified(name: "TEST-BE-DISK")),
+        (DiskIdentity(uuid: "11111111-AAAA-4AAA-8AAA-111111111111", name: "TEST-BE-DISK"), .notConnected, .unavailable),
+        (DiskIdentity?.none, .notConnected, .diskNotConfirmed),
     ])
-    func folderOnAnUnconfirmedOrOtherDiskIsRefusedEverything(expected: DiskIdentity?, refusal: DestinationError) async throws {
+    func folderOnAnUnconfirmedOrOtherDiskIsRefusedEverything(expected: DiskIdentity?, location: DiskLocation, refusal: DestinationError) async throws {
         defer { temp.remove() }
         let old = Fixtures.snapshot("2026-09-20 10:00:00")
         try temp.file("disk/obsidian/\(old.name)/_snapshot.json", "{}")
         try temp.file("disk/obsidian/2026-09-21_100000/_unfinished")
-        let destination = destination(expecting: expected, on: .connected(stranger))
+        let destination = destination(expecting: expected, on: location)
 
         #expect(await destination.isAvailable() == false)
         #expect(await destination.canShareUnchangedFiles() == nil)
@@ -122,6 +132,12 @@ struct DiskIdentityTests {
         await #expect(throws: refusal) { try await destination.materialize(old, sourceSlug: "obsidian", scratch: temp.path("scratch")) }
         await #expect(throws: refusal) { try await destination.usedBytes() }
         #expect(temp.names(in: "disk/obsidian") == ["2026-09-20_100000", "2026-09-21_100000"])
+    }
+
+    @Test func diskWhoseIdentityCannotBeReadIsExplained() {
+        defer { temp.remove() }
+        #expect(DestinationError.diskUnidentified(name: "TEST-BE-DISK").localizedDescription
+            == "Could not read the ID of the disk “TEST-BE-DISK”, so it is not known whether it is this destination’s disk. Nothing was read, written or deleted there. The app checks again on its own.")
     }
 
     @Test func unconfirmedDiskThatIsNotConnectedIsUnavailable() async throws {

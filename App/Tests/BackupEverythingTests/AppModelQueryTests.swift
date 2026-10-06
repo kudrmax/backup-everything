@@ -178,8 +178,9 @@ struct AppModelQueryTests {
     }
 
     @Test func disconnectedDiskIsShownAsOffline() async throws {
-        let fixture = try ModelFixture()
-        let hdd = try fixture.disk("HDD", connected: false)
+        let disks = UnpluggedDisks()
+        let fixture = try ModelFixture(disks: disks)
+        let hdd = try fixture.unpluggedDisk("HDD", on: disks)
         let ssd = try fixture.disk("SSD")
         try await fixture.use(Config(destinations: [hdd, ssd]))
         let model = fixture.model

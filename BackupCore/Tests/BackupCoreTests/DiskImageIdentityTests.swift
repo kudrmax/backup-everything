@@ -27,6 +27,12 @@ struct DiskImageIdentityTests {
         return disk
     }
 
+    private struct FailingVolumeIdentities: VolumeIdentityReading {
+        func identity(ofVolumeAt mountPoint: URL) throws -> DiskIdentity {
+            throw DiskIdentityError.unreadable
+        }
+    }
+
     private func connectedDisk() throws -> DiskIdentity {
         guard case let .connected(identity) = disks.location(of: backups) else { throw DestinationError.unavailable }
         return identity
@@ -56,8 +62,9 @@ struct DiskImageIdentityTests {
         ((try? FileManager.default.contentsOfDirectory(atPath: backups.appendingPathComponent("obsidian").path)) ?? []).sorted()
     }
 
-    @Test(arguments: [DiskImage.Format.apfs, .exFAT])
-    func connectedDiskIsRecognisedByItsVolumeUUID(_ format: DiskImage.Format) throws {
+    /// FAT32 reports a new Volume UUID to Foundation on every mount; Disk Arbitration reads the one made from its serial number.
+    @Test(arguments: [DiskImage.Format.apfs, .exFAT, .fat32])
+    func connectedDiskIsRecognisedByItsVolumeUUIDAfterEveryReconnect(_ format: DiskImage.Format) throws {
         defer { temp.remove() }
         let disk = try disk(format)
         defer { disk.detach() }
@@ -65,13 +72,40 @@ struct DiskImageIdentityTests {
         #expect(identity.name == volumeName)
         #expect(identity.uuid.flatMap(UUID.init(uuidString:)) != nil)
 
-        disk.detach()
-        #expect(disks.location(of: backups) == .notConnected)
-        try disk.attach()
-        #expect(try connectedDisk() == identity)
+        for _ in 0..<3 {
+            disk.detach()
+            #expect(disks.location(of: backups) == .notConnected)
+            try disk.attach()
+            #expect(try connectedDisk() == identity)
+        }
     }
 
+    /// Disks confirmed by earlier versions, which read the UUID through Foundation, stay confirmed.
     @Test(arguments: [DiskImage.Format.apfs, .exFAT])
+    func identityIsTheOneEarlierVersionsStored(_ format: DiskImage.Format) throws {
+        defer { temp.remove() }
+        let disk = try disk(format)
+        defer { disk.detach() }
+        let stored = try mountPoint.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString
+        #expect(stored != nil)
+        #expect(try connectedDisk().uuid == stored)
+    }
+
+    @Test func diskWhoseIdentityCannotBeReadIsNeitherAnotherDiskNorOneWithoutID() throws {
+        defer { temp.remove() }
+        let disk = try disk(.apfs)
+        defer { disk.detach() }
+        let unreadable = SystemDisks(mounts: VolumeMounts(volumesRoot: temp.path("Volumes").path), volumes: FailingVolumeIdentities())
+        #expect(unreadable.location(of: backups) == .unidentified(name: volumeName))
+        #expect(DiskCheck.of(unreadable.location(of: backups), expected: DiskIdentity(uuid: nil, name: volumeName)) == .unidentified(name: volumeName))
+    }
+
+    @Test func folderThatIsNotAMountedVolumeHasNoIdentity() throws {
+        defer { temp.remove() }
+        #expect(throws: DiskIdentityError.unreadable) { try DiskArbitrationVolumes().identity(ofVolumeAt: temp.path("vault")) }
+    }
+
+    @Test(arguments: [DiskImage.Format.apfs, .exFAT, .fat32])
     func diskIsUsedOnlyOnceConfirmedAndOnlyThatDisk(_ format: DiskImage.Format) async throws {
         defer { temp.remove() }
         let first = try disk(format)

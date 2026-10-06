@@ -1,27 +1,41 @@
 import Darwin
 import Foundation
 
-/// How much disk space a destination folder really takes, as the file system reports it: data shared by APFS clones is counted once.
-struct DestinationUsage {
-    func bytes(under root: URL) throws -> Int64 {
-        guard let enumerator = FileManager.default.enumerator(atPath: root.path) else {
-            throw DestinationError.unavailable
-        }
+/// How much disk space a folder really takes, as the file system reports it: data shared by APFS clones is counted once.
+public struct DestinationUsage {
+    public init() {}
+
+    public func bytes(under root: URL) throws -> Int64 {
+        guard (try? DirectoryNames.of(root.path)) != nil else { throw DestinationError.unavailable }
         var total: Int64 = 0
         var countedClones: Set<UInt64> = []
-        while let relativePath = enumerator.nextObject() as? String {
-            guard enumerator.fileAttributes?[.type] as? FileAttributeType == .typeRegular,
-                  let space = FileSpace(path: root.path + "/" + relativePath) else { continue }
-            if let clone = space.clone {
-                total += clone.privateBytes
-                if countedClones.insert(clone.id).inserted {
-                    total += space.allocatedBytes - clone.privateBytes
+        add(root.path, to: &total, countedClones: &countedClones)
+        return total
+    }
+
+    /// Folders that cannot be read are skipped: the size is an estimate for showing.
+    private func add(_ directory: String, to total: inout Int64, countedClones: inout Set<UInt64>) {
+        for name in (try? DirectoryNames.of(directory)) ?? [] {
+            let path = directory + "/" + name
+            var info = stat()
+            guard lstat(path, &info) == 0 else { continue }
+            switch info.st_mode & S_IFMT {
+            case S_IFDIR:
+                add(path, to: &total, countedClones: &countedClones)
+            case S_IFREG:
+                guard let space = FileSpace(path: path) else { continue }
+                if let clone = space.clone {
+                    total += clone.privateBytes
+                    if countedClones.insert(clone.id).inserted {
+                        total += space.allocatedBytes - clone.privateBytes
+                    }
+                } else {
+                    total += space.allocatedBytes
                 }
-            } else {
-                total += space.allocatedBytes
+            default:
+                continue
             }
         }
-        return total
     }
 }
 

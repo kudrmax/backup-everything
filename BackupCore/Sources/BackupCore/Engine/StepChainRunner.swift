@@ -167,7 +167,7 @@ public struct StepChainRunner: Sendable {
     }
 
     private func contents(of directory: URL) -> Set<String> {
-        Set((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+        Set((try? DirectoryNames.of(directory.path)) ?? [])
     }
 
     /// A step after the device failed and the device is gone: it was disconnected mid-copy. This is waiting, not an error.
@@ -191,7 +191,7 @@ public struct StepChainRunner: Sendable {
     }
 
     private func assemble(_ sourceId: UUID, chain: ChainState, folders: WorkFolders, at date: Date) throws -> PendingPackage {
-        let produced = (try? FileManager.default.contentsOfDirectory(atPath: folders.output.path)) ?? []
+        let produced = (try? DirectoryNames.of(folders.output.path)) ?? []
         if produced.isEmpty, let stored = inbox.pendingPackage(for: sourceId), isProduct(stored, of: chain) {
             try? discard(sourceId: sourceId)
             return stored

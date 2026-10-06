@@ -324,10 +324,10 @@ struct SourceRow: View {
 
     @ViewBuilder
     private var copyAction: some View {
-        let places = SourceLinks.copies(of: source, config: model.config, state: model.state)
+        let places = SourceLinks.copies(of: source, config: model.config, state: model.state, disks: model.diskChecks)
         if places.count == 1, let place = places.first {
             action("Open copy", symbol: "archivebox") {
-                if let folder = place.folder { model.reveal(folder) }
+                Task { await model.openCopy(place) }
             }
             .disabled(place.folder == nil)
             .hoverTip(place.tip)
@@ -335,7 +335,7 @@ struct SourceRow: View {
             Menu {
                 ForEach(places) { place in
                     Button(place.menuTitle) {
-                        if let folder = place.folder { model.reveal(folder) }
+                        Task { await model.openCopy(place) }
                     }
                     .disabled(place.folder == nil)
                 }
@@ -472,7 +472,7 @@ struct DestinationStrip: View {
         switch condition {
         case .available: AnyShapeStyle(.secondary)
         case .offline: AnyShapeStyle(.tertiary)
-        case .needsConnection, .unreachable, .otherDisk, .diskNotConfirmed: AnyShapeStyle(.orange)
+        case .needsConnection, .unreachable, .otherDisk, .diskNotConfirmed, .diskUnidentified, .folderMissing: AnyShapeStyle(.orange)
         }
     }
 }

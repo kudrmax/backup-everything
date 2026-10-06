@@ -144,12 +144,15 @@ public struct LocalFolderDestination: DestinationStore {
         return cloning.isSupported(at: root)
     }
 
-    /// Checked before anything is read, written or deleted, not only by `isAvailable`: a disk can be swapped between the two.
+    /// Checked before anything is read, written or deleted, not only by `isAvailable`: a disk can be swapped between the two,
+    /// and a folder left in `/Volumes` while the disk is away lies on the system disk.
     private func requireOwnDisk() throws {
         switch currentDiskCheck() {
-        case .notNeeded, .confirmed, .notConnected: return
+        case .notNeeded, .confirmed: return
+        case .notConnected: throw DestinationError.unavailable
         case .notConfirmed: throw DestinationError.diskNotConfirmed
         case let .otherDisk(disk): throw DestinationError.otherDisk(name: disk.name)
+        case let .unidentified(name): throw DestinationError.diskUnidentified(name: name)
         }
     }
 

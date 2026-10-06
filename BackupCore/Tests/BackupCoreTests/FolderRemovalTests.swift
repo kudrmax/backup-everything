@@ -27,6 +27,17 @@ struct FolderRemovalTests {
         try FileManager.default.attributesOfItem(atPath: url.path)[.immutable] as? Bool == true
     }
 
+    /// Foundation does not list names starting with “._”; left behind, they would keep the folder from being deleted.
+    @Test func filesNamedLikeAppleDoubleCompanionsAreRemovedToo() throws {
+        defer { Permissions.removeTree(temp.url) }
+        try Data("payload".utf8).write(to: try temp.directory("staging/run/output").appendingPathComponent("._resource"))
+        try Permissions.lock(temp.path("staging/run/output/._resource"))
+
+        try FolderRemoval().remove(temp.path("staging").path)
+
+        #expect(!temp.exists("staging"))
+    }
+
     @Test func removingAWorkFolderLeavesALinkedFileAsItIs() throws {
         defer { Permissions.removeTree(temp.url) }
         let personal = try temp.file("Documents/contract.pdf", "signed")

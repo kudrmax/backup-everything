@@ -135,8 +135,9 @@ struct ManualExportInboxTests {
         #expect(!temp.exists(base))
 
         try temp.file("\(base)/2026-09-27_100000/takeout.zip", "zip")
+        try temp.file("\(base)/2026-09-27_100000/._takeout.zip", "a file of the person too")
         try inbox.removePackage(for: sourceId, toTrash: true)
-        #expect(temp.names(in: "trash") == ["takeout.zip"])
+        #expect(try DirectoryNames.of(temp.path("trash").path).sorted() == ["._takeout.zip", "takeout.zip"])
         #expect(inbox.sourceIds().isEmpty)
     }
 }

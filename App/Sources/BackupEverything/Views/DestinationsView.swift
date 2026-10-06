@@ -177,16 +177,27 @@ struct DestinationEditor: View {
         let location = draft.path.isEmpty ? .systemDisk : model.diskLocation(ofFolder: draft.path)
         if location != .systemDisk {
             SettingsRow(title: "Disk", tip: DiskTexts.rowTip) {
-                Text(DiskTexts.identity(draft.disk))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(DiskTexts.name(draft.disk))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let id = DiskTexts.id(draft.disk) {
+                        Text(id)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .hoverTip(id)
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .layoutPriority(-1)
                 Button(DiskTexts.readButton) {
-                    if case let .connected(disk) = model.diskLocation(ofFolder: draft.path) { draft.disk = disk }
+                    if let disk = model.readConnectedDisk(atFolder: draft.path) { draft.disk = disk }
                 }
                 .pointing()
+                .fixedSize()
                 .disabled(location == .notConnected)
             }
         }
@@ -245,7 +256,7 @@ struct DiskConfirmation: View {
 
     var body: some View {
         let condition = model.condition(of: destination)
-        if let explanation = condition.diskExplanation(destinationName: destination.name) {
+        if let explanation = condition.explanation(destinationName: destination.name) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(explanation)
                     .font(.callout)

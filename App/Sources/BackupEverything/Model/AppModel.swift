@@ -26,6 +26,8 @@ final class AppModel {
     private(set) var unavailableDestinations: Set<UUID> = []
     /// Folders on external disks: whether the disk connected there is the confirmed one.
     private(set) var diskChecks: [UUID: DiskCheck] = [:]
+    /// Folders that are not there although their disk is.
+    private(set) var missingFolders: [UUID: MissingFolder] = [:]
     /// How much space the copies take in each destination; measured in the background while no backups run.
     /// For a disconnected disk, the size from the last time it was connected.
     private(set) var destinationUsage: [UUID: Int64]
@@ -259,13 +261,28 @@ final class AppModel {
     @discardableResult
     func confirmConnectedDisk(for destination: Destination) async -> Destination? {
         var confirmed = config.destination(destination.id) ?? destination
-        guard let disk = await stores.store(for: confirmed).diskCheck().connectedDisk else { return nil }
+        let check = await stores.store(for: confirmed).diskCheck()
+        if case let .unidentified(name) = check { problem = DiskTexts.unreadable(name) }
+        guard let disk = check.connectedDisk else { return nil }
         confirmed.disk = disk
         return await save(confirmed)
     }
 
     func diskLocation(ofFolder path: String) -> DiskLocation {
         disks.location(of: AppPaths.expand(path))
+    }
+
+    /// The disk connected at the folder, to be taken as the destination’s disk; nil when there is none or its ID could not be read.
+    func readConnectedDisk(atFolder path: String) -> DiskIdentity? {
+        switch diskLocation(ofFolder: path) {
+        case let .connected(disk):
+            return disk
+        case let .unidentified(name):
+            problem = DiskTexts.unreadable(name)
+            return nil
+        case .systemDisk, .notConnected:
+            return nil
+        }
     }
 
     @discardableResult
@@ -333,7 +350,7 @@ final class AppModel {
     }
 
     var menuLines: [MenuLine] {
-        MenuLines.of(config: config, state: state, report: report, unavailable: unavailableDestinations, disks: diskChecks)
+        MenuLines.of(config: config, state: state, report: report, unavailable: unavailableDestinations, disks: diskChecks, missingFolders: missingFolders)
     }
 
     var latestBackup: Date? {
@@ -383,7 +400,9 @@ final class AppModel {
     }
 
     func condition(of destination: Destination) -> DestinationCondition {
-        DestinationCondition.of(destination.id, report: report, unavailable: unavailableDestinations, disk: diskChecks[destination.id])
+        DestinationCondition.of(
+            destination.id, report: report, unavailable: unavailableDestinations, disk: diskChecks[destination.id], missingFolder: missingFolders[destination.id]
+        )
     }
 
     func lastCaughtUp(_ destination: Destination) -> Date? {
@@ -445,6 +464,16 @@ final class AppModel {
         } else {
             finder.select(url)
         }
+    }
+
+    /// The disk is checked again right before opening: a folder of the same path on another disk is not the copy.
+    func openCopy(_ place: CopyPlace) async {
+        guard let folder = place.folder else { return }
+        if let reason = DiskTexts.copyUnavailable(await stores.store(for: place.destination).diskCheck()) {
+            problem = "Can’t open the copy in “\(place.destination.name)”: \(reason.prefix(1).lowercased() + reason.dropFirst())."
+            return
+        }
+        reveal(folder)
     }
 
     func localURL(of snapshot: Snapshot, source: Source, in destination: Destination) -> URL? {
@@ -510,7 +539,7 @@ final class AppModel {
                 let names = (try? FileManager.default.contentsOfDirectory(atPath: pending.path)) ?? []
                 for name in names {
                     guard let id = UUID(uuidString: name) else { continue }
-                    waiting[id] = Self.size(of: pending.appendingPathComponent(name))
+                    waiting[id] = (try? DestinationUsage().bytes(under: pending.appendingPathComponent(name))) ?? 0
                 }
                 let free = (try? work.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
                 return (waiting, free)
@@ -535,34 +564,33 @@ final class AppModel {
         return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
     }
 
-    private nonisolated static func size(of directory: URL) -> Int64 {
-        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .isRegularFileKey]
-        guard let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: keys) else { return 0 }
-        var total: Int64 = 0
-        for case let url as URL in files {
-            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
-            total += Int64(values.totalFileAllocatedSize ?? 0)
-        }
-        return total
-    }
-
     private func refreshAvailability() {
         let destinations = config.destinations
         Task {
             var unavailable: Set<UUID> = []
             var checks: [UUID: DiskCheck] = [:]
+            var missing: [UUID: MissingFolder] = [:]
             for destination in destinations {
                 let store = stores.store(for: destination)
-                checks[destination.id] = await store.diskCheck()
+                let check = await store.diskCheck()
+                checks[destination.id] = check
+                missing[destination.id] = Self.missingFolder(of: destination, check: check)
                 if !(await store.isAvailable()) { unavailable.insert(destination.id) }
             }
             diskChecks = checks
+            missingFolders = missing
             let connected = Set(destinations.map(\.id)).subtracting(unavailable)
             let justConnected = !connected.subtracting(lastConnected).isEmpty
             lastConnected = connected
             unavailableDestinations = unavailable
             if justConnected { refreshSpace(force: true) }
         }
+    }
+
+    private static func missingFolder(of destination: Destination, check: DiskCheck) -> MissingFolder? {
+        guard check.allowsAccess, case let .localFolder(path) = destination.kind,
+              !FileManager.default.fileExists(atPath: AppPaths.expand(path).path) else { return nil }
+        return MissingFolder(path: path, disk: check == .confirmed ? destination.disk?.name : nil)
     }
 
     private func handle(_ event: ActivityEvent) {

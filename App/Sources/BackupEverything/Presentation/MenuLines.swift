@@ -28,7 +28,14 @@ struct MenuLine: Equatable, Identifiable {
 }
 
 enum MenuLines {
-    static func of(config: Config, state: AppState, report: StatusReport, unavailable: Set<UUID>, disks: [UUID: DiskCheck] = [:]) -> [MenuLine] {
+    static func of(
+        config: Config,
+        state: AppState,
+        report: StatusReport,
+        unavailable: Set<UUID>,
+        disks: [UUID: DiskCheck] = [:],
+        missingFolders: [UUID: MissingFolder] = [:]
+    ) -> [MenuLine] {
         let sources = config.sources.compactMap { source -> MenuLine? in
             let status = SourceStatus.of(source, report: report, lastRun: nil)
             guard source.enabled, status.severity != .ok, let note = status.note else { return nil }
@@ -36,7 +43,9 @@ enum MenuLines {
             return MenuLine(subject: .source(source), severity: status.severity, text: text, canPickUp: status.offersPickUp)
         }
         let destinations = config.destinations.compactMap { destination -> MenuLine? in
-            let condition = DestinationCondition.of(destination.id, report: report, unavailable: unavailable, disk: disks[destination.id])
+            let condition = DestinationCondition.of(
+                destination.id, report: report, unavailable: unavailable, disk: disks[destination.id], missingFolder: missingFolders[destination.id]
+            )
             return condition.problem.map {
                 MenuLine(subject: .destination(destination), severity: .attention, text: $0, canPickUp: false)
             }
