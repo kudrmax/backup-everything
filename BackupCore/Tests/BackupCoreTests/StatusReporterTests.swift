@@ -23,9 +23,13 @@ struct StatusReporterTests {
         )
     }
 
+    /// A source that ran an hour ago and delivered its copy to every destination.
     private func fresh(_ source: Source) -> AppState {
         var state = AppState()
         state.updateSource(source.id) { $0.lastRun = now.addingTimeInterval(-3600) }
+        for destinationId in source.destinationIds {
+            state.recordDelivery(sourceId: source.id, destinationId: destinationId, snapshotName: nil, collectedAt: now.addingTimeInterval(-3600))
+        }
         return state
     }
 
@@ -69,11 +73,16 @@ struct StatusReporterTests {
         #expect(result.overall == .attention)
     }
 
+    /// Overdue counts from the newest delivered copy: a recent run that delivered nothing does not help.
     @Test func longOverdueSourceIsError() {
         let source = Fixtures.source(destinations: [cloud])
         var state = AppState()
-        state.updateSource(source.id) { $0.lastRun = Fixtures.date("2026-09-20 10:00:00") }
-        #expect(report([source], state).items == [.severelyOverdue(sourceId: source.id)])
+        state.updateSource(source.id) { $0.lastRun = now.addingTimeInterval(-3600) }
+        state.recordDelivery(sourceId: source.id, destinationId: cloud.id, snapshotName: nil, collectedAt: Fixtures.date("2026-09-20 10:00:00"))
+        #expect(report([source], state).items == [
+            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [cloud.id], freshElsewhere: false, noCopyAnywhere: false)),
+            .severelyOverdue(sourceId: source.id),
+        ])
     }
 
     @Test func sourceWithoutDestinationsNeedsAttention() {
@@ -89,19 +98,27 @@ struct StatusReporterTests {
         #expect(report([source], AppState()).overall == .ok)
     }
 
-    @Test func dueManualExportAsksForExport() {
-        let source = photos()
+    private func exportedLastMonth(_ source: Source) -> AppState {
         var state = AppState()
         state.updateSource(source.id) { $0.lastRun = Fixtures.date("2026-08-20 10:00:00") }
-        #expect(report([source], state).items == [.manualExportDue(sourceId: source.id)])
+        state.recordDelivery(sourceId: source.id, destinationId: cloud.id, snapshotName: nil, collectedAt: Fixtures.date("2026-08-20 10:00:00"))
+        return state
+    }
+
+    private func outdatedCloud(_ source: Source) -> AttentionItem {
+        .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [cloud.id], freshElsewhere: false, noCopyAnywhere: false))
+    }
+
+    @Test func dueManualExportAsksForExport() {
+        let source = photos()
+        #expect(report([source], exportedLastMonth(source)).items == [outdatedCloud(source), .manualExportDue(sourceId: source.id)])
     }
 
     @Test func foundFilesReplaceTheReminder() {
         let source = photos()
-        var state = AppState()
-        state.updateSource(source.id) { $0.lastRun = Fixtures.date("2026-08-20 10:00:00") }
         let scan = InboxScan(files: [URL(fileURLWithPath: "/d/takeout-1.zip")], totalBytes: 12, downloadInProgress: true)
-        #expect(report([source], state, scans: [source.id: scan]).items == [
+        #expect(report([source], exportedLastMonth(source), scans: [source.id: scan]).items == [
+            outdatedCloud(source),
             .filesAwaitingPickup(sourceId: source.id, fileCount: 1, totalBytes: 12, downloadInProgress: true),
         ])
     }
@@ -137,7 +154,10 @@ struct StatusReporterTests {
         #expect(report([source], state, unavailable: [disk.id]).overall == .ok)
 
         state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-08-29 10:00:00") }
-        #expect(report([source], state, unavailable: [disk.id]).items == [.connectDestination(destinationId: disk.id)])
+        #expect(report([source], state, unavailable: [disk.id]).items == [
+            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: false, noCopyAnywhere: false)),
+            .connectDestination(destinationId: disk.id),
+        ])
     }
 
     @Test func debtOfADisabledSourceAsksForNoDisk() {
@@ -162,7 +182,10 @@ struct StatusReporterTests {
         var state = fresh(source)
         state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: now, elsewhere: false)]
         state.updateDestination(disk.id) { $0.lastCaughtUp = now }
-        #expect(report([source], state, unavailable: [disk.id]).items == [.connectDestination(destinationId: disk.id)])
+        #expect(report([source], state, unavailable: [disk.id]).items == [
+            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: false, noCopyAnywhere: false)),
+            .connectDestination(destinationId: disk.id),
+        ])
     }
 
     /// The disk got yesterday's backup and was unplugged; a long-standing debt of a disabled source must not make it overdue.
@@ -285,5 +308,144 @@ struct StatusReporterTests {
             missingDevices: []
         )
         #expect(result.items.isEmpty)
+    }
+
+    enum FreshnessCase: String, CaseIterable {
+        case freshCopiesEverywhere
+        case staleAlwaysConnectedDestination
+        case bothDestinationsRefused
+        case diskEvery30DaysWithCopy10DaysOld
+        case diskEvery30DaysPastItsDeadline
+        case neverDeliveredAfterRuns
+        case failedRun
+        case severelyOverdueByDeliveredAgeDespiteRecentRun
+        case disabled
+        case neverRun
+    }
+
+    private struct Expectation {
+        var items: (Source) -> [AttentionItem]
+        var isFresh: Bool
+        var isExpected = true
+        var overall: OverallStatus
+    }
+
+    /// The status of a source is built from the copies it delivered, never from the absence of known problems (5.5).
+    @Test(arguments: FreshnessCase.allCases)
+    func sourceStatusFollowsDeliveredCopies(_ scenario: FreshnessCase) {
+        let nas = Destination(name: "NAS", kind: .localFolder(path: "/n"))
+        let created = now.addingTimeInterval(-7200)
+        var source = Fixtures.source(destinations: [cloud, nas], createdAt: created)
+        var state = AppState()
+        var unavailable: Set<UUID> = []
+        let ranAnHourAgo = now.addingTimeInterval(-3600)
+        func ran(at date: Date = ranAnHourAgo) { state.updateSource(source.id) { $0.lastRun = date } }
+        func copy(to destination: Destination, at date: Date) {
+            state.recordDelivery(sourceId: source.id, destinationId: destination.id, snapshotName: nil, collectedAt: date)
+        }
+        func outdated(_ destinations: [Destination], freshElsewhere: Bool, noCopy: Bool) -> AttentionItem {
+            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: destinations.map(\.id), freshElsewhere: freshElsewhere, noCopyAnywhere: noCopy))
+        }
+        let expectation: Expectation
+        switch scenario {
+        case .freshCopiesEverywhere:
+            ran()
+            copy(to: cloud, at: ranAnHourAgo)
+            copy(to: nas, at: ranAnHourAgo)
+            expectation = Expectation(items: { _ in [] }, isFresh: true, overall: .ok)
+        case .staleAlwaysConnectedDestination:
+            ran()
+            copy(to: cloud, at: ranAnHourAgo)
+            copy(to: nas, at: Fixtures.date("2026-09-26 10:00:00"))
+            expectation = Expectation(items: { _ in [outdated([nas], freshElsewhere: true, noCopy: false)] }, isFresh: false, overall: .attention)
+        case .bothDestinationsRefused:
+            ran()
+            state.debts = [cloud, nas].map { Debt(sourceId: source.id, destinationId: $0.id, since: ranAnHourAgo, elsewhere: false) }
+            unavailable = [cloud.id, nas.id]
+            expectation = Expectation(
+                items: { _ in [
+                    outdated([cloud, nas], freshElsewhere: false, noCopy: true),
+                    .destinationUnavailable(destinationId: cloud.id),
+                    .destinationUnavailable(destinationId: nas.id),
+                ] },
+                isFresh: false,
+                overall: .attention
+            )
+        case .diskEvery30DaysWithCopy10DaysOld:
+            source = Fixtures.source(destinations: [cloud, disk], createdAt: created)
+            ran()
+            copy(to: cloud, at: ranAnHourAgo)
+            copy(to: disk, at: Fixtures.date("2026-09-18 10:00:00"))
+            state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-09-18 10:00:00") }
+            state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: Fixtures.date("2026-09-19 10:00:00"))]
+            unavailable = [disk.id]
+            expectation = Expectation(items: { _ in [] }, isFresh: true, overall: .ok)
+        case .diskEvery30DaysPastItsDeadline:
+            source = Fixtures.source(destinations: [cloud, disk], createdAt: created)
+            ran()
+            copy(to: cloud, at: ranAnHourAgo)
+            copy(to: disk, at: Fixtures.date("2026-08-28 10:00:00"))
+            state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-08-28 10:00:00") }
+            state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: Fixtures.date("2026-08-29 10:00:00"))]
+            unavailable = [disk.id]
+            expectation = Expectation(
+                items: { _ in [outdated([disk], freshElsewhere: true, noCopy: false), .connectDestination(destinationId: disk.id)] },
+                isFresh: false,
+                overall: .attention
+            )
+        case .neverDeliveredAfterRuns:
+            ran()
+            expectation = Expectation(items: { _ in [outdated([cloud, nas], freshElsewhere: false, noCopy: true)] }, isFresh: false, overall: .attention)
+        case .failedRun:
+            ran()
+            copy(to: cloud, at: ranAnHourAgo)
+            copy(to: nas, at: ranAnHourAgo)
+            state.updateSource(source.id) { $0.lastError = "quota" }
+            expectation = Expectation(items: { [.runFailed(sourceId: $0.id, message: "quota")] }, isFresh: true, overall: .error)
+        case .severelyOverdueByDeliveredAgeDespiteRecentRun:
+            ran()
+            copy(to: cloud, at: Fixtures.date("2026-09-24 09:00:00"))
+            copy(to: nas, at: Fixtures.date("2026-09-24 09:00:00"))
+            expectation = Expectation(
+                items: { [outdated([cloud, nas], freshElsewhere: false, noCopy: false), .severelyOverdue(sourceId: $0.id)] },
+                isFresh: false,
+                overall: .error
+            )
+        case .disabled:
+            source.enabled = false
+            ran()
+            expectation = Expectation(items: { _ in [] }, isFresh: false, isExpected: false, overall: .ok)
+        case .neverRun:
+            expectation = Expectation(items: { _ in [] }, isFresh: false, isExpected: false, overall: .ok)
+        }
+
+        let result = reporter.report(
+            config: Config(sources: [source], destinations: [cloud, nas, disk]),
+            state: state,
+            now: now,
+            unavailableDestinations: unavailable,
+            inboxScans: [:]
+        )
+        #expect(result.items == expectation.items(source))
+        #expect(result.fresh.contains(source.id) == expectation.isFresh)
+        #expect(result.expected.contains(source.id) == expectation.isExpected)
+        #expect(result.overall == expectation.overall)
+    }
+
+    @Test func overallIsFineOnlyWhenEveryExpectedSourceProvedAFreshCopy() {
+        let first = UUID()
+        let second = UUID()
+        #expect(StatusReport(items: [], fresh: [first, second], expected: [first, second]).overall == .ok)
+        #expect(StatusReport(items: [], fresh: [first], expected: [first, second]).overall == .attention)
+        #expect(StatusReport(items: [.waitingForFile(sourceId: second)], fresh: [first], expected: [first]).overall == .ok)
+        #expect(StatusReport(items: [.severelyOverdue(sourceId: first)], fresh: [], expected: [first]).overall == .error)
+
+        let running = StatusReport(
+            items: [.copiesOutdated(sourceId: second, OutdatedCopies(destinationIds: [], freshElsewhere: false, noCopyAnywhere: true))],
+            fresh: [first],
+            expected: [first, second]
+        ).excludingSources([second])
+        #expect(running.items.isEmpty)
+        #expect(running.overall == .ok)
     }
 }

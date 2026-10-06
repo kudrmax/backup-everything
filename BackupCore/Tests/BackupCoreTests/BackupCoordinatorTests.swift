@@ -130,7 +130,12 @@ struct BackupCoordinatorTests {
         #expect(temp.names(in: "cloud/obsidian").count == 3)
         #expect(!temp.exists("hdd"))
         #expect(try store.loadState().debts.count == 1)
-        #expect(try await coordinator.statusReport().overall == .ok)
+        let source = try #require(try store.loadConfig().sources.first)
+        let waiting = try await coordinator.statusReport()
+        #expect(waiting.items == [
+            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: true, noCopyAnywhere: false)),
+        ])
+        #expect(waiting.overall == .attention)
 
         time.advance(-3600)
         try temp.directory("hdd")
@@ -143,12 +148,16 @@ struct BackupCoordinatorTests {
 
     @Test func overdueDiskTriggersDailyConnectReminder() async throws {
         defer { temp.remove() }
-        try store.saveConfig(Config(sources: [vault([disk])], destinations: [disk]))
+        let source = vault([disk])
+        try store.saveConfig(Config(sources: [source], destinations: [disk]))
 
         let reminder = Notice.connectDestination(destinationId: disk.id, destinationName: "HDD", onlyCopyOf: ["Obsidian"])
         #expect(try await coordinator.tick().notices == [reminder])
         #expect(store.loadRuns().isEmpty)
-        #expect(try await coordinator.statusReport().items == [.connectDestination(destinationId: disk.id)])
+        #expect(try await coordinator.statusReport().items == [
+            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: false, noCopyAnywhere: true)),
+            .connectDestination(destinationId: disk.id),
+        ])
 
         time.advance(3600)
         #expect(try await coordinator.tick().notices.isEmpty)
@@ -415,6 +424,7 @@ struct BackupCoordinatorTests {
         #expect(result.runs.map(\.trigger) == [.catchUp])
         #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_101000"])
         #expect(try store.loadState().sourceState(source.id).lastSuccess == start.addingTimeInterval(600))
+        #expect(try store.loadState().deliveredCopyDate(sourceId: source.id, destinationId: cloud.id) == start.addingTimeInterval(600))
 
         time.advance(600)
         #expect(try await coordinator.tick() == TickResult())
@@ -741,7 +751,9 @@ struct BackupCoordinatorTests {
 
         #expect(try await coordinator.tick().runs.isEmpty)
         #expect(temp.names(in: "Downloads") == ["takeout-1.zip"])
-        #expect(try await coordinator.statusReport().items.isEmpty)
+        #expect(try await coordinator.statusReport().items == [
+            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [cloud.id], freshElsewhere: false, noCopyAnywhere: true)),
+        ])
 
         #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.pickup])
         #expect(temp.names(in: "Downloads").isEmpty)

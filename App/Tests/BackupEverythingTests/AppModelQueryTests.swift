@@ -94,16 +94,21 @@ struct AppModelQueryTests {
         #expect(fixture.model.lastDelivery(of: notes, to: disk) == nil)
     }
 
+    /// The age is that of the newest copy still known to be on a destination of the source, not of the last run.
     @Test func lastBackupIsTheNewestDeliveredCopy() async throws {
         let fixture = try ModelFixture()
-        let notes = fixture.source("Notes", steps: [.folder("~/Notes")])
+        let ssd = try fixture.disk("SSD", connected: false)
+        let hdd = try fixture.disk("HDD", connected: false)
+        let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [ssd, hdd])
         let delivered = Date.wholeSeconds(-7200)
         var state = AppState()
         state.updateSource(notes.id) {
-            $0.lastSuccess = delivered
+            $0.lastSuccess = Date.wholeSeconds(-3600)
             $0.lastRun = Date.wholeSeconds(-60)
         }
-        try await fixture.use(Config(sources: [notes]), state: state)
+        state.recordDelivery(sourceId: notes.id, destinationId: ssd.id, snapshotName: nil, collectedAt: delivered.addingTimeInterval(-86_400))
+        state.recordDelivery(sourceId: notes.id, destinationId: hdd.id, snapshotName: nil, collectedAt: delivered)
+        try await fixture.use(Config(sources: [notes], destinations: [ssd, hdd]), state: state)
         #expect(fixture.model.lastBackup(of: notes) == delivered)
         #expect(fixture.model.latestBackup == delivered)
     }
@@ -116,7 +121,7 @@ struct AppModelQueryTests {
         let collected = Date.wholeSeconds(-7200)
         let record = { (started: Date, collected: Date?, outcome: DeliveryOutcome) in
             RunRecord(
-                sourceId: notes.id, sourceName: "Notes", trigger: .scheduled, startedAt: started, finishedAt: started,
+                sourceId: notes.id, sourceName: "Notes", trigger: .scheduled, startedAt: started, finishedAt: started.addingTimeInterval(600),
                 collectedAt: collected, deliveries: [Delivery(destinationId: disk.id, destinationName: "HDD", outcome: outcome)]
             )
         }
@@ -125,6 +130,7 @@ struct AppModelQueryTests {
         try fixture.store.appendRun(record(Date.wholeSeconds(-60), Date.wholeSeconds(-60), .unavailable))
         var state = AppState()
         state.updateSource(notes.id) { $0.lastRun = Date.wholeSeconds(-60) }
+        state.deliveredAt = nil
         try await fixture.use(Config(sources: [notes], destinations: [disk]), state: state)
         #expect(fixture.model.lastBackup(of: notes) == collected)
     }

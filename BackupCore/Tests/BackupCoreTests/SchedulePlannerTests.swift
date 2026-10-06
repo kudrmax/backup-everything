@@ -48,11 +48,50 @@ struct SchedulePlannerTests {
         #expect(planner.dueAutomaticSources(config: config, state: AppState(), now: now).map(\.name) == ["Obsidian"])
     }
 
-    @Test func severeOverdueStartsAfterTwoMissedIntervals() {
+    @Test func severeOverdueStartsTwoMissedIntervalsAfterTheNewestDeliveredCopy() {
         let source = Fixtures.source(schedule: .daily, destinations: [cloud])
-        let state = SourceState(lastRun: Fixtures.date("2026-09-25 10:00:00"))
-        #expect(!planner.isSeverelyOverdue(source, state: state, now: Fixtures.date("2026-09-28 10:00:00")))
-        #expect(planner.isSeverelyOverdue(source, state: state, now: Fixtures.date("2026-09-28 10:00:01")))
+        let copy = Fixtures.date("2026-09-25 10:00:00")
+        let state = SourceState(lastRun: Fixtures.date("2026-09-28 09:00:00"))
+        #expect(!planner.isSeverelyOverdue(source, state: state, newestCopy: copy, now: Fixtures.date("2026-09-28 10:00:00")))
+        #expect(planner.isSeverelyOverdue(source, state: state, newestCopy: copy, now: Fixtures.date("2026-09-28 10:00:01")))
+    }
+
+    /// Runs that deliver nothing are no backup: without any copy the source is overdue counting from its creation.
+    @Test func sourceThatNeverDeliveredIsOverdueCountingFromItsCreation() {
+        let source = Fixtures.source(schedule: .daily, destinations: [cloud], createdAt: Fixtures.date("2026-09-25 10:00:00"))
+        let state = SourceState(lastRun: Fixtures.date("2026-09-28 09:00:00"))
+        #expect(!planner.isSeverelyOverdue(source, state: state, newestCopy: nil, now: Fixtures.date("2026-09-28 10:00:00")))
+        #expect(planner.isSeverelyOverdue(source, state: state, newestCopy: nil, now: Fixtures.date("2026-09-28 10:00:01")))
+    }
+
+    @Test func copyOnAnAlwaysConnectedDestinationIsFreshUntilTheNextBackupAndAnHour() {
+        let source = Fixtures.source(schedule: .daily, destinations: [cloud])
+        let copy = Fixtures.date("2026-09-27 08:00:00")
+        let state = AppState()
+        #expect(planner.isCopyFresh(source, on: cloud, copiedAt: copy, state: state, now: Fixtures.date("2026-09-28 08:59:59")))
+        #expect(!planner.isCopyFresh(source, on: cloud, copiedAt: copy, state: state, now: Fixtures.date("2026-09-28 09:00:00")))
+        #expect(!planner.isCopyFresh(source, on: cloud, copiedAt: nil, state: state, now: copy))
+    }
+
+    @Test func copyOfASourceWithoutScheduleIsFreshUntilANewerOneIsOwed() {
+        let source = Fixtures.source(schedule: .manual, destinations: [cloud])
+        var state = AppState()
+        let copy = Fixtures.date("2026-01-01 00:00:00")
+        #expect(planner.isCopyFresh(source, on: cloud, copiedAt: copy, state: state, now: now))
+        state.debts = [Debt(sourceId: source.id, destinationId: cloud.id, since: now)]
+        #expect(!planner.isCopyFresh(source, on: cloud, copiedAt: copy, state: state, now: now))
+    }
+
+    @Test func copyOnADiskThatCanStayUnpluggedIsFreshUntilItsConnectDeadline() {
+        let source = Fixtures.source(schedule: .daily, destinations: [cloud, disk])
+        var state = AppState()
+        let copy = Fixtures.date("2026-09-01 10:00:00")
+        #expect(planner.isCopyFresh(source, on: disk, copiedAt: copy, state: state, now: now))
+        state.updateDestination(disk.id) { $0.lastCaughtUp = copy }
+        state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: Fixtures.date("2026-09-02 10:00:00"))]
+        #expect(planner.isCopyFresh(source, on: disk, copiedAt: copy, state: state, now: Fixtures.date("2026-10-01 09:59:59")))
+        #expect(!planner.isCopyFresh(source, on: disk, copiedAt: copy, state: state, now: Fixtures.date("2026-10-01 10:00:00")))
+        #expect(!planner.isCopyFresh(source, on: disk, copiedAt: nil, state: AppState(), now: now))
     }
 
     @Test func failedDebtsWaitAnHourBeforeRetry() {
@@ -105,7 +144,7 @@ struct SchedulePlannerTests {
 
     @Test func sourceThatHasNeverRunIsNotSeverelyOverdue() {
         let source = Fixtures.source(schedule: .daily, destinations: [cloud], createdAt: created)
-        #expect(!planner.isSeverelyOverdue(source, state: SourceState(), now: now))
+        #expect(!planner.isSeverelyOverdue(source, state: SourceState(), newestCopy: nil, now: now))
         #expect(planner.isDue(source, state: SourceState(), now: now))
     }
 

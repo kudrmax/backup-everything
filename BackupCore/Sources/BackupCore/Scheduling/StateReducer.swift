@@ -19,9 +19,12 @@ public struct StateReducer: Sendable {
             switch delivery.outcome {
             case let .delivered(_, warning):
                 state.debts.removeAll { $0.sourceId == record.sourceId && $0.destinationId == delivery.destinationId }
-                if let snapshotName = record.snapshotName {
-                    state.lastDelivered[key] = snapshotName
-                }
+                state.recordDelivery(
+                    sourceId: record.sourceId,
+                    destinationId: delivery.destinationId,
+                    snapshotName: record.snapshotName,
+                    collectedAt: record.copyCollectedAt
+                )
                 state.deliveryWarnings[key] = warning
             case .unavailable:
                 upsertDebt(record, delivery, attemptedAt: nil, in: &state)
@@ -42,9 +45,7 @@ public struct StateReducer: Sendable {
                 $0.retryAfter = nil
             }
             if record.deliveries.contains(where: \.outcome.isDelivered) {
-                // A name read in another time zone can put the copy after the run; it was made no later than the run ended.
-                let collectedAt = min(record.collectedAt ?? record.startedAt, record.finishedAt)
-                $0.lastSuccess = max($0.lastSuccess ?? .distantPast, collectedAt)
+                $0.lastSuccess = max($0.lastSuccess ?? .distantPast, record.copyCollectedAt)
             }
             if record.trigger != .catchUp { $0.lastRun = record.startedAt }
         }
@@ -63,6 +64,7 @@ public struct StateReducer: Sendable {
             source.destinationIds.map { AppState.deliveryKey(sourceId: source.id, destinationId: $0) }
         })
         state.lastDelivered = state.lastDelivered.filter { pairs.contains($0.key) }
+        state.deliveredAt = state.deliveredAt?.filter { pairs.contains($0.key) }
         state.deliveryWarnings = state.deliveryWarnings.filter { pairs.contains($0.key) }
     }
 

@@ -170,8 +170,11 @@ struct StateReducerTests {
         state.updateSource(source.id) { $0.lastRun = started }
         let kept = AppState.deliveryKey(sourceId: source.id, destinationId: keptDestination.id)
         state.deliveryWarnings = [kept: "old", AppState.deliveryKey(sourceId: source.id, destinationId: removedFromSource.id): "old"]
+        state.recordDelivery(sourceId: source.id, destinationId: keptDestination.id, snapshotName: "a", collectedAt: started)
+        state.recordDelivery(sourceId: source.id, destinationId: removedFromSource.id, snapshotName: "a", collectedAt: started)
 
         reducer.dropOrphans(config: config, state: &state)
+        #expect(state.deliveredAt == [kept: started])
         #expect(state.debts == [Debt(sourceId: source.id, destinationId: keptDestination.id, since: started)])
         #expect(Array(state.sources.keys) == [source.id.uuidString])
         #expect(state.deliveryWarnings == [kept: "old"])
@@ -202,6 +205,35 @@ struct StateReducerTests {
         reducer.apply(delivered, to: &state, config: config)
         #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: disk) == "2026-09-28_100000")
         #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: cloud) == nil)
+    }
+
+    /// The status is built on when each delivered copy was collected, not on when the run happened (5.5).
+    @Test func remembersWhenTheCopyOnEachDestinationWasCollected() {
+        var state = AppState()
+        var delivered = record([(disk, .delivered(pruned: 0, warning: nil)), (cloud, .unavailable)])
+        delivered.collectedAt = started.addingTimeInterval(60)
+        reducer.apply(delivered, to: &state, config: config)
+        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: disk) == started.addingTimeInterval(60))
+        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: cloud) == nil)
+
+        var olderCopy = record([(cloud, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
+        olderCopy.collectedAt = started.addingTimeInterval(-86_400)
+        reducer.apply(olderCopy, to: &state, config: config)
+        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: cloud) == started.addingTimeInterval(-86_400))
+
+        var futureName = record([(disk, .delivered(pruned: 0, warning: nil))])
+        futureName.collectedAt = finished.addingTimeInterval(7200)
+        reducer.apply(futureName, to: &state, config: config)
+        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: disk) == finished)
+    }
+
+    /// A copy found missing no longer counts: neither its name nor its date stays.
+    @Test func forgottenDeliveryLeavesNoDate() {
+        var state = AppState()
+        state.recordDelivery(sourceId: sourceId, destinationId: disk, snapshotName: "2026-09-28_100000", collectedAt: started)
+        state.forgetDelivery(sourceId: sourceId, destinationId: disk)
+        #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: disk) == nil)
+        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: disk) == nil)
     }
 
     @Test func lastSuccessFollowsTheFreshestDeliveredCopyIncludingCatchUps() {

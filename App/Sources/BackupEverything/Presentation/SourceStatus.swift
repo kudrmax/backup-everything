@@ -12,15 +12,24 @@ enum SourceStatus: Equatable {
     case deviceDue
     case waiting
     case waitingForDevice
+    case outdated(CopyShortfall)
     case neverRun
+    /// Has delivered before, but the report proves no fresh copy now and names no problem: it is busy running.
+    case unconfirmed
     case ok
 
-    static func of(_ source: Source, report: StatusReport, lastRun: Date?) -> SourceStatus {
+    /// Green only on proof: the report found a fresh copy on every destination. Without proof and without a known problem
+    /// the source stays neutral, never “OK”.
+    static func of(_ source: Source, report: StatusReport, lastBackup: Date?, gaps: CopyGaps? = nil) -> SourceStatus {
         guard source.enabled else { return .disabled }
         var found: [SourceStatus] = []
         for item in report.items {
             switch item {
             case let .runFailed(id, message) where id == source.id: found.append(.failed(message))
+            case let .copiesOutdated(id, outdated) where id == source.id:
+                found.append(.outdated(gaps?.shortfall(of: id, outdated) ?? CopyShortfall(
+                    gaps: [], freshElsewhere: outdated.freshElsewhere, noCopyAnywhere: outdated.noCopyAnywhere
+                )))
             case let .severelyOverdue(id) where id == source.id: found.append(.overdue)
             case let .noDestinations(id) where id == source.id: found.append(.noDestinations)
             case let .deliveryWarning(id, message) where id == source.id: found.append(.warning(message))
@@ -33,14 +42,16 @@ enum SourceStatus: Equatable {
             default: break
             }
         }
-        return found.min { $0.rank < $1.rank } ?? (lastRun == nil ? .neverRun : .ok)
+        if let worst = found.min(by: { $0.rank < $1.rank }) { return worst }
+        if report.fresh.contains(source.id) { return .ok }
+        return lastBackup == nil && !report.expected.contains(source.id) ? .neverRun : .unconfirmed
     }
 
     var severity: OverallStatus {
         switch self {
         case .failed, .overdue: .error
-        case .noDestinations, .warning, .filesFound, .exportDue, .deviceDue: .attention
-        case .waiting, .waitingForDevice, .disabled, .neverRun, .ok: .ok
+        case .noDestinations, .warning, .filesFound, .exportDue, .deviceDue, .outdated: .attention
+        case .waiting, .waitingForDevice, .disabled, .neverRun, .unconfirmed, .ok: .ok
         }
     }
 
@@ -57,8 +68,10 @@ enum SourceStatus: Equatable {
         case .waiting: "Waiting for a file: download it and the backup starts on its own"
         case .deviceDue: "Time to connect the device"
         case .waitingForDevice: "Waiting for the device: connect it and the backup starts on its own"
+        case let .outdated(shortfall): shortfall.text
         case .neverRun: "Never run"
-        case .ok: "OK"
+        case .unconfirmed: "No fresh copy confirmed yet"
+        case .ok: "OK: a fresh copy on every destination"
         }
     }
 
@@ -75,7 +88,7 @@ enum SourceStatus: Equatable {
 
     var note: String? {
         switch self {
-        case .ok, .neverRun: nil
+        case .ok, .neverRun, .unconfirmed: nil
         case .disabled: "disabled"
         case let .failed(message): Texts.errorHeadline(message)
         case .overdue: "no backup for a long time"
@@ -87,6 +100,7 @@ enum SourceStatus: Equatable {
         case .waiting: "waiting for a file"
         case .deviceDue: "time to connect"
         case .waitingForDevice: "waiting for the device"
+        case let .outdated(shortfall): shortfall.note
         }
     }
 
@@ -98,8 +112,9 @@ enum SourceStatus: Equatable {
         case .filesFound: 3
         case .warning: 4
         case .exportDue, .deviceDue: 5
-        case .waiting, .waitingForDevice: 6
-        case .disabled, .neverRun, .ok: 7
+        case .outdated: 6
+        case .waiting, .waitingForDevice: 7
+        case .disabled, .neverRun, .unconfirmed, .ok: 8
         }
     }
 }

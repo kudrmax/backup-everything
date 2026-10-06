@@ -120,6 +120,12 @@ public struct RunRecord: Codable, Sendable, Equatable, Identifiable {
         deliveries = try container.decode([Delivery].self, forKey: .deliveries)
     }
 
+    /// When the delivered copy was collected. A name read in another time zone can put the copy after the run; it was made
+    /// no later than the run ended.
+    public var copyCollectedAt: Date {
+        min(collectedAt ?? startedAt, finishedAt)
+    }
+
     public var firstFailure: String? {
         if let collectError { return collectError }
         for delivery in deliveries {

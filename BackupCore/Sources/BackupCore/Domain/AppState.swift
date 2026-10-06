@@ -128,6 +128,9 @@ public struct AppState: Codable, Sendable, Equatable {
     public var debts: [Debt]
     public var lastReminders: [String: Date]
     public var lastDelivered: [String: String]
+    /// When each copy in `lastDelivered` was collected, by `deliveryKey`: the age of the copy that the status is built on.
+    /// `nil` in state saved before it was kept; `Store` then learns it from the history (`learningDeliveryDates`).
+    public var deliveredAt: [String: Date]?
     /// What went wrong after the last copy was delivered (old copies not cleaned up), by `deliveryKey`; absent when nothing did.
     public var deliveryWarnings: [String: String]
 
@@ -138,6 +141,7 @@ public struct AppState: Codable, Sendable, Equatable {
         self.debts = []
         self.lastReminders = [:]
         self.lastDelivered = [:]
+        self.deliveredAt = [:]
         self.deliveryWarnings = [:]
     }
 
@@ -149,6 +153,7 @@ public struct AppState: Codable, Sendable, Equatable {
         debts = try container.decodeIfPresent([Debt].self, forKey: .debts) ?? []
         lastReminders = try container.decodeIfPresent([String: Date].self, forKey: .lastReminders) ?? [:]
         lastDelivered = try container.decodeIfPresent([String: String].self, forKey: .lastDelivered) ?? [:]
+        deliveredAt = try container.decodeIfPresent([String: Date].self, forKey: .deliveredAt)
         deliveryWarnings = try container.decodeIfPresent([String: String].self, forKey: .deliveryWarnings) ?? [:]
     }
 
@@ -158,6 +163,50 @@ public struct AppState: Codable, Sendable, Equatable {
 
     public func lastDeliveredSnapshot(sourceId: UUID, destinationId: UUID) -> String? {
         lastDelivered[Self.deliveryKey(sourceId: sourceId, destinationId: destinationId)]
+    }
+
+    /// When the newest copy of the source on the destination was collected; `nil` when no copy is known to be there.
+    public func deliveredCopyDate(sourceId: UUID, destinationId: UUID) -> Date? {
+        deliveredAt?[Self.deliveryKey(sourceId: sourceId, destinationId: destinationId)]
+    }
+
+    public mutating func recordDelivery(sourceId: UUID, destinationId: UUID, snapshotName: String?, collectedAt: Date) {
+        let key = Self.deliveryKey(sourceId: sourceId, destinationId: destinationId)
+        if let snapshotName { lastDelivered[key] = snapshotName }
+        var dates = deliveredAt ?? [:]
+        dates[key] = collectedAt
+        deliveredAt = dates
+    }
+
+    public mutating func forgetDelivery(sourceId: UUID, destinationId: UUID) {
+        let key = Self.deliveryKey(sourceId: sourceId, destinationId: destinationId)
+        lastDelivered[key] = nil
+        deliveredAt?[key] = nil
+    }
+
+    /// State saved before `deliveredAt` was kept learns the dates from the history: the run that delivered the copy named in
+    /// `lastDelivered`, else the date in its name; for copies made before `lastDelivered` was kept, the newest run that
+    /// delivered to the destination (5.3.1).
+    public func learningDeliveryDates(from history: [RunRecord], naming: SnapshotNaming) -> AppState {
+        guard deliveredAt == nil else { return self }
+        var learned = self
+        var dates: [String: Date] = [:]
+        for run in history.sorted(by: { $0.startedAt > $1.startedAt }) {
+            for delivery in run.deliveries where delivery.outcome.isDelivered {
+                let key = Self.deliveryKey(sourceId: run.sourceId, destinationId: delivery.destinationId)
+                guard dates[key] == nil else { continue }
+                if let expected = lastDelivered[key], expected != run.snapshotName { continue }
+                dates[key] = run.copyCollectedAt
+            }
+        }
+        for (key, name) in lastDelivered where dates[key] == nil {
+            guard let date = naming.date(from: name) else { continue }
+            let sourceId = key.split(separator: "|").first.flatMap { UUID(uuidString: String($0)) }
+            let lastSuccess = sourceId.flatMap { sourceState($0).lastSuccess }
+            dates[key] = min(date, lastSuccess ?? date)
+        }
+        learned.deliveredAt = dates
+        return learned
     }
 
     /// What went wrong after the last copies of the source were delivered to its destinations.

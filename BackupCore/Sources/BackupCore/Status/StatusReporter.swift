@@ -10,8 +10,24 @@ public enum OverallStatus: Int, Sendable, Comparable {
     }
 }
 
+/// Destinations of a source whose newest copy is past their rhythm or missing (5.5).
+public struct OutdatedCopies: Sendable, Equatable {
+    public let destinationIds: [UUID]
+    /// Another destination of the source holds a fresh copy.
+    public let freshElsewhere: Bool
+    /// No destination of the source holds any copy at all.
+    public let noCopyAnywhere: Bool
+
+    public init(destinationIds: [UUID], freshElsewhere: Bool, noCopyAnywhere: Bool) {
+        self.destinationIds = destinationIds
+        self.freshElsewhere = freshElsewhere
+        self.noCopyAnywhere = noCopyAnywhere
+    }
+}
+
 public enum AttentionItem: Sendable, Equatable {
     case runFailed(sourceId: UUID, message: String)
+    case copiesOutdated(sourceId: UUID, OutdatedCopies)
     /// The copy was delivered, but something after it went wrong and stays so: old copies were not cleaned up.
     case deliveryWarning(sourceId: UUID, message: String)
     case severelyOverdue(sourceId: UUID)
@@ -35,13 +51,44 @@ public enum AttentionItem: Sendable, Equatable {
 
 public struct StatusReport: Sendable, Equatable {
     public let items: [AttentionItem]
+    /// Sources with a copy within its rhythm on every destination: the only sources that may look fine.
+    public let fresh: Set<UUID>
+    /// Sources a fresh copy is expected of: enabled, with destinations, that have run or delivered a copy.
+    public let expected: Set<UUID>
 
-    public init(items: [AttentionItem]) {
+    public init(items: [AttentionItem], fresh: Set<UUID> = [], expected: Set<UUID> = []) {
         self.items = items
+        self.fresh = fresh
+        self.expected = expected
     }
 
+    /// Fine only when every source a copy is expected of has proved a fresh one, not merely when no problem is known.
     public var overall: OverallStatus {
-        items.map(\.severity).max() ?? .ok
+        let unproven: OverallStatus = expected.isSubset(of: fresh) ? .ok : .attention
+        return max(items.map(\.severity).max() ?? .ok, unproven)
+    }
+
+    /// The report without the sources in `ignored`: what is running or queued is judged when it is done.
+    public func excludingSources(_ ignored: Set<UUID>) -> StatusReport {
+        StatusReport(
+            items: items.filter { item in item.sourceId.map { !ignored.contains($0) } ?? true },
+            fresh: fresh.subtracting(ignored),
+            expected: expected.subtracting(ignored)
+        )
+    }
+}
+
+extension AttentionItem {
+    public var sourceId: UUID? {
+        switch self {
+        case let .runFailed(sourceId, _), let .copiesOutdated(sourceId, _), let .deliveryWarning(sourceId, _),
+             let .severelyOverdue(sourceId), let .manualExportDue(sourceId), let .waitingForFile(sourceId),
+             let .deviceDue(sourceId), let .waitingForDevice(sourceId), let .filesAwaitingPickup(sourceId, _, _, _),
+             let .noDestinations(sourceId):
+            sourceId
+        case .destinationUnavailable, .connectDestination:
+            nil
+        }
     }
 }
 
@@ -62,11 +109,31 @@ public struct StatusReporter: Sendable {
     ) -> StatusReport {
         let state = state.pausingDisabledSources(of: config)
         var items: [AttentionItem] = []
+        var fresh: Set<UUID> = []
+        var expected: Set<UUID> = []
         for source in config.sources where source.enabled {
             let sourceState = state.sourceState(source.id)
-            if config.destinations(of: source).isEmpty {
+            let destinations = config.destinations(of: source)
+            if destinations.isEmpty {
                 items.append(.noDestinations(sourceId: source.id))
                 continue
+            }
+            let copies = destinations.map { state.deliveredCopyDate(sourceId: source.id, destinationId: $0.id) }
+            let newestCopy = copies.compactMap { $0 }.max()
+            if sourceState.lastRun != nil || newestCopy != nil {
+                expected.insert(source.id)
+                let outdated = zip(destinations, copies)
+                    .filter { !planner.isCopyFresh(source, on: $0, copiedAt: $1, state: state, now: now) }
+                    .map(\.0.id)
+                if outdated.isEmpty {
+                    fresh.insert(source.id)
+                } else {
+                    items.append(.copiesOutdated(sourceId: source.id, OutdatedCopies(
+                        destinationIds: outdated,
+                        freshElsewhere: outdated.count < destinations.count,
+                        noCopyAnywhere: newestCopy == nil
+                    )))
+                }
             }
             let scan = inboxScans[source.id]
             let heldBack = scan.flatMap { $0.downloadInProgress && !$0.files.isEmpty ? $0 : nil }
@@ -77,7 +144,7 @@ public struct StatusReporter: Sendable {
             if !warnings.isEmpty {
                 items.append(.deliveryWarning(sourceId: source.id, message: warnings.joined(separator: " ")))
             }
-            if planner.isSeverelyOverdue(source, state: sourceState, now: now) {
+            if planner.isSeverelyOverdue(source, state: sourceState, newestCopy: newestCopy, now: now) {
                 items.append(.severelyOverdue(sourceId: source.id))
             }
             guard source.needsHuman else { continue }
@@ -109,7 +176,7 @@ public struct StatusReporter: Sendable {
                 }
             }
         }
-        return StatusReport(items: items)
+        return StatusReport(items: items, fresh: fresh, expected: expected)
     }
 
     /// What to show while a source waits for a manual step: “time to …” if the run was started by the schedule, and a calm “waiting for …” if by the button.

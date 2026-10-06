@@ -78,7 +78,8 @@ public struct Store: Sendable {
         guard state.schemaVersion <= AppState.currentSchemaVersion else {
             throw StoreError.unsupportedVersion(file: stateURL.lastPathComponent, version: state.schemaVersion)
         }
-        return state
+        guard state.deliveredAt == nil else { return state }
+        return state.learningDeliveryDates(from: loadRuns(), naming: SnapshotNaming())
     }
 
     public func saveState(_ state: AppState) throws {

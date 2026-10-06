@@ -122,7 +122,7 @@ struct OverviewTextsTests {
             createdAt: now
         )
         let report = StatusReport(items: [.deviceDue(sourceId: source.id)])
-        let status = SourceStatus.of(source, report: report, lastRun: now)
+        let status = SourceStatus.of(source, report: report, lastBackup: now)
         #expect(status == .deviceDue)
         #expect(status.severity == .attention)
         #expect(LiveReport.of(report, running: [source.id]).items.isEmpty)
