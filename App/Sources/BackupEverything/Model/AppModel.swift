@@ -24,6 +24,8 @@ final class AppModel {
     private(set) var problem: String?
     private(set) var activity = ActivityTracker()
     private(set) var unavailableDestinations: Set<UUID> = []
+    /// Folders on external disks: whether the disk connected there is the confirmed one.
+    private(set) var diskChecks: [UUID: DiskCheck] = [:]
     /// How much space the copies take in each destination; measured in the background while no backups run.
     /// For a disconnected disk, the size from the last time it was connected.
     private(set) var destinationUsage: [UUID: Int64]
@@ -52,6 +54,7 @@ final class AppModel {
     @ObservationIgnored private let stores: DefaultDestinationStoreFactory
     @ObservationIgnored private let runner: any ProcessRunner
     @ObservationIgnored private let rclone: RcloneLocator
+    @ObservationIgnored private let disks: any DiskLocating
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let finder: any FileRevealing
     @ObservationIgnored private let trash: ManualExportInbox.Trash
@@ -68,11 +71,13 @@ final class AppModel {
         rclone: RcloneLocator = RcloneLocator(),
         defaults: UserDefaults = .standard,
         finder: any FileRevealing = WorkspaceFinder(),
+        disks: any DiskLocating = SystemDisks(),
         trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     ) {
         store = Store(dataDirectory: dataDirectory)
         self.runner = runner
         self.rclone = rclone
+        self.disks = disks
         self.defaults = defaults
         self.finder = finder
         self.trash = trash
@@ -88,10 +93,11 @@ final class AppModel {
             workDirectory: workDirectory,
             runner: runner,
             rclone: rclone,
+            disks: disks,
             trash: trash,
             progress: { feed.yield(.progress($0)) }
         )
-        stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: SnapshotNaming())
+        stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: SnapshotNaming(), disks: disks)
         var calendar = Calendar(identifier: .iso8601)
         calendar.timeZone = .current
         planner = SchedulePlanner(calendar: calendar)
@@ -248,6 +254,20 @@ final class AppModel {
         await edit { self.editor.save(destination, in: &$0) }?.destination(destination.id)
     }
 
+    /// Remembers the disk connected at the destination’s folder as its disk. The destination as written, or nil if there
+    /// is no disk to confirm or the settings could not be written.
+    @discardableResult
+    func confirmConnectedDisk(for destination: Destination) async -> Destination? {
+        var confirmed = config.destination(destination.id) ?? destination
+        guard let disk = await stores.store(for: confirmed).diskCheck().connectedDisk else { return nil }
+        confirmed.disk = disk
+        return await save(confirmed)
+    }
+
+    func diskLocation(ofFolder path: String) -> DiskLocation {
+        disks.location(of: AppPaths.expand(path))
+    }
+
     @discardableResult
     func delete(_ destination: Destination) async -> Bool {
         await edit { self.editor.removeDestination(destination.id, from: &$0) } != nil
@@ -313,7 +333,7 @@ final class AppModel {
     }
 
     var menuLines: [MenuLine] {
-        MenuLines.of(config: config, state: state, report: report, unavailable: unavailableDestinations)
+        MenuLines.of(config: config, state: state, report: report, unavailable: unavailableDestinations, disks: diskChecks)
     }
 
     var latestBackup: Date? {
@@ -363,7 +383,7 @@ final class AppModel {
     }
 
     func condition(of destination: Destination) -> DestinationCondition {
-        DestinationCondition.of(destination.id, report: report, unavailable: unavailableDestinations)
+        DestinationCondition.of(destination.id, report: report, unavailable: unavailableDestinations, disk: diskChecks[destination.id])
     }
 
     func lastCaughtUp(_ destination: Destination) -> Date? {
@@ -530,9 +550,13 @@ final class AppModel {
         let destinations = config.destinations
         Task {
             var unavailable: Set<UUID> = []
-            for destination in destinations where !(await isAvailable(destination)) {
-                unavailable.insert(destination.id)
+            var checks: [UUID: DiskCheck] = [:]
+            for destination in destinations {
+                let store = stores.store(for: destination)
+                checks[destination.id] = await store.diskCheck()
+                if !(await store.isAvailable()) { unavailable.insert(destination.id) }
             }
+            diskChecks = checks
             let connected = Set(destinations.map(\.id)).subtracting(unavailable)
             let justConnected = !connected.subtracting(lastConnected).isEmpty
             lastConnected = connected

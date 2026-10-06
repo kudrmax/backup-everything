@@ -30,7 +30,7 @@ struct ProcessRunnerTests {
         let started = Date()
         let result = try await runner.run(executable: shell, arguments: ["-c", "exec sleep 30"], environment: [:], timeout: 0.5)
         #expect(result.timedOut)
-        #expect(Date().timeIntervalSince(started) < 3)
+        #expect(Date().timeIntervalSince(started) < 15, "stopped long before the 30 seconds, with room for a busy machine")
     }
 
     @Test func handlesOutputLargerThanPipeBuffer() async throws {

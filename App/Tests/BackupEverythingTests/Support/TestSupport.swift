@@ -82,3 +82,22 @@ final class FakeFinder: FileRevealing {
         selected.append(url)
     }
 }
+
+/// Stands in for macOS: which disk every folder is on, as the test says.
+final class FakeDisks: DiskLocating, @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: DiskLocation
+
+    init(_ location: DiskLocation) {
+        current = location
+    }
+
+    var location: DiskLocation {
+        get { lock.withLock { current } }
+        set { lock.withLock { current = newValue } }
+    }
+
+    func location(of url: URL) -> DiskLocation {
+        location
+    }
+}

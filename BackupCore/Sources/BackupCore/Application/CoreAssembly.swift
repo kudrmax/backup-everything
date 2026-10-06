@@ -20,6 +20,7 @@ public enum CoreAssembly {
         runner: any ProcessRunner = SystemProcessRunner(),
         time: any TimeSource = SystemTimeSource(),
         rclone: RcloneLocator = RcloneLocator(),
+        disks: any DiskLocating = SystemDisks(),
         quit: any QuitSignal = ProcessGroups.shared,
         trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
         progress: @escaping ProgressHandler = { _ in }
@@ -36,7 +37,7 @@ public enum CoreAssembly {
             trash: trash,
             progress: progress
         )
-        let stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: naming)
+        let stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: naming, disks: disks)
         let engine = BackupEngine(
             providers: DefaultSourceProviderFactory(
                 runner: runner,

@@ -472,7 +472,7 @@ struct DestinationStrip: View {
         switch condition {
         case .available: AnyShapeStyle(.secondary)
         case .offline: AnyShapeStyle(.tertiary)
-        case .needsConnection, .unreachable: AnyShapeStyle(.orange)
+        case .needsConnection, .unreachable, .otherDisk, .diskNotConfirmed: AnyShapeStyle(.orange)
         }
     }
 }

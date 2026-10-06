@@ -4,7 +4,8 @@ import Foundation
 @MainActor
 enum DestinationDetails {
     static func text(of destination: Destination, model: AppModel) -> String {
-        var lines = [model.condition(of: destination).isConnected ? "Available" : "Not connected now"]
+        let condition = model.condition(of: destination)
+        var lines = [condition.diskExplanation(destinationName: destination.name) ?? (condition.isConnected ? "Available" : "Not connected now")]
         let waiting = model.waitingSources(for: destination)
         if let caughtUp = model.lastCaughtUp(destination) {
             lines.append("Got everything: \(Texts.relative(caughtUp))")

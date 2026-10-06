@@ -56,7 +56,7 @@ final class ModelFixture {
 
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
-    init(runner: any ProcessRunner = SystemProcessRunner(), rclone: RcloneLocator = RcloneLocator(candidates: []), prepare: Bool = true) throws {
+    init(runner: any ProcessRunner = SystemProcessRunner(), rclone: RcloneLocator = RcloneLocator(candidates: []), disks: any DiskLocating = SystemDisks(), prepare: Bool = true) throws {
         temp = try TemporaryFolder()
         store = Store(dataDirectory: temp.url.appendingPathComponent("data", isDirectory: true))
         let trash = temp.url.appendingPathComponent("Trash", isDirectory: true)
@@ -67,6 +67,7 @@ final class ModelFixture {
             rclone: rclone,
             defaults: defaults.defaults,
             finder: finder,
+            disks: disks,
             trash: { [trash] url in
                 try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
                 try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)"))

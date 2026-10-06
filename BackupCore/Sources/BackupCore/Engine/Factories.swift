@@ -47,17 +47,19 @@ public struct DefaultDestinationStoreFactory: DestinationStoreFactory {
     private let runner: any ProcessRunner
     private let rclone: RcloneLocator
     private let naming: SnapshotNaming
+    private let disks: any DiskLocating
 
-    public init(runner: any ProcessRunner, rclone: RcloneLocator, naming: SnapshotNaming) {
+    public init(runner: any ProcessRunner, rclone: RcloneLocator, naming: SnapshotNaming, disks: any DiskLocating = SystemDisks()) {
         self.runner = runner
         self.rclone = rclone
         self.naming = naming
+        self.disks = disks
     }
 
     public func store(for destination: Destination) -> any DestinationStore {
         switch destination.kind {
         case let .localFolder(path):
-            LocalFolderDestination(root: Paths.url(path), naming: naming)
+            LocalFolderDestination(root: Paths.url(path), naming: naming, expectedDisk: destination.disk, disks: disks)
         case let .rclone(remote, path):
             RcloneDestination(executable: rclone.find(), remote: remote, path: path, runner: runner, naming: naming)
         }

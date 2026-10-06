@@ -5,6 +5,8 @@ public struct LocalFolderDestination: DestinationStore {
     private let naming: SnapshotNaming
     private let cloning: any FileCloning
     private let volumes: VolumeMounts
+    private let expectedDisk: DiskIdentity?
+    private let disks: any DiskLocating
     private let trash: ManualExportInbox.Trash
     private let walker = PayloadWalker()
     private let removal = FolderRemoval()
@@ -16,12 +18,16 @@ public struct LocalFolderDestination: DestinationStore {
         naming: SnapshotNaming,
         cloning: any FileCloning = APFSCloning(),
         volumes: VolumeMounts = VolumeMounts(),
+        expectedDisk: DiskIdentity? = nil,
+        disks: (any DiskLocating)? = nil,
         trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     ) {
         self.root = root
         self.naming = naming
         self.cloning = cloning
         self.volumes = volumes
+        self.expectedDisk = expectedDisk
+        self.disks = disks ?? SystemDisks(mounts: volumes)
         self.trash = trash
     }
 
@@ -32,13 +38,20 @@ public struct LocalFolderDestination: DestinationStore {
             && isDirectory.boolValue
             && fileManager.isWritableFile(atPath: root.path)
             && volumes.isOnMountedVolume(root)
+            && currentDiskCheck().allowsAccess
+    }
+
+    public func diskCheck() async -> DiskCheck {
+        currentDiskCheck()
     }
 
     public func listSnapshots(sourceSlug: String) async throws -> [Snapshot] {
-        try snapshotDirectories(sourceSlug).filter { hasManifest($0.url) }.map(\.snapshot)
+        try requireOwnDisk()
+        return try snapshotDirectories(sourceSlug).filter { hasManifest($0.url) }.map(\.snapshot)
     }
 
     public func owners(sourceSlug: String) async throws -> [String: UUID] {
+        try requireOwnDisk()
         var owners: [String: UUID] = [:]
         for directory in try snapshotDirectories(sourceSlug) {
             owners[directory.snapshot.name] = SnapshotManifest.owner(of: directory.url)
@@ -48,6 +61,7 @@ public struct LocalFolderDestination: DestinationStore {
 
     /// Also finishes deleting copies whose deletion stopped halfway; what still cannot be deleted is reported after the rest is done.
     public func removeIncomplete(sourceSlug: String) async throws {
+        try requireOwnDisk()
         for directory in try snapshotDirectories(sourceSlug) where isUnfinished(directory.url) {
             try trash(directory.url)
         }
@@ -64,6 +78,7 @@ public struct LocalFolderDestination: DestinationStore {
 
     @discardableResult
     public func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws -> PayloadStats? {
+        try requireOwnDisk()
         guard await isAvailable() else { throw DestinationError.unavailable }
         let fileManager = FileManager.default
         let sourceDirectory = try directory(sourceSlug)
@@ -102,6 +117,7 @@ public struct LocalFolderDestination: DestinationStore {
     }
 
     public func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
+        try requireOwnDisk()
         guard naming.date(from: snapshot.name) != nil else { return }
         let folder = try directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true).path
         let doomed = folder + Self.removalSuffix
@@ -112,11 +128,13 @@ public struct LocalFolderDestination: DestinationStore {
     }
 
     public func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
+        try requireOwnDisk()
         guard await isAvailable() else { throw DestinationError.unavailable }
         return try directory(sourceSlug).appendingPathComponent(snapshot.name, isDirectory: true)
     }
 
     public func usedBytes() async throws -> Int64 {
+        try requireOwnDisk()
         guard await isAvailable() else { throw DestinationError.unavailable }
         return try DestinationUsage().bytes(under: root)
     }
@@ -124,6 +142,19 @@ public struct LocalFolderDestination: DestinationStore {
     public func canShareUnchangedFiles() async -> Bool? {
         guard await isAvailable() else { return nil }
         return cloning.isSupported(at: root)
+    }
+
+    /// Checked before anything is read, written or deleted, not only by `isAvailable`: a disk can be swapped between the two.
+    private func requireOwnDisk() throws {
+        switch currentDiskCheck() {
+        case .notNeeded, .confirmed, .notConnected: return
+        case .notConfirmed: throw DestinationError.diskNotConfirmed
+        case let .otherDisk(disk): throw DestinationError.otherDisk(name: disk.name)
+        }
+    }
+
+    private func currentDiskCheck() -> DiskCheck {
+        DiskCheck.of(disks.location(of: root), expected: expectedDisk)
     }
 
     private func directory(_ sourceSlug: String) throws -> URL {

@@ -106,6 +106,10 @@ struct DestinationEditor: View {
                     .padding(.leading, 40)
                     .padding(.top, -8)
             }
+            if let saved {
+                DiskConfirmation(destination: saved) { draft.diskConfirmed($0) }
+                    .padding(.leading, 40)
+            }
         } content: {
             SettingsCard {
                 switch draft.typeChoice {
@@ -162,12 +166,29 @@ struct DestinationEditor: View {
         DestinationAttention.text(problem: model.condition(of: destination).problem, waiting: model.waitingSources(for: destination).map(\.name))
     }
 
+    @ViewBuilder
     private var localRows: some View {
         SettingsRow(
             title: "Folder",
             tip: "For an external disk, choose a folder on it.\nThe app doesn’t create this folder itself:\nif the disk isn’t connected, the backup just waits."
         ) {
             PathField(path: $draft.path)
+        }
+        let location = draft.path.isEmpty ? .systemDisk : model.diskLocation(ofFolder: draft.path)
+        if location != .systemDisk {
+            SettingsRow(title: "Disk", tip: DiskTexts.rowTip) {
+                Text(DiskTexts.identity(draft.disk))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Button(DiskTexts.readButton) {
+                    if case let .connected(disk) = model.diskLocation(ofFolder: draft.path) { draft.disk = disk }
+                }
+                .pointing()
+                .disabled(location == .notConnected)
+            }
         }
     }
 
@@ -216,6 +237,33 @@ struct DestinationEditor: View {
     }
 }
 
+/// Under the name of a destination whose disk is not the confirmed one: what is wrong and the button to take the connected disk.
+struct DiskConfirmation: View {
+    @Environment(AppModel.self) private var model
+    let destination: Destination
+    let onConfirmed: (DiskIdentity?) -> Void
+
+    var body: some View {
+        let condition = model.condition(of: destination)
+        if let explanation = condition.diskExplanation(destinationName: destination.name) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(explanation)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if condition.offersConfirmation {
+                    Button(DestinationCondition.confirmTitle(destination.name)) {
+                        Task {
+                            if let confirmed = await model.confirmConnectedDisk(for: destination) { onConfirmed(confirmed.disk) }
+                        }
+                    }
+                    .pointing()
+                }
+            }
+        }
+    }
+}
+
 struct DestinationCopies: View {
     @Environment(AppModel.self) private var model
     let destination: Destination
@@ -245,7 +293,7 @@ struct DestinationCopies: View {
             } else if model.condition(of: destination).isConnected {
                 ProgressView().controlSize(.small).padding(.horizontal, 14)
             } else {
-                note("Not connected — copies can’t be seen.")
+                note(DiskTexts.copiesNote(model.condition(of: destination)))
             }
         }
         .task(id: LoadKey(destination: destination, isConnected: model.condition(of: destination).isConnected, runs: model.runs.count)) {

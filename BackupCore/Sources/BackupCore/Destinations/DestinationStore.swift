@@ -10,6 +10,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case copyMismatch(path: String, expected: Int64, actual: Int64)
     /// Copies whose deletion stopped halfway (`<name>.deleting`) and still could not be deleted, with the reasons.
     case unfinishedDeletions([String])
+    case diskNotConfirmed
+    case otherDisk(name: String)
 
     public var errorDescription: String? {
         switch self {
@@ -29,6 +31,10 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "The copy of “\(path)” came out \(actual) bytes long instead of \(expected). The copy was stopped so as not to keep a broken file."
         case let .unfinishedDeletions(problems):
             "Could not finish deleting old copies: \(problems.joined(separator: " "))"
+        case .diskNotConfirmed:
+            "The disk of this destination is not confirmed yet. Nothing was read, written or deleted. Press “Read from connected disk” in its settings."
+        case let .otherDisk(name):
+            "Another disk named “\(name)” is connected instead of this destination’s disk. Nothing was read, written or deleted there."
         }
     }
 }
@@ -52,9 +58,13 @@ public protocol DestinationStore: Sendable {
     func usedBytes() async throws -> Int64
     /// Whether copies here can share unchanged files; `nil` when it cannot be checked right now (the disk is not connected).
     func canShareUnchangedFiles() async -> Bool?
+    /// Whether the folder is on the disk the destination was confirmed on. Unless it is, the store is unavailable and refuses everything.
+    func diskCheck() async -> DiskCheck
 }
 
 extension DestinationStore {
+    public func diskCheck() async -> DiskCheck { .notNeeded }
+
     /// Copies of the source: those in its folder whose manifest does not name another source. A folder can hold copies
     /// of a removed source with the same slug (configurations made before slugs were retired); they are never this source's.
     public func copies(of source: Source) async throws -> [Snapshot] {

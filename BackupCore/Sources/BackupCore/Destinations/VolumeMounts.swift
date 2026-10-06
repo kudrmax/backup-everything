@@ -10,18 +10,31 @@ public struct VolumeMounts: Sendable {
         self.volumesRoot = volumesRoot
     }
 
-    /// False when the path leads into `<volumesRoot>/<Name>` and no volume is mounted there. Where the path leads is found
-    /// by following its links, so another spelling (`/System/Volumes/Data/Volumes/…`, another letter case) or a link to
-    /// the folder is caught too; a link in `<volumesRoot>` (“Macintosh HD” points at the system disk) leads to a real volume.
+    public enum Placement: Equatable, Sendable {
+        case systemDisk
+        /// In `<volumesRoot>/<Name>`: on whatever volume is mounted there, if any.
+        case volume(mountPoint: URL, isMounted: Bool)
+    }
+
+    /// False when the path leads into `<volumesRoot>/<Name>` and no volume is mounted there.
     public func isOnMountedVolume(_ url: URL) -> Bool {
-        guard let root = identity(of: volumesRoot) else { return true }
+        if case .volume(_, isMounted: false) = placement(of: url) { return false }
+        return true
+    }
+
+    /// Where the path leads is found by following its links, so another spelling (`/System/Volumes/Data/Volumes/…`,
+    /// another letter case) or a link to the folder is caught too; a link in `<volumesRoot>` (“Macintosh HD” points at
+    /// the system disk) leads to where it points.
+    public func placement(of url: URL) -> Placement {
+        guard let root = identity(of: volumesRoot) else { return .systemDisk }
         let components = resolved(url.path).pathComponents
         for count in 1..<max(components.count, 1) where identity(of: path(components.prefix(count))) == root {
+            let mountPoint = path(components.prefix(count + 1))
             var volume = stat()
-            guard lstat(path(components.prefix(count + 1)), &volume) == 0 else { return false }
-            return volume.st_dev != root.device
+            let isMounted = lstat(mountPoint, &volume) == 0 && volume.st_dev != root.device
+            return .volume(mountPoint: URL(fileURLWithPath: mountPoint, isDirectory: true), isMounted: isMounted)
         }
-        return true
+        return .systemDisk
     }
 
     private struct Identity: Equatable {

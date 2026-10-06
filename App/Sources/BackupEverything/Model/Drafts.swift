@@ -288,7 +288,11 @@ struct DestinationDraft {
 
     var name: String
     var typeChoice: DestinationTypeChoice
-    var path = ""
+    /// Another folder may be on another disk: the disk read for the old one says nothing about it.
+    var path = "" {
+        didSet { if path != oldValue { disk = nil } }
+    }
+    var disk: DiskIdentity?
     var remote = ""
     var remotePath = "backups"
     var isPeriodic = false
@@ -301,6 +305,7 @@ struct DestinationDraft {
         case let .localFolder(path):
             typeChoice = .local
             self.path = path
+            disk = destination.disk
         case let .rclone(remote, path):
             typeChoice = .rclone
             self.remote = remote
@@ -325,6 +330,12 @@ struct DestinationDraft {
 
     var hasChanges: Bool { build() != base }
 
+    /// The saved destination got its disk confirmed meanwhile: the draft takes it too, unless its folder was changed.
+    mutating func diskConfirmed(_ confirmed: DiskIdentity?) {
+        if case let .localFolder(savedPath) = base.kind, savedPath == path { disk = confirmed }
+        base.disk = confirmed
+    }
+
     func build() -> Destination {
         var destination = base
         destination.name = trimmed(name)
@@ -333,6 +344,7 @@ struct DestinationDraft {
         case .rclone: .rclone(remote: trimmed(remote), path: trimmed(remotePath))
         }
         destination.expectedEvery = isPeriodic ? .days(max(1, days)) : .always
+        destination.disk = typeChoice == .local ? disk : nil
         return destination
     }
 
