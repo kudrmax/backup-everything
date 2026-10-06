@@ -88,10 +88,15 @@ public protocol DestinationStore: Sendable {
     func canShareUnchangedFiles() async -> Bool?
     /// Whether the folder is on the disk the destination was confirmed on. Unless it is, the store is unavailable and refuses everything.
     func diskCheck() async -> DiskCheck
+    /// Whether copies found here can be told to be this destination's: in the cloud, on the system disk, or on the disk
+    /// confirmed for it. A folder on an external disk that no disk is confirmed for is not such a place, whether a disk
+    /// is connected or not: any disk can be there. Copies count only where they can be proven (5.3.1).
+    func isVerifiable() async -> Bool
 }
 
 extension DestinationStore {
     public func diskCheck() async -> DiskCheck { .notNeeded }
+    public func isVerifiable() async -> Bool { true }
 
     /// Copies of the source: those in its folder whose manifest does not name another source. A folder can hold copies
     /// of a removed source with the same slug (configurations made before slugs were retired); they are never this source's.

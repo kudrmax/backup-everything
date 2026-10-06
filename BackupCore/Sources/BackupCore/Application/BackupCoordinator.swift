@@ -54,7 +54,7 @@ public actor BackupCoordinator {
     /// If another backup is running ahead, whatever the check will certainly do is marked “queued” right away, not when its turn comes.
     public func tick() async throws -> TickResult {
         var announced: Set<UUID> = []
-        if let config = try? store.loadConfig(), let state = try? loadState(for: config, now: time.now) {
+        if let config = try? store.loadConfig(), let state = try? await loadState(for: config, now: time.now) {
             let foreseen = await foreseenWork(config: config, state: state, now: time.now)
             announce(foreseen)
             announced = Set(foreseen.map(\.id))
@@ -145,22 +145,31 @@ public actor BackupCoordinator {
     public func currentStatus() async throws -> CurrentStatus {
         let config = try store.loadConfig()
         let now = time.now
-        let state = try loadState(for: config, now: now)
+        let state = try await loadState(for: config, now: now)
         return CurrentStatus(config: config, state: state, report: await report(config: config, state: state, now: now))
     }
 
     public func nextWake() async throws -> Date? {
         let config = try store.loadConfig()
         let now = time.now
-        let state = try loadState(for: config, now: now)
+        let state = try await loadState(for: config, now: now)
         let report = await report(config: config, state: state, now: now)
         return planner.nextWake(config: config, state: state, now: now, needsAttention: report.overall != .ok)
     }
 
-    /// The saved state brought in line with the settings: facts of places the destinations no longer point to are gone.
-    private func loadState(for config: Config, now: Date) throws -> AppState {
-        var state = try store.loadState()
-        reducer.reconcile(config: config, state: &state, now: now)
+    /// The saved state brought in line with the settings: facts of places the destinations no longer point to, and of
+    /// places where copies cannot be proven, are gone. Every use of the state goes through here. What was forgotten is
+    /// saved at once, so it stays forgotten whatever the settings become next: facts left on a disk before it was
+    /// confirmed are not taken for facts about the confirmed disk. Nothing else runs between reading and saving.
+    private func loadState(for config: Config, now: Date) async throws -> AppState {
+        var unverifiable: Set<UUID> = []
+        for destination in config.destinations where !(await stores.store(for: destination).isVerifiable()) {
+            unverifiable.insert(destination.id)
+        }
+        let saved = try store.loadState()
+        var state = saved
+        reducer.reconcile(config: config, state: &state, now: now, unverifiable: unverifiable)
+        if state != saved { try store.saveState(state) }
         return state
     }
 
@@ -177,7 +186,7 @@ public actor BackupCoordinator {
     private func performTick(announced: Set<UUID> = []) async throws -> TickResult {
         let config = try store.loadConfig()
         let now = time.now
-        var state = try loadState(for: config, now: now)
+        var state = try await loadState(for: config, now: now)
         forgetRemovedSources(config)
         let debtorsBefore = Set(state.pausingDisabledSources(of: config).debts.map(\.destinationId))
         var runs: [RunRecord] = []
@@ -232,7 +241,7 @@ public actor BackupCoordinator {
 
     private func performRunNow(sourceId: UUID) async throws -> TickResult {
         let config = try store.loadConfig()
-        var state = try loadState(for: config, now: time.now)
+        var state = try await loadState(for: config, now: time.now)
         var runs: [RunRecord] = []
         guard let source = config.source(sourceId) else { return TickResult() }
         let destinations = config.destinations(of: source)
@@ -252,7 +261,7 @@ public actor BackupCoordinator {
 
     private func performRunAllNow() async throws -> TickResult {
         let config = try store.loadConfig()
-        var state = try loadState(for: config, now: time.now)
+        var state = try await loadState(for: config, now: time.now)
         var runs: [RunRecord] = []
         let sources = config.sources.filter { $0.enabled && !$0.needsHuman && !config.destinations(of: $0).isEmpty }
         announce(sources)
@@ -268,7 +277,7 @@ public actor BackupCoordinator {
 
     private func performConfirmPickup(sourceId: UUID) async throws -> TickResult {
         let config = try store.loadConfig()
-        var state = try loadState(for: config, now: time.now)
+        var state = try await loadState(for: config, now: time.now)
         var runs: [RunRecord] = []
         guard let source = config.source(sourceId), source.needsHuman else { return TickResult() }
         var notices: [Notice] = []
@@ -369,7 +378,7 @@ public actor BackupCoordinator {
 
     /// Only a run started by the button can be cancelled: waiting because it is due is a reminder, it stays until the backup.
     private func performCancelWaiting(sourceId: UUID) async throws -> TickResult {
-        var state = try store.loadState()
+        var state = try await loadState(for: try store.loadConfig(), now: time.now)
         if state.sourceState(sourceId).chain != nil {
             try chains.discard(sourceId: sourceId)
         }
@@ -382,9 +391,9 @@ public actor BackupCoordinator {
     }
 
     private func performRestartChain(sourceId: UUID) async throws -> TickResult {
-        var state = try store.loadState()
-        try chains.discard(sourceId: sourceId)
         let now = time.now
+        var state = try await loadState(for: try store.loadConfig(), now: now)
+        try chains.discard(sourceId: sourceId)
         state.updateSource(sourceId) {
             $0.chain = nil
             $0.armedAt = now

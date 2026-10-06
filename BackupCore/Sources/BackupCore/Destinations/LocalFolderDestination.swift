@@ -48,6 +48,10 @@ public struct LocalFolderDestination: DestinationStore {
         currentDiskCheck()
     }
 
+    public func isVerifiable() async -> Bool {
+        expectedDisk != nil || disks.location(of: root) == .systemDisk
+    }
+
     public func listSnapshots(sourceSlug: String) async throws -> [Snapshot] {
         try requireOwnDisk()
         return try snapshotDirectories(sourceSlug).filter { hasManifest($0.url) }.map(\.snapshot)

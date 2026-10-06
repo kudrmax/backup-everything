@@ -53,23 +53,28 @@ public struct StateReducer: Sendable {
 
     /// Brings the state in line with the settings before anything is judged or done by it. Facts belong to a place: when a
     /// destination now points to another folder, remote or disk than the one its facts were learned at, they are forgotten,
-    /// so it is checked and caught up and no copy counts there until one is proven. Each pair remembers since when it is
+    /// so it is checked and caught up and no copy counts there until one is proven. A place where copies cannot be proven
+    /// (`unverifiable`: a folder on an external disk that no disk is confirmed for, so any disk may be there) holds no
+    /// facts at all: those an older version left there are forgotten in the same way. Each pair remembers since when it is
     /// expected to hold a copy: pairs present at the first reconciliation since their source was created, later ones since
-    /// they appeared or their destination moved.
-    public func reconcile(config: Config, state: inout AppState, now: Date) {
+    /// they appeared or the facts of their destination were forgotten.
+    public func reconcile(config: Config, state: inout AppState, now: Date, unverifiable: Set<UUID>) {
         dropOrphans(config: config, state: &state)
         let isFirst = state.expectedSince == nil
         var since = state.expectedSince ?? [:]
         for destination in config.destinations {
             let recorded = state.destinationState(destination.id).location
-            guard recorded != destination.location else { continue }
-            if recorded != nil {
+            let moved = recorded != nil && recorded != destination.location
+            let unproven = unverifiable.contains(destination.id) && state.knowsCopies(at: destination.id)
+            if moved || unproven {
                 state.forgetCopies(at: destination.id)
                 for source in config.sources where source.destinationIds.contains(destination.id) {
                     since[AppState.deliveryKey(sourceId: source.id, destinationId: destination.id)] = now
                 }
             }
-            state.updateDestination(destination.id) { $0.location = destination.location }
+            if recorded != destination.location {
+                state.updateDestination(destination.id) { $0.location = destination.location }
+            }
         }
         for source in config.sources {
             for destination in config.destinations(of: source) {

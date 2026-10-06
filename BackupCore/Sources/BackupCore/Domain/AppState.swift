@@ -206,6 +206,17 @@ public struct AppState: Codable, Sendable, Equatable {
         }
     }
 
+    /// Whether anything is known about copies at the destination: what `forgetCopies` forgets.
+    public func knowsCopies(at destinationId: UUID) -> Bool {
+        let suffix = "|" + destinationId.uuidString
+        let destination = destinationState(destinationId)
+        return lastDelivered.keys.contains { $0.hasSuffix(suffix) }
+            || (deliveredAt ?? [:]).keys.contains { $0.hasSuffix(suffix) }
+            || deliveryWarnings.keys.contains { $0.hasSuffix(suffix) }
+            || destination.lastCaughtUp != nil
+            || destination.lastVerified != nil
+    }
+
     /// Since when the source has been expected to hold a copy at the destination's current place; `nil` when not recorded.
     public func copyExpectedSince(sourceId: UUID, destinationId: UUID) -> Date? {
         expectedSince?[Self.deliveryKey(sourceId: sourceId, destinationId: destinationId)]
@@ -213,13 +224,13 @@ public struct AppState: Codable, Sendable, Equatable {
 
     /// State saved before `deliveredAt` was kept learns the dates from the history: the run that delivered the copy named in
     /// `lastDelivered`, else the date in its name (5.3.1). A date is a fact about a copy that is there now, so it is learned
-    /// only for a pair whose copy is named in `lastDelivered` and owes nothing: an open debt says the copy may be gone
-    /// (the check forgets a missing copy and opens a debt). Pairs without a name get their date from the check of the
-    /// destination, which looks at the copies themselves.
+    /// only for a pair whose copy is named in `lastDelivered`: the check forgets the name of a copy it finds missing. An
+    /// open debt says a newer copy is owed, not that the named one is gone, so it does not hold the date back. Pairs
+    /// without a name get their date from the check of the destination, which looks at the copies themselves. Facts at a
+    /// place where copies cannot be proven are forgotten when the state is reconciled (`StateReducer.reconcile`).
     public func learningDeliveryDates(from history: [RunRecord], naming: SnapshotNaming) -> AppState {
         guard deliveredAt == nil else { return self }
-        let owed = Set(debts.map { Self.deliveryKey(sourceId: $0.sourceId, destinationId: $0.destinationId) })
-        let named = lastDelivered.filter { !owed.contains($0.key) }
+        let named = lastDelivered
         var dates: [String: Date] = [:]
         for run in history.sorted(by: { $0.startedAt > $1.startedAt }) {
             for delivery in run.deliveries where delivery.outcome.isDelivered {

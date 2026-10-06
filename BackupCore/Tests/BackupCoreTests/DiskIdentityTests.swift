@@ -140,6 +140,25 @@ struct DiskIdentityTests {
             == "Could not read the ID of the disk “TEST-BE-DISK”, so it is not known whether it is this destination’s disk. Nothing was read, written or deleted there. The app checks again on its own.")
     }
 
+    /// Copies can be proven on the system disk and on a confirmed disk, connected or not; on an external disk without a
+    /// confirmed one they cannot, whatever disk is there now.
+    @Test func copiesAreProvableOnlyWhereTheDiskIsKnown() async throws {
+        defer { temp.remove() }
+        let cases: [(DiskIdentity?, DiskLocation, Bool)] = [
+            (nil, .systemDisk, true),
+            (mine, .connected(mine), true),
+            (mine, .connected(stranger), true),
+            (mine, .notConnected, true),
+            (mine, .unidentified(name: "TEST-BE-DISK"), true),
+            (nil, .connected(mine), false),
+            (nil, .notConnected, false),
+            (nil, .unidentified(name: "TEST-BE-DISK"), false),
+        ]
+        for (expected, location, verifiable) in cases {
+            #expect(await destination(expecting: expected, on: location).isVerifiable() == verifiable, "\(String(describing: expected)) on \(location)")
+        }
+    }
+
     @Test func unconfirmedDiskThatIsNotConnectedIsUnavailable() async throws {
         defer { temp.remove() }
         let destination = destination(expecting: nil, on: .notConnected)

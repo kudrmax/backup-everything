@@ -205,7 +205,7 @@ struct StateReducerTests {
                 $0.lastVerified = finished
             }
         }
-        reducer.reconcile(config: config, state: &adopted, now: started)
+        reducer.reconcile(config: config, state: &adopted, now: started, unverifiable: [])
         #expect(adopted.deliveredAt?.count == 3)
         #expect(adopted.expectedSince == [key(source, disk): created, key(source, cloud): created, key(other, disk): created])
 
@@ -214,7 +214,7 @@ struct StateReducerTests {
         renamed.destinations[0].name = "Disk"
         renamed.destinations[0].expectedEvery = .days(7)
         renamed.destinations[0].disk = DiskIdentity(uuid: "A", name: "Renamed disk")
-        reducer.reconcile(config: renamed, state: &kept, now: finished)
+        reducer.reconcile(config: renamed, state: &kept, now: finished, unverifiable: [])
         #expect(kept == adopted)
 
         let moves: [(inout Config) -> Void] = [
@@ -226,7 +226,7 @@ struct StateReducerTests {
             var moved = config
             move(&moved)
             var state = adopted
-            reducer.reconcile(config: moved, state: &state, now: finished)
+            reducer.reconcile(config: moved, state: &state, now: finished, unverifiable: [])
             #expect(state.deliveredAt == [key(source, cloud): started])
             #expect(state.lastDelivered == [key(source, cloud): "2026-09-28_100000"])
             #expect(state.deliveryWarnings.keys.sorted() == [key(source, cloud)])
@@ -236,15 +236,51 @@ struct StateReducerTests {
             #expect(state.expectedSince == [key(source, disk): finished, key(source, cloud): created, key(other, disk): finished])
 
             var again = state
-            reducer.reconcile(config: moved, state: &again, now: finished.addingTimeInterval(60))
+            reducer.reconcile(config: moved, state: &again, now: finished.addingTimeInterval(60), unverifiable: [])
             #expect(again == state)
         }
 
         config.destinations[1].kind = .rclone(remote: "drive2", path: "Backups")
         var recloud = adopted
-        reducer.reconcile(config: config, state: &recloud, now: finished)
+        reducer.reconcile(config: config, state: &recloud, now: finished, unverifiable: [])
         #expect(recloud.deliveredAt?.keys.sorted() == [key(source, disk), key(other, disk)].sorted())
         #expect(recloud.destinationState(cloud.id).lastVerified == nil)
+    }
+
+    /// A place where copies cannot be proven holds no facts: those an older version left there are forgotten as at a move,
+    /// even at the first reconciliation, while its debts stay. Nothing changes once nothing is known there.
+    @Test func unverifiablePlaceHoldsNoFacts() {
+        let disk = Destination(name: "HDD", kind: .localFolder(path: "/tmp/TEST-BE-HDD/Backups"), expectedEvery: .days(14))
+        let cloud = Destination(name: "Cloud", kind: .rclone(remote: "drive", path: "Backups"))
+        let source = Fixtures.source(destinations: [disk, cloud])
+        let config = Config(sources: [source], destinations: [disk, cloud])
+        let key = { (place: Destination) in AppState.deliveryKey(sourceId: source.id, destinationId: place.id) }
+        var state = AppState()
+        for place in [disk, cloud] {
+            state.recordDelivery(sourceId: source.id, destinationId: place.id, snapshotName: "2026-09-28_100000", collectedAt: started)
+            state.updateDestination(place.id) { $0.lastCaughtUp = started }
+        }
+        state.deliveryWarnings[key(disk)] = "Could not clean up old copies: busy"
+        state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: started)]
+        state.expectedSince = nil
+
+        reducer.reconcile(config: config, state: &state, now: finished, unverifiable: [disk.id])
+        #expect(!state.knowsCopies(at: disk.id))
+        #expect(state.deliveredAt == [key(cloud): started])
+        #expect(state.lastDelivered == [key(cloud): "2026-09-28_100000"])
+        #expect(state.deliveryWarnings.isEmpty)
+        #expect(state.debts == [Debt(sourceId: source.id, destinationId: disk.id, since: started)])
+        #expect(state.expectedSince == [key(disk): finished, key(cloud): source.createdAt])
+
+        var again = state
+        reducer.reconcile(config: config, state: &again, now: finished.addingTimeInterval(60), unverifiable: [disk.id])
+        #expect(again == state)
+
+        var confirmed = config
+        confirmed.destinations[0].disk = DiskIdentity(uuid: "A", name: "TEST-BE-HDD")
+        let later = finished.addingTimeInterval(120)
+        reducer.reconcile(config: confirmed, state: &again, now: later, unverifiable: [])
+        #expect(again.expectedSince == [key(disk): later, key(cloud): source.createdAt])
     }
 
     /// A pair added later is expected to hold a copy from the moment it was added, not from the source's creation.
@@ -253,9 +289,9 @@ struct StateReducerTests {
         let second = Destination(name: "Second", kind: .localFolder(path: "/b"))
         var source = Fixtures.source(destinations: [first])
         var state = AppState()
-        reducer.reconcile(config: Config(sources: [source], destinations: [first, second]), state: &state, now: started)
+        reducer.reconcile(config: Config(sources: [source], destinations: [first, second]), state: &state, now: started, unverifiable: [])
         source.destinationIds.append(second.id)
-        reducer.reconcile(config: Config(sources: [source], destinations: [first, second]), state: &state, now: finished)
+        reducer.reconcile(config: Config(sources: [source], destinations: [first, second]), state: &state, now: finished, unverifiable: [])
         #expect(state.expectedSince == [
             AppState.deliveryKey(sourceId: source.id, destinationId: first.id): source.createdAt,
             AppState.deliveryKey(sourceId: source.id, destinationId: second.id): finished,

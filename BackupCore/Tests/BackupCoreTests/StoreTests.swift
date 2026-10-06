@@ -216,6 +216,7 @@ struct StoreTests {
     }
 
     /// A copy the check found missing has no name in `lastDelivered` and an open debt: the history must not bring it back.
+    /// A named copy keeps its date even though a newer one is owed: the debt says nothing about the named copy being gone.
     @Test func copyFoundMissingIsNotRevivedFromTheHistory() throws {
         defer { temp.remove() }
         let source = UUID()
@@ -234,7 +235,7 @@ struct StoreTests {
                   {"sourceId":"\(source.uuidString)","destinationId":"\(disk.uuidString)","since":"2026-10-05T12:00:00Z"}],
          "lastDelivered":{"\(diskKey)":"2026-10-05_100000"}}
         """)
-        #expect(try store.loadState().deliveredAt == [:])
+        #expect(try store.loadState().deliveredAt == [diskKey: Fixtures.date("2026-10-05 10:00:00")])
     }
 
     @Test func chainSavedByAnOlderVersionDoesNotKnowItsStepOutput() throws {
