@@ -967,4 +967,43 @@ struct StepChainRunnerTests {
         #expect(failure.contains("Command exited with code 1. connection lost"))
         #expect(failure.contains(CocoaError(.fileWriteNoPermission).localizedDescription))
     }
+
+    @Test func copyFolderStepDoesNotWriteOverWhatAnEarlierStepMade() async throws {
+        defer { temp.remove() }
+        try temp.file("vault/archive.zip", "from the folder")
+        let source = source([command(), SourceStep(name: "Folder", kind: .folder(path: temp.path("vault").path, excludes: []))])
+        let runner = runner { [self] in try writeArchive($0) }
+        guard case let .moved(afterCommand?) = await runner.advance(source, chain: nil, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the command did not run")
+            return
+        }
+
+        guard case let .failed(failed) = await runner.advance(source, chain: afterCommand, lastPickup: nil, permissions: allowAll) else {
+            Issue.record("the copy did not fail")
+            return
+        }
+        let output = temp.path(chainFolder(source, "output"))
+        #expect(failed.failure == DestinationError.collisionInCopy(output.path + "/archive.zip").localizedDescription)
+        #expect(try String(contentsOf: output.appendingPathComponent("archive.zip"), encoding: .utf8) == "zip")
+    }
+
+    @Test func outputWithANameThatIsNotUTF8FailsTheStep() async throws {
+        let source = source([command()])
+        let output = try temp.directory(chainFolder(source, "output"))
+        let disk = try DiskImage(.fat16, at: output, name: "TEST-BE-SUR", raw: true)
+        defer {
+            disk.detach()
+            temp.remove()
+        }
+        try Data("odd".utf8).write(to: output.appendingPathComponent("TBEaaaa"))
+        try disk.patch(Array("TBEaa".utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }), with: [0x54, 0, 0x42, 0, 0x00, 0xD8, 0x61, 0, 0x61, 0])
+
+        let transition = await runner().advance(source, chain: chain(source, 0, startedAt: start, stepEnteredAt: start), lastPickup: nil, permissions: allowAll)
+
+        guard case let .failed(failed) = transition else {
+            Issue.record("the step did not fail: \(transition)")
+            return
+        }
+        #expect(failed.failure == DirectoryNamesError.undecodableName(folder: output.path).localizedDescription)
+    }
 }

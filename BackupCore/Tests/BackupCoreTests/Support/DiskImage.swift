@@ -4,6 +4,7 @@ import Foundation
 final class DiskImage: @unchecked Sendable {
     enum Format: String {
         case apfs = "APFS"
+        case caseSensitiveAPFS = "Case-sensitive APFS"
         case exFAT = "ExFAT"
         case fat32 = "MS-DOS FAT32"
         case fat16 = "MS-DOS FAT16"

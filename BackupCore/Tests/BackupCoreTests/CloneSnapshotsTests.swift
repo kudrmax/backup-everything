@@ -309,6 +309,44 @@ struct CloneSnapshotsTests {
         #expect(leftovers(second).isEmpty)
     }
 
+    @Test func previousCopyChangedInPlaceIsNotCloned() async throws {
+        defer { temp.remove() }
+        let text = String(repeating: "GOOD ", count: 2000)
+        try temp.file("vault/big.txt", text)
+        try await backUp(destination(RecordingCloning()), at: first)
+        let stored = snapshot(first).appendingPathComponent("big.txt").path
+        var before = stat()
+        lstat(stored, &before)
+        let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: stored))
+        try handle.write(contentsOf: Data("BAD!!".utf8))
+        try handle.close()
+        var times = [before.st_atimespec, before.st_mtimespec]
+        utimensat(AT_FDCWD, stored, &times, AT_SYMLINK_NOFOLLOW)
+
+        try await backUp(destination(RecordingCloning()), at: second)
+
+        #expect(try content(second, "big.txt") == text)
+        #expect(!isShared("big.txt", between: first, and: second))
+        #expect(leftovers(second).isEmpty)
+    }
+
+    @Test func cloneThatCannotBeRemovedLeavesTheCopyUnfinished() async throws {
+        defer { Permissions.removeTree(temp.url) }
+        try temp.file("vault/a.md", "alpha")
+        try await backUp(destination(RecordingCloning()), at: first)
+
+        let error = await #expect(throws: DestinationError.self) {
+            try await backUp(destination(RecordingCloning(.stuck)), at: second)
+        }
+        guard case let .leftoverInCopy(path, _) = error else {
+            Issue.record("unexpected \(String(describing: error))")
+            return
+        }
+        #expect(leftovers(second).map { snapshot(second).path + "/" + $0 } == [path])
+        #expect(FileManager.default.fileExists(atPath: snapshot(second).appendingPathComponent(SnapshotManifest.unfinishedMarker).path))
+        #expect(try content(second, "a.md") == "alpha")
+    }
+
     @Test func deletingTheOldSnapshotKeepsTheNewOneWhole() async throws {
         defer { temp.remove() }
         try temp.file("vault/a.md", "alpha")

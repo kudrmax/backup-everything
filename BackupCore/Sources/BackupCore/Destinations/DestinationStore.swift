@@ -11,6 +11,14 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case missingFromCopy(String)
     /// An item of the finished copy is of another type, size or link target than its original.
     case changedInCopy(String)
+    /// Something is already at a path the copy was to create: copying never writes over anything or through a link.
+    case collisionInCopy(String)
+    /// A file of the copy is shorter or longer than listed, and its original vanished: the copy holds only part of it.
+    case vanishedWhileCopied(String)
+    /// A file of the finished copy could not be read for its manifest.
+    case unreadableInCopy(String, reason: String)
+    /// A temporary clone made while saving space could not be removed and would stay in the copy.
+    case leftoverInCopy(String, reason: String)
     /// Copies are kept only on APFS; `format` is the name of the disk's file system as people know it.
     case unsupportedFormat(name: String, format: String)
     /// Copies whose deletion stopped halfway (`<name>.deleting`) and still could not be deleted, with the reasons.
@@ -37,6 +45,14 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "“\(path)” is missing from the copy although its original is still there. The copy was left unfinished so as not to pass for a complete one."
         case let .changedInCopy(path):
             "“\(path)” in the copy is not as its original (another type, size or link target). The copy was left unfinished so as not to pass for a complete one."
+        case let .collisionInCopy(path):
+            "“\(path)” already exists in the copy, so nothing was written over it: two originals have names the destination does not tell apart (such as names that differ only in letter case), or something was already there. The copy was left unfinished so as not to pass for a complete one."
+        case let .vanishedWhileCopied(path):
+            "The original of “\(path)” vanished while it was being copied, so the copy holds only part of it. The copy was left unfinished so as not to pass for a complete one."
+        case let .unreadableInCopy(path, reason):
+            "“\(path)” in the copy could not be read back for the list of its files: \(reason) The copy was left unfinished so as not to pass for a complete one."
+        case let .leftoverInCopy(path, reason):
+            "A temporary file “\(path)” made while saving space could not be removed from the copy: \(reason) The copy was left unfinished so as not to pass for a complete one."
         case let .unsupportedFormat(name, format):
             DiskFormat.problem(name: name, format: format)
         case let .unfinishedDeletions(problems):

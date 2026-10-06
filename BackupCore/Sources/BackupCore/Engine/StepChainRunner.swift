@@ -63,6 +63,7 @@ public struct StepChainRunner: Sendable {
         let folders = folders(source.id)
         let pickup = FilePickup(folders: folders, trash: trash)
         var outputAtNextStep: [String]?
+        let outputAtEntry: [String]
         do {
             do {
                 try pickup.undoUnfinished(of: next.stepId)
@@ -97,7 +98,7 @@ public struct StepChainRunner: Sendable {
                 try clearUnfinishedAttempt(of: next, in: folders)
                 progress(.collecting(sourceId: source.id))
                 progress(.step(sourceId: source.id, index: next.stepIndex, count: steps.count))
-                let before = contents(of: folders.output)
+                let before = try contents(of: folders.output)
                 do {
                     _ = try await StepExecutor(runner: process.recording(runner)).run(step.kind, in: folders) { [progress] text in
                         progress(.status(sourceId: source.id, text: text))
@@ -105,7 +106,7 @@ public struct StepChainRunner: Sendable {
                 } catch {
                     var failure = error
                     do {
-                        for added in contents(of: folders.output).subtracting(before) {
+                        for added in try contents(of: folders.output).subtracting(before) {
                             try trash(folders.output.appendingPathComponent(added))
                         }
                     } catch let cleanup {
@@ -123,6 +124,7 @@ public struct StepChainRunner: Sendable {
                     throw failure
                 }
             }
+            outputAtEntry = try outputAtNextStep ?? contents(of: folders.output).sorted()
         } catch {
             next.failure = error.localizedDescription
             return .failed(next)
@@ -131,7 +133,7 @@ public struct StepChainRunner: Sendable {
         next.stepId = next.stepIndex < steps.count ? steps[next.stepIndex].id : nil
         next.stepEnteredAt = time.now
         if outputAtNextStep == nil { next.outputAtStepEntryIsComplete = true }
-        next.outputAtStepEntry = outputAtNextStep ?? contents(of: folders.output).sorted()
+        next.outputAtStepEntry = outputAtEntry
         return .moved(next)
     }
 
@@ -166,13 +168,13 @@ public struct StepChainRunner: Sendable {
     private func clearUnfinishedAttempt(of chain: ChainState, in folders: WorkFolders) throws {
         guard let atEntry = chain.outputAtStepEntry else { return }
         let listsAllNames = chain.outputAtStepEntryIsComplete == true
-        for leftover in contents(of: folders.output).subtracting(atEntry) where listsAllNames || !leftover.hasPrefix("._") {
+        for leftover in try contents(of: folders.output).subtracting(atEntry) where listsAllNames || !leftover.hasPrefix("._") {
             try trash(folders.output.appendingPathComponent(leftover))
         }
     }
 
-    private func contents(of directory: URL) -> Set<String> {
-        Set((try? DirectoryNames.of(directory.path)) ?? [])
+    private func contents(of directory: URL) throws -> Set<String> {
+        Set(try DirectoryNames.of(directory.path))
     }
 
     /// A step after the device failed and the device is gone: it was disconnected mid-copy. This is waiting, not an error.

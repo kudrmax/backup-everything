@@ -36,6 +36,7 @@ struct SnapshotFilesTests {
         try temp.file("vault/cache/big.bin", "bytes")
         try temp.file("vault/notes/b.tmp", "tmp")
         try temp.file("vault/notes/b.md", "beta")
+        try temp.file("vault/notes/cache/deep.bin", "bytes")
         let copy = try temp.directory("copy")
 
         try PayloadCopier().copy(try listing(excludes: ["cache", "*.tmp"]), into: copy.path)
@@ -187,6 +188,78 @@ struct SnapshotFilesTests {
         try WrittenCopy(listing: listing).check(in: copy.path)
     }
 
+    @Test func partOfAFileThatVanishedWhileItWasCopiedIsNotTakenForTheWhole() throws {
+        defer { temp.remove() }
+        try temp.file("vault/a.md", "alpha")
+        let listing = try listing()
+        let copy = try temp.directory("copy")
+        try PayloadCopier().copy(listing, into: copy.path)
+        truncate(copy.path + "/a.md", 2)
+        try FileManager.default.removeItem(at: temp.path("vault/a.md"))
+
+        #expect(throws: DestinationError.vanishedWhileCopied(copy.path + "/a.md")) { try WrittenCopy(listing: listing).check(in: copy.path) }
+    }
+
+    @Test func partOfAFileFromAnEjectedDiskIsTheSourceGone() throws {
+        let disk = try DiskImage(.apfs)
+        defer {
+            disk.detach()
+            temp.remove()
+        }
+        let vault = disk.root.appendingPathComponent("vault")
+        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: false)
+        try Data("alpha".utf8).write(to: vault.appendingPathComponent("a.md"))
+        let listing = try PayloadWalker().listing(of: Payload(root: vault, collectedAt: date))
+        let copy = try temp.directory("copy")
+        try PayloadCopier().copy(listing, into: copy.path)
+        truncate(copy.path + "/a.md", 2)
+        disk.detach()
+
+        #expect(throws: SourceError.sourceDisappeared(vault.path)) { try WrittenCopy(listing: listing).check(in: copy.path) }
+    }
+
+    @Test func partOfAFileWhoseOriginalCannotBeLookedAtIsAnError() throws {
+        defer {
+            chmod(temp.path("vault/sub").path, 0o755)
+            temp.remove()
+        }
+        try temp.file("vault/sub/a.md", "alpha")
+        let listing = try listing()
+        let copy = try temp.directory("copy")
+        try PayloadCopier().copy(listing, into: copy.path)
+        truncate(copy.path + "/sub/a.md", 2)
+        chmod(temp.path("vault/sub").path, 0)
+
+        #expect(throws: POSIXError(.EACCES)) { try WrittenCopy(listing: listing).check(in: copy.path) }
+    }
+
+    @Test func itemThatLeftTheCopyBeforeItsListWasMadeLeavesTheCopyUnfinished() throws {
+        defer { temp.remove() }
+        try temp.file("vault/a.md", "alpha")
+        try temp.file("vault/b.md", "beta")
+        let copy = try temp.directory("copy")
+        let writer = SnapshotWriter(cloning: APFSCloning(), beforeReadingBack: { unlink(copy.path + "/b.md") })
+
+        #expect(throws: DestinationError.missingFromCopy(copy.path + "/b.md")) {
+            try writer.write(try listing(), into: copy, sharingWith: nil)
+        }
+    }
+
+    @Test func fileOfTheCopyThatCannotBeReadBackIsNamed() throws {
+        defer { temp.remove() }
+        try temp.file("vault/a.md", "alpha")
+        let copy = try temp.directory("copy")
+        let writer = SnapshotWriter(cloning: APFSCloning(), beforeReadingBack: { chmod(copy.path + "/a.md", 0) })
+
+        let error = #expect(throws: DestinationError.self) { try writer.write(try listing(), into: copy, sharingWith: nil) }
+        guard case let .unreadableInCopy(path, _) = error else {
+            Issue.record("unexpected \(String(describing: error))")
+            return
+        }
+        #expect(path == copy.path + "/a.md")
+        #expect(error?.localizedDescription.hasPrefix("“\(copy.path)/a.md” in the copy could not be read back") == true)
+    }
+
     @Test func singleFileThatIsGoneIsTheSourceGone() throws {
         defer { temp.remove() }
         let file = try temp.file("export.csv", "1;2")
@@ -215,6 +288,12 @@ struct SnapshotFilesTests {
             == "“/d/a.md” is missing from the copy although its original is still there. The copy was left unfinished so as not to pass for a complete one.")
         #expect(DestinationError.changedInCopy("/d/a.md").localizedDescription
             == "“/d/a.md” in the copy is not as its original (another type, size or link target). The copy was left unfinished so as not to pass for a complete one.")
+        #expect(DestinationError.vanishedWhileCopied("/d/a.md").localizedDescription
+            == "The original of “/d/a.md” vanished while it was being copied, so the copy holds only part of it. The copy was left unfinished so as not to pass for a complete one.")
+        #expect(DestinationError.unreadableInCopy("/d/a.md", reason: "Permission denied.").localizedDescription
+            == "“/d/a.md” in the copy could not be read back for the list of its files: Permission denied. The copy was left unfinished so as not to pass for a complete one.")
+        #expect(DestinationError.leftoverInCopy("/d/.backup-everything-clone-1", reason: "Operation not permitted.").localizedDescription
+            == "A temporary file “/d/.backup-everything-clone-1” made while saving space could not be removed from the copy: Operation not permitted. The copy was left unfinished so as not to pass for a complete one.")
     }
 
     // MARK: Clones and space

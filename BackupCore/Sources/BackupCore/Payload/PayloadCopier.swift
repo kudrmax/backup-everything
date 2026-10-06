@@ -7,21 +7,25 @@ import Foundation
 /// leaves out (exclusions, companions that hold attributes on a disk without them) is skipped. The engine creates links
 /// only after it has sealed their folders (a read-only or locked folder then loses them, and any folder gets a new date),
 /// so each link is copied by the same engine just before its folder is sealed. The target folder keeps its own metadata.
+/// Every item is created anew (`COPYFILE_EXCL`): whatever is already at a target — a file, a link, a folder, or an item of
+/// this copy whose name the destination does not tell apart — stops the copy and is neither written over nor followed.
 /// An original that vanished after the payload was listed is left out, as if it had vanished a moment earlier; when the
 /// payload itself or a disk mounted inside it is gone (ejected), copying stops with an error that says so. What is in the
 /// copy in the end is told by `WrittenCopy`.
 struct PayloadCopier {
-    private static let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_NOFOLLOW_SRC)
+    private static let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_NOFOLLOW_SRC | COPYFILE_EXCL)
 
     /// `afterEachItem` learns the path of each file and link in the copy right after it is written (tests use it to meddle).
     func copy(_ listing: PayloadListing, into base: String, afterEachItem: @escaping (String) -> Void = { _ in }) throws {
         let session = CopySession(listing, base: base, afterEachItem: afterEachItem)
-        if let file = listing.entries.first, file.url.path == listing.origin.path {
-            session.copyAlone(file)
-        } else {
-            session.copyTree()
+        for entry in listing.entries where !entry.relativePath.contains("/") {
+            if entry.kind == .directory {
+                session.copyTree(entry)
+            } else {
+                session.copyAlone(entry)
+            }
+            if let failure = session.failure { throw failure }
         }
-        if let failure = session.failure { throw failure }
     }
 
     /// What one copy has learnt so far; the engine's callback reaches it through its context pointer.
@@ -44,7 +48,8 @@ struct PayloadCopier {
             links = Dictionary(grouping: listing.entries.filter { $0.kind == .symlink }) { ($0.relativePath as NSString).deletingLastPathComponent }
         }
 
-        func copyTree() {
+        /// A folder at the top of the payload with everything in it.
+        func copyTree(_ folder: PayloadEntry) {
             guard let state = copyfile_state_alloc() else { return fail(Self.currentError()) }
             defer { copyfile_state_free(state) }
             let callback: copyfile_callback_t = { what, stage, _, source, target, context in
@@ -53,16 +58,18 @@ struct PayloadCopier {
             }
             copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CB), unsafeBitCast(callback, to: UnsafeRawPointer.self))
             copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CTX), Unmanaged.passUnretained(self).toOpaque())
-            if copyfile(root + "/", base, state, PayloadCopier.flags | copyfile_flags_t(COPYFILE_RECURSIVE)) != 0, failure == nil {
-                fail(Self.currentError())
+            let target = base + "/" + folder.relativePath
+            if copyfile(folder.url.path + "/", target, state, PayloadCopier.flags | copyfile_flags_t(COPYFILE_RECURSIVE)) != 0, failure == nil {
+                _ = goesOnWithout(folder, at: target, error: Self.currentError())
             }
         }
 
-        /// A payload that is one file, or a link copied by itself into a folder that is not sealed yet.
+        /// A file or link copied by itself: the payload's single file, an item at its top, or a link in a folder that is
+        /// not sealed yet.
         func copyAlone(_ entry: PayloadEntry) {
             let target = base + "/" + entry.relativePath
-            guard copyfile(entry.url.path, target, nil, PayloadCopier.flags | copyfile_flags_t(COPYFILE_EXCL)) == 0 else {
-                _ = goesOnWithout(entry, error: Self.currentError())
+            guard copyfile(entry.url.path, target, nil, PayloadCopier.flags) == 0 else {
+                _ = goesOnWithout(entry, at: target, error: Self.currentError())
                 return
             }
             afterEachItem(target)
@@ -74,7 +81,7 @@ struct PayloadCopier {
             let entry = entries[relative]
             switch (what, stage) {
             case (COPYFILE_RECURSE_DIR, COPYFILE_START):
-                guard relative.isEmpty || entry?.kind == .directory else {
+                guard entry?.kind == .directory else {
                     skippedFolders.insert(relative)
                     return COPYFILE_SKIP
                 }
@@ -83,28 +90,28 @@ struct PayloadCopier {
             case (COPYFILE_RECURSE_FILE, COPYFILE_FINISH):
                 if let target { afterEachItem(target) }
             case (COPYFILE_RECURSE_DIR_CLEANUP, COPYFILE_START):
-                if skippedFolders.contains(relative) {
-                    if let target { rmdir(target) }
-                    return COPYFILE_SKIP
-                }
+                if skippedFolders.contains(relative) { return COPYFILE_SKIP }
                 for link in links[relative] ?? [] { copyAlone(link) }
-                if failure != nil { return COPYFILE_QUIT }
-                return relative.isEmpty ? COPYFILE_SKIP : COPYFILE_CONTINUE
+                return failure == nil ? COPYFILE_CONTINUE : COPYFILE_QUIT
             case (_, COPYFILE_ERR):
                 let error = Self.currentError()
                 guard let entry else {
                     fail(error)
                     return COPYFILE_QUIT
                 }
-                return goesOnWithout(entry, error: error) ? COPYFILE_SKIP : COPYFILE_QUIT
+                return goesOnWithout(entry, at: target, error: error) ? COPYFILE_SKIP : COPYFILE_QUIT
             default:
                 break
             }
             return COPYFILE_CONTINUE
         }
 
-        /// True when the item vanished and copying goes on without it.
-        private func goesOnWithout(_ entry: PayloadEntry, error: Error) -> Bool {
+        /// True when the item vanished and copying goes on without it. Something already at its target stops the copy.
+        private func goesOnWithout(_ entry: PayloadEntry, at target: String?, error: POSIXError) -> Bool {
+            if error.code == .EEXIST, let target {
+                fail(DestinationError.collisionInCopy(Self.withoutTrailingSlashes(target)))
+                return false
+            }
             switch listing.origin.loss(of: entry.url, wasOn: entry.device) {
             case .vanished:
                 return true
@@ -123,6 +130,11 @@ struct PayloadCopier {
         private func relativePath(of source: String) -> String {
             var path = source.utf8.starts(with: root.utf8) ? String(decoding: source.utf8.dropFirst(root.utf8.count), as: UTF8.self) : source
             while path.hasPrefix("/") { path.removeFirst() }
+            return Self.withoutTrailingSlashes(path)
+        }
+
+        private static func withoutTrailingSlashes(_ path: String) -> String {
+            var path = path
             while path.hasSuffix("/") { path.removeLast() }
             return path
         }
