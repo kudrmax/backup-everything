@@ -3,15 +3,17 @@ import Foundation
 
 enum DeliveryState: Equatable {
     case delivered
+    /// A copy is there, but it is older than the destination's rhythm.
+    case outdated
     case failed
     case waiting
     case none
 
-    static func of(lastOutcome: DeliveryOutcome?, isWaiting: Bool) -> DeliveryState {
+    static func of(lastOutcome: DeliveryOutcome?, isWaiting: Bool, isOutdated: Bool = false) -> DeliveryState {
         switch lastOutcome {
         case .failed where isWaiting: .failed
         case _ where isWaiting: .waiting
-        case .delivered: .delivered
+        case .delivered: isOutdated ? .outdated : .delivered
         default: .none
         }
     }
@@ -19,6 +21,7 @@ enum DeliveryState: Equatable {
     var mark: String? {
         switch self {
         case .delivered: "checkmark.circle.fill"
+        case .outdated: "exclamationmark.circle.fill"
         case .failed: "xmark.circle.fill"
         case .waiting: "clock.fill"
         case .none: nil
@@ -39,6 +42,8 @@ enum DeliveryText {
         return switch state {
         case .delivered:
             "\(destinationName)\ndelivered \(last.map { Texts.relative($0.date, to: now) } ?? "")"
+        case .outdated:
+            "\(destinationName)\ndelivered \(last.map { Texts.relative($0.date, to: now) } ?? "")\nthis copy is older than expected"
         case .failed:
             "\(destinationName)\n\(last.map { Texts.outcome($0.outcome) } ?? "error")\nretrying later"
         case .waiting:

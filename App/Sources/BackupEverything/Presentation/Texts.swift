@@ -119,7 +119,7 @@ enum Texts {
             }
         }
         if !failed.isEmpty { return errors(failed.count) }
-        guard report.items.allSatisfy({ $0.severity == .ok }) else { return "Needs your action" }
+        guard report.overall == .ok else { return "Needs your action" }
         return isWorking ? "Backing up" : "All good"
     }
 

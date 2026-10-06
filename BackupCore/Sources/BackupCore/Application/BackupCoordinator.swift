@@ -288,7 +288,7 @@ public actor BackupCoordinator {
                     other.id != destination.id && state.lastDeliveredSnapshot(sourceId: source.id, destinationId: other.id) != nil
                 }
                 state.debts.append(Debt(sourceId: source.id, destinationId: destination.id, since: now, elsewhere: elsewhere))
-                state.lastDelivered[AppState.deliveryKey(sourceId: source.id, destinationId: destination.id)] = nil
+                state.forgetDelivery(sourceId: source.id, destinationId: destination.id)
                 if expected != nil {
                     notices.append(.copiesMissing(sourceId: source.id, sourceName: source.name, destinationName: destination.name))
                 }

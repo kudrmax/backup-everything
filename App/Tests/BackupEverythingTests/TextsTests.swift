@@ -69,15 +69,17 @@ struct TextsTests {
             .runFailed(sourceId: obsidian.id, message: "quota"),
             .manualExportDue(sourceId: UUID()),
         ])
-        #expect(SourceStatus.of(obsidian, report: report, lastRun: now) == .failed("quota"))
+        #expect(SourceStatus.of(obsidian, report: report, lastBackup: now) == .failed("quota"))
         let warned = StatusReport(items: [.manualExportDue(sourceId: obsidian.id), .deliveryWarning(sourceId: obsidian.id, message: "left")])
-        #expect(SourceStatus.of(obsidian, report: warned, lastRun: now) == .warning("left"))
+        #expect(SourceStatus.of(obsidian, report: warned, lastBackup: now) == .warning("left"))
         #expect(Texts.headline(warned) == "Needs your action")
-        #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastRun: now) == .ok)
-        #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastRun: nil) == .neverRun)
+        #expect(SourceStatus.of(obsidian, report: StatusReport(items: [], fresh: [obsidian.id], expected: [obsidian.id]), lastBackup: now) == .ok)
+        #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastBackup: now) == .unconfirmed)
+        #expect(SourceStatus.of(obsidian, report: StatusReport(items: [], expected: [obsidian.id]), lastBackup: nil) == .unconfirmed)
+        #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastBackup: nil) == .neverRun)
         var disabled = obsidian
         disabled.enabled = false
-        #expect(SourceStatus.of(disabled, report: report, lastRun: now) == .disabled)
+        #expect(SourceStatus.of(disabled, report: report, lastBackup: now) == .disabled)
     }
 
     @Test func relativeTimeTreatsTheLastMinuteAsJustNow() {

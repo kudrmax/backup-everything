@@ -34,10 +34,15 @@ enum MenuLines {
         report: StatusReport,
         unavailable: Set<UUID>,
         disks: [UUID: DiskCheck] = [:],
-        missingFolders: [UUID: MissingFolder] = [:]
+        missingFolders: [UUID: MissingFolder] = [:],
+        runs: [RunRecord] = [],
+        now: Date = Date()
     ) -> [MenuLine] {
+        let gaps = CopyGaps(
+            config: config, state: state, report: report, unavailable: unavailable, disks: disks, missingFolders: missingFolders, runs: runs, now: now
+        )
         let sources = config.sources.compactMap { source -> MenuLine? in
-            let status = SourceStatus.of(source, report: report, lastRun: nil)
+            let status = SourceStatus.of(source, report: report, lastBackup: nil, gaps: gaps)
             guard source.enabled, status.severity != .ok, let note = status.note else { return nil }
             let text = ChainPosition.note(note, of: source, chain: state.sourceState(source.id).chain, status: status) ?? note
             return MenuLine(subject: .source(source), severity: status.severity, text: text, canPickUp: status.offersPickUp)

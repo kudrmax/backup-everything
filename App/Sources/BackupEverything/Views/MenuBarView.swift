@@ -62,7 +62,7 @@ struct MenuBarView: View {
             ForEach(model.menuLines) { line in
                 MenuLineRow(line: line)
             }
-            if model.menuLines.isEmpty, !model.isWorking {
+            if model.isAllGood, !model.isWorking {
                 MenuLineLayout {
                     Image(systemName: StatusStyle.symbol(.ok)).foregroundStyle(StatusStyle.color(.ok))
                 } content: {

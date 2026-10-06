@@ -17,7 +17,8 @@ struct RetentionPreview: Identifiable {
 final class AppModel {
     private(set) var config = Config()
     private(set) var state = AppState()
-    private var latestReport = StatusReport(items: [])
+    /// `nil` until the first check: nothing is known yet, so nothing may look fine.
+    private var latestReport: StatusReport?
     private(set) var runs: [RunRecord] = []
     private(set) var templates: [SourceTemplate] = []
     private(set) var activeOperations = 0
@@ -106,11 +107,20 @@ final class AppModel {
     }
 
     var isWorking: Bool { activeOperations > 0 }
-    var report: StatusReport { LiveReport.of(latestReport, running: activity.active) }
-    var headline: String { Texts.headline(report, isWorking: isWorking) }
-    var headlineSymbol: String { isBusyWithoutProblems ? "arrow.triangle.2.circlepath.circle.fill" : StatusStyle.symbol(report.overall) }
-    var headlineColor: Color { isBusyWithoutProblems ? .blue : StatusStyle.color(report.overall) }
-    private var isBusyWithoutProblems: Bool { isWorking && report.items.isEmpty }
+    var report: StatusReport { LiveReport.of(latestReport ?? StatusReport(items: []), running: activity.active) }
+    var hasReport: Bool { latestReport != nil }
+    var headline: String { hasReport ? Texts.headline(report, isWorking: isWorking) : "Checking…" }
+    var headlineSymbol: String {
+        if isBusyWithoutProblems { return "arrow.triangle.2.circlepath.circle.fill" }
+        return hasReport ? StatusStyle.symbol(report.overall) : "circle.dashed"
+    }
+    var headlineColor: Color {
+        if isBusyWithoutProblems { return .blue }
+        return hasReport ? StatusStyle.color(report.overall) : .secondary
+    }
+    private var isBusyWithoutProblems: Bool { isWorking && report.items.isEmpty && report.overall == .ok }
+    /// “All good” is said only when the check proved a fresh copy of every source that should have one.
+    var isAllGood: Bool { hasReport && report.overall == .ok && menuLines.isEmpty }
     var isFirstLaunch: Bool { config.destinations.isEmpty }
     var isRcloneInstalled: Bool { rclone.find() != nil }
 
@@ -299,16 +309,32 @@ final class AppModel {
     // MARK: Queries
 
     func status(of source: Source) -> SourceStatus {
-        SourceStatus.of(source, report: report, lastRun: lastBackup(of: source))
+        SourceStatus.of(source, report: report, lastBackup: lastBackup(of: source), gaps: copyGaps)
     }
 
-    /// When the newest copy delivered to at least one destination was collected.
-    /// Settings from before `lastSuccess` was kept fall back to the history.
+    private var copyGaps: CopyGaps {
+        CopyGaps(
+            config: config,
+            state: state,
+            report: report,
+            unavailable: unavailableDestinations,
+            disks: diskChecks,
+            missingFolders: missingFolders,
+            runs: runs
+        )
+    }
+
+    /// When the newest copy of the source that is still known to be on one of its destinations was collected.
     func lastBackup(of source: Source) -> Date? {
-        state.sourceState(source.id).lastSuccess ?? runs
-            .filter { $0.sourceId == source.id && $0.deliveries.contains(where: \.outcome.isDelivered) }
-            .map { $0.collectedAt ?? $0.startedAt }
-            .max()
+        source.destinationIds.compactMap { state.deliveredCopyDate(sourceId: source.id, destinationId: $0) }.max()
+    }
+
+    /// The copy of the source on the destination is older than the destination's rhythm.
+    func isOutdated(_ source: Source, on destination: Destination) -> Bool {
+        report.items.contains { item in
+            guard case let .copiesOutdated(sourceId, outdated) = item else { return false }
+            return sourceId == source.id && outdated.destinationIds.contains(destination.id)
+        }
     }
 
     func nextDue(of source: Source) -> Date? {
@@ -350,7 +376,15 @@ final class AppModel {
     }
 
     var menuLines: [MenuLine] {
-        MenuLines.of(config: config, state: state, report: report, unavailable: unavailableDestinations, disks: diskChecks, missingFolders: missingFolders)
+        MenuLines.of(
+            config: config,
+            state: state,
+            report: report,
+            unavailable: unavailableDestinations,
+            disks: diskChecks,
+            missingFolders: missingFolders,
+            runs: runs
+        )
     }
 
     var latestBackup: Date? {

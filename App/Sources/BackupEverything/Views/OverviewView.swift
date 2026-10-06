@@ -395,7 +395,8 @@ struct DestinationBadge: View {
     private var state: DeliveryState {
         DeliveryState.of(
             lastOutcome: model.lastDelivery(of: source, to: destination)?.outcome,
-            isWaiting: model.isWaiting(source, for: destination)
+            isWaiting: model.isWaiting(source, for: destination),
+            isOutdated: model.isOutdated(source, on: destination)
         )
     }
 
@@ -403,6 +404,7 @@ struct DestinationBadge: View {
         if isDelivering { return .blue }
         switch state {
         case .delivered: return .green
+        case .outdated: return .orange
         case .failed: return .red
         case .waiting: return .orange
         case .none: return .secondary

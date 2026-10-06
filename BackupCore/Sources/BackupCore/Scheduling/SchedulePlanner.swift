@@ -31,12 +31,31 @@ public struct SchedulePlanner: Sendable {
         dueDate(for: source, state: state).map { $0 <= now } ?? false
     }
 
-    public func isSeverelyOverdue(_ source: Source, state: SourceState, now: Date) -> Bool {
-        guard state.lastRun != nil,
-              let due = dueDate(for: source, state: state),
+    /// Counted from the newest copy delivered anywhere, not from the last run: a run that delivered nothing is no backup.
+    /// A source that has never delivered a copy counts from its creation; one that has never run is not overdue.
+    public func isSeverelyOverdue(_ source: Source, state: SourceState, newestCopy: Date?, now: Date) -> Bool {
+        guard source.enabled, state.lastRun != nil,
+              let due = source.schedule.nextDue(after: newestCopy ?? source.createdAt, calendar: calendar),
               let first = source.schedule.nextDue(after: due, calendar: calendar),
               let second = source.schedule.nextDue(after: first, calendar: calendar) else { return false }
         return now > second
+    }
+
+    /// Whether the newest copy of the source on the destination is within the destination's rhythm (5.5). A disk that
+    /// can stay unplugged keeps its copy fresh until its connect deadline. On an always-connected destination the copy
+    /// stays fresh until the next backup by the schedule, counted from the moment the copy was collected, plus
+    /// `retryInterval` for the run to finish; for a source without a schedule, until a newer copy is owed to it.
+    public func isCopyFresh(_ source: Source, on destination: Destination, copiedAt: Date?, state: AppState, now: Date) -> Bool {
+        guard let copiedAt else { return false }
+        let owed = state.hasDebt(sourceId: source.id, destinationId: destination.id)
+        switch destination.expectedEvery {
+        case .days:
+            guard owed, let deadline = connectDeadline(for: destination, state: state) else { return true }
+            return deadline > now
+        case .always:
+            guard let next = source.schedule.nextDue(after: copiedAt, calendar: calendar) else { return !owed }
+            return next.addingTimeInterval(Self.retryInterval) > now
+        }
     }
 
     public func dueAutomaticSources(config: Config, state: AppState, now: Date) -> [Source] {

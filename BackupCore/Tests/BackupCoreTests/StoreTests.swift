@@ -180,6 +180,41 @@ struct StoreTests {
         #expect(temp.names(in: "data") == ["state.json"])
     }
 
+    /// State from before the dates of delivered copies were kept learns them from the history: the run that delivered the
+    /// remembered copy, else the date in its name; for copies older than that record, the newest delivering run.
+    @Test func stateWithoutDeliveryDatesLearnsThemFromTheHistory() throws {
+        defer { temp.remove() }
+        let source = UUID()
+        let cloud = UUID()
+        let disk = UUID()
+        let nas = UUID()
+        func run(_ day: String, _ name: String, to destinations: [UUID], collected: String? = nil) -> RunRecord {
+            RunRecord(
+                sourceId: source, sourceName: "Obsidian", trigger: .scheduled,
+                startedAt: Fixtures.date(day), finishedAt: Fixtures.date(day).addingTimeInterval(600),
+                snapshotName: name, collectedAt: collected.map(Fixtures.date),
+                deliveries: destinations.map { Delivery(destinationId: $0, destinationName: "d", outcome: .delivered(pruned: 0, warning: nil)) }
+            )
+        }
+        try store.appendRun(run("2026-09-20 10:00:00", "2026-09-20_100100", to: [cloud, disk], collected: "2026-09-20 10:01:00"))
+        try store.appendRun(run("2026-09-27 10:00:00", "2026-09-27_100000", to: [cloud]))
+        let key = { AppState.deliveryKey(sourceId: source, destinationId: $0) }
+        try temp.file("data/state.json", """
+        {"schemaVersion":1,"sources":{"\(source.uuidString)":{"lastSuccess":"2026-09-27T10:00:00Z"}},"debts":[],
+         "lastDelivered":{"\(key(cloud))":"2026-09-27_100000","\(key(nas))":"2026-09-26_120000"}}
+        """)
+        let named = try #require(SnapshotNaming().date(from: "2026-09-26_120000"))
+        let state = try store.loadState()
+        #expect(state.deliveredAt == [
+            key(cloud): Fixtures.date("2026-09-27 10:00:00"),
+            key(disk): Fixtures.date("2026-09-20 10:01:00"),
+            key(nas): min(named, Fixtures.date("2026-09-27 10:00:00")),
+        ])
+
+        try store.saveState(state)
+        #expect(try store.loadState() == state)
+    }
+
     @Test func chainSavedByAnOlderVersionDoesNotKnowItsStepOutput() throws {
         defer { temp.remove() }
         let sourceId = UUID()

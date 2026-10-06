@@ -4,15 +4,18 @@ import Foundation
 /// The mark at the start of a source’s row in the overview.
 enum SourceMark: Equatable {
     case working
-    /// A grey symbol: queued, disabled or calmly waiting.
+    /// A grey symbol: queued, disabled, calmly waiting, or no fresh copy proved yet. Green is only for a proved fresh copy.
     case symbol(String)
     case severity(OverallStatus)
 
     static func of(stage: SourceStage?, isEnabled: Bool, status: SourceStatus) -> SourceMark {
         if let stage { return stage == .queued ? .symbol("hourglass") : .working }
         if !isEnabled { return .symbol("pause.circle") }
-        if status == .waiting || status == .waitingForDevice { return .symbol("clock") }
-        return .severity(status.severity)
+        switch status {
+        case .waiting, .waitingForDevice: return .symbol("clock")
+        case .neverRun, .unconfirmed: return .symbol("circle.dashed")
+        default: return .severity(status.severity)
+        }
     }
 }
 

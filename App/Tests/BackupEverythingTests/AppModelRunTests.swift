@@ -28,9 +28,43 @@ struct AppModelRunTests {
         #expect(model.headline == "All good")
         #expect(model.headlineSymbol == StatusStyle.symbol(.ok))
         #expect(model.menuLines.isEmpty)
+        #expect(model.isAllGood)
         #expect(model.stage(of: notes) == nil)
         #expect(model.usualDuration(of: notes) != nil)
         #expect(model.nextDue(of: notes).map { $0 > Date() } == true)
+    }
+
+    /// A run that delivered its copy nowhere is no backup: the row, the headline and the menu must not say all is well.
+    @Test func runThatReachedNoDestinationIsNotAllGood() async throws {
+        let fixture = try ModelFixture()
+        let disk = try fixture.disk(connected: false)
+        var notes = try fixture.folderSource(to: [disk])
+        notes.createdAt = Date()
+        try await fixture.use(Config(sources: [notes], destinations: [disk]))
+
+        await fixture.model.tick()
+        await fixture.settle()
+
+        let model = fixture.model
+        #expect(model.state.sourceState(notes.id).lastRun != nil)
+        #expect(model.lastBackup(of: notes) == nil)
+        guard case let .outdated(shortfall) = model.status(of: notes) else {
+            Issue.record("expected no fresh copy, got \(model.status(of: notes))")
+            return
+        }
+        #expect(shortfall.noCopyAnywhere)
+        #expect(model.status(of: notes).severity == .attention)
+        #expect(model.headline == "Needs your action")
+        #expect(model.headlineSymbol == StatusStyle.symbol(.attention))
+        #expect(!model.isAllGood)
+        #expect(model.menuLines.map(\.name).contains("Notes"))
+    }
+
+    @Test func nothingLooksFineBeforeTheFirstCheck() async throws {
+        let fixture = try ModelFixture()
+        #expect(!fixture.model.hasReport)
+        #expect(fixture.model.headline == "Checking…")
+        #expect(!fixture.model.isAllGood)
     }
 
     @Test func copiesOfAnotherSourceInTheSameFolderAreNotShown() async throws {
@@ -266,6 +300,9 @@ extension AppState {
             state.updateSource(source.id) {
                 $0.lastRun = Date()
                 $0.lastSuccess = Date()
+            }
+            for destinationId in source.destinationIds {
+                state.recordDelivery(sourceId: source.id, destinationId: destinationId, snapshotName: nil, collectedAt: Date())
             }
         }
         return state
