@@ -19,6 +19,10 @@ public struct ChainState: Codable, Sendable, Equatable {
     /// The result folder when the last device step passed: if the device is unplugged mid-copy, every step after it runs
     /// again from there. `nil` before any device step and in state saved by older versions.
     public var outputAtDeviceStep: [String]?
+    /// Whether `outputAtStepEntry` / `outputAtDeviceStep` list every name. `nil` in state saved by versions that listed
+    /// the folder through Foundation, which leaves out names starting with “._”.
+    public var outputAtStepEntryIsComplete: Bool?
+    public var outputAtDeviceStepIsComplete: Bool?
 
     public init(
         stepIndex: Int,
@@ -29,7 +33,9 @@ public struct ChainState: Codable, Sendable, Equatable {
         startedBy: RunStart? = nil,
         retryAfter: Date? = nil,
         outputAtStepEntry: [String]? = [],
-        outputAtDeviceStep: [String]? = nil
+        outputAtDeviceStep: [String]? = nil,
+        outputAtStepEntryIsComplete: Bool? = true,
+        outputAtDeviceStepIsComplete: Bool? = true
     ) {
         self.stepIndex = stepIndex
         self.stepId = stepId
@@ -40,6 +46,8 @@ public struct ChainState: Codable, Sendable, Equatable {
         self.retryAfter = retryAfter
         self.outputAtStepEntry = outputAtStepEntry
         self.outputAtDeviceStep = outputAtDeviceStep
+        self.outputAtStepEntryIsComplete = outputAtStepEntryIsComplete
+        self.outputAtDeviceStepIsComplete = outputAtDeviceStepIsComplete
     }
 }
 

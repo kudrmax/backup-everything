@@ -585,6 +585,49 @@ struct StepChainRunnerTests {
         #expect(temp.names(in: "trash").isEmpty)
     }
 
+    /// Earlier versions listed the folder through Foundation, which hides names starting with “._”: such names were there
+    /// when the step began, as far as anyone knows, and stay. Everything else the interrupted attempt added goes.
+    @Test func interruptedStepSavedWithoutDotUnderscoreNamesKeepsThem() async throws {
+        defer { temp.remove() }
+        let source = dumpSource()
+        let output = chainFolder(source, "output")
+        try temp.file(output + "/dump-request-1.txt", "please")
+        try temp.file(output + "/._dump-request-1.txt", "the person's")
+        try temp.file(output + "/dump-2026-09-28_1000.sql", "half writ")
+        let saved = try JSONSerialization.data(withJSONObject: [
+            "stepIndex": 1, "stepId": source.steps[1].id.uuidString, "startedAt": "2026-09-28T10:00:00Z",
+            "stepEnteredAt": "2026-09-28T10:00:00Z", "startedBy": "schedule", "outputAtStepEntry": ["dump-request-1.txt"],
+        ])
+        let legacy = try JSONCoding.decoder().decode(ChainState.self, from: saved)
+        let runner = runner { [self] in try writeDump($0) }
+
+        guard case let .moved(afterCommand?) = await runner.advance(source, chain: legacy, lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the command did not run")
+            return
+        }
+
+        #expect(try DirectoryNames.of(temp.path("trash").path) == ["dump-2026-09-28_1000.sql"])
+        #expect(temp.exists(output + "/._dump-request-1.txt"))
+        #expect(afterCommand.outputAtStepEntry?.contains("._dump-request-1.txt") == true)
+        #expect(afterCommand.outputAtStepEntryIsComplete == true)
+    }
+
+    @Test func dotUnderscoreNamesAddedByAnInterruptedAttemptGoToo() async throws {
+        defer { temp.remove() }
+        let source = dumpSource()
+        let output = chainFolder(source, "output")
+        try temp.file(output + "/dump-request-1.txt", "please")
+        try temp.file(output + "/._dump-2026-09-28_1000.sql", "half writ")
+        let runner = runner { [self] in try writeDump($0) }
+
+        guard case .moved = await runner.advance(source, chain: interrupted(source, output: ["dump-request-1.txt"]), lastPickup: nil, permissions: tickOnly) else {
+            Issue.record("the command did not run")
+            return
+        }
+
+        #expect(try DirectoryNames.of(temp.path("trash").path) == ["._dump-2026-09-28_1000.sql"])
+    }
+
     @Test func partialOutputThatCannotBeTrashedFailsTheStep() async throws {
         defer { temp.remove() }
         let source = dumpSource()
@@ -837,7 +880,8 @@ struct StepChainRunnerTests {
         }
         #expect(chain?.stepIndex == 3)
         #expect(temp.names(in: chainFolder(source, "output")) == ["a.jpg", "b.jpg", "z.jpg"])
-        #expect(temp.names(in: "trash") == ["a.jpg", "b.jpg"])
+        #expect(temp.names(in: "trash").first == "a.jpg")
+        #expect(Set(temp.names(in: "trash")).isSubset(of: ["a.jpg", "b.jpg"]), "what the failed copy of the card had written goes too")
     }
 
     /// A command may move originals into its output before it fails: they go to the Trash, not away for good.

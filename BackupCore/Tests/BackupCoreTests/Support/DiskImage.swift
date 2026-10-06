@@ -6,6 +6,8 @@ final class DiskImage: @unchecked Sendable {
         case apfs = "APFS"
         case exFAT = "ExFAT"
         case fat32 = "MS-DOS FAT32"
+        case fat16 = "MS-DOS FAT16"
+        case hfs = "HFS+"
     }
 
     let root: URL
@@ -15,12 +17,25 @@ final class DiskImage: @unchecked Sendable {
 
     /// `mountpoint`: an existing empty folder to mount the disk at, for a disk inside another folder.
     /// `name`: only made-up names, never one of a real disk: a running copy of the app would take it for its own.
-    init(_ format: Format, at mountpoint: URL? = nil, name: String = "TEST") throws {
-        precondition(name.hasPrefix("TEST"), "Disk images in tests get made-up names only")
+    /// `raw`: the image file holds the disk byte for byte, so that `patch` can write what the file system itself refuses to.
+    init(_ format: Format, at mountpoint: URL? = nil, name: String = "TEST-BE", raw: Bool = false) throws {
+        precondition(name.hasPrefix("TEST-BE"), "Disk images in tests get made-up names only")
         folder = try TempDirectory()
-        image = folder.path("disk.sparseimage")
+        image = folder.path(raw ? "disk.dmg" : "disk.sparseimage")
         root = try mountpoint ?? folder.directory("volume")
-        try Self.hdiutil(["create", "-quiet", "-type", "SPARSE", "-size", "64m", "-fs", format.rawValue, "-volname", name, "-layout", "NONE", image.path])
+        let type = raw ? ["-type", "UDIF", "-size", "16m"] : ["-type", "SPARSE", "-size", "64m"]
+        try Self.hdiutil(["create", "-quiet"] + type + ["-fs", format.rawValue, "-volname", name, "-layout", "NONE", image.path])
+        try attach()
+    }
+
+    /// Replaces the only occurrence of `bytes` on the disk of a raw image while it is detached, then attaches it again.
+    func patch(_ bytes: [UInt8], with replacement: [UInt8]) throws {
+        precondition(bytes.count == replacement.count)
+        detach()
+        var data = try Data(contentsOf: image)
+        guard let range = data.firstRange(of: Data(bytes)) else { throw POSIXError(.ENOENT) }
+        data.replaceSubrange(range, with: replacement)
+        try data.write(to: image)
         try attach()
     }
 

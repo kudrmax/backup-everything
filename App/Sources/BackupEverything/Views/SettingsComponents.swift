@@ -411,7 +411,7 @@ struct DestinationIcon: View {
         switch condition {
         case .available: showsMarks ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary)
         case .offline: AnyShapeStyle(.tertiary)
-        case .needsConnection, .unreachable, .otherDisk, .diskNotConfirmed, .diskUnidentified, .folderMissing: AnyShapeStyle(.orange)
+        case .needsConnection, .unreachable, .otherDisk, .diskNotConfirmed, .diskUnidentified, .unsupportedFormat, .folderMissing: AnyShapeStyle(.orange)
         }
     }
 

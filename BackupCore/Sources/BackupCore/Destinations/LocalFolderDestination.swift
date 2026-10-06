@@ -12,6 +12,9 @@ public struct LocalFolderDestination: DestinationStore {
     private let removal = FolderRemoval()
     /// A copy being deleted is first renamed so: if deleting stops halfway, the rest is never taken for a copy.
     private static let removalSuffix = ".deleting"
+    /// Learns the path of the unfinished mark and of each file and link right after it is written into a copy; tests use it
+    /// to meddle with the source or the copy.
+    var afterWritingItem: @Sendable (String) -> Void = { _ in }
 
     public init(
         root: URL,
@@ -93,12 +96,14 @@ public struct LocalFolderDestination: DestinationStore {
                 guard isUnfinished(snapshotDirectory) else { throw DestinationError.folderInTheWay(snapshotDirectory.path) }
                 try trash(snapshotDirectory)
             }
-            let sharesData = reusingStoredFiles && cloning.isSupported(at: root)
-            let index = sharesData ? StoredContentIndex(snapshots: try storedManifests(sourceSlug)) : .empty
             try fileManager.createDirectory(at: snapshotDirectory, withIntermediateDirectories: false)
             let markerURL = snapshotDirectory.appendingPathComponent(SnapshotManifest.unfinishedMarker)
             try Data(SnapshotManifest.unfinishedNote.utf8).write(to: markerURL)
-            let contents = try SnapshotWriter(cloning: cloning).write(listing, into: snapshotDirectory, reusing: index)
+            afterWritingItem(markerURL.path)
+            let sharesData = reusingStoredFiles && cloning.isSupported(at: root)
+            let previous = sharesData ? try storedCopies(sourceSlug).first { $0.manifest.sourceId == manifest.sourceId } : nil
+            let writer = SnapshotWriter(cloning: cloning, afterEachItem: afterWritingItem)
+            let contents = try writer.write(listing, into: snapshotDirectory, sharingWith: previous)
             guard contents.itemCount > 0 else { throw SourceError.vanishedWhileCopied }
             var manifest = manifest
             manifest.fileCount = contents.itemCount
@@ -153,26 +158,35 @@ public struct LocalFolderDestination: DestinationStore {
         case .notConfirmed: throw DestinationError.diskNotConfirmed
         case let .otherDisk(disk): throw DestinationError.otherDisk(name: disk.name)
         case let .unidentified(name): throw DestinationError.diskUnidentified(name: name)
+        case let .unsupportedFormat(name, format): throw DestinationError.unsupportedFormat(name: name, format: format)
         }
     }
 
+    /// A disk that is not APFS is refused whichever disk it is; another or unreadable disk is told as such first.
     private func currentDiskCheck() -> DiskCheck {
-        DiskCheck.of(disks.location(of: root), expected: expectedDisk)
+        let check = DiskCheck.of(disks.location(of: root), expected: expectedDisk)
+        switch check {
+        case .notNeeded, .confirmed, .notConfirmed(connected: .some):
+            guard let format = DiskFormat.of(root), !format.isSupported else { return check }
+            return .unsupportedFormat(name: format.volumeName, format: format.displayName)
+        default:
+            return check
+        }
     }
 
     private func directory(_ sourceSlug: String) throws -> URL {
         root.appendingPathComponent(try Slug.folderName(sourceSlug), isDirectory: true)
     }
 
-    /// Written copies of the source, newest first.
-    private func storedManifests(_ sourceSlug: String) throws -> [(directory: URL, manifest: SnapshotManifest)] {
+    /// Finished copies of the source, newest first.
+    private func storedCopies(_ sourceSlug: String) throws -> [StoredCopy] {
         try snapshotDirectories(sourceSlug)
             .sorted { $0.snapshot.date > $1.snapshot.date }
             .compactMap { directory in
                 let url = directory.url.appendingPathComponent(SnapshotManifest.fileName)
                 guard let data = try? Data(contentsOf: url),
                       let manifest = try? JSONCoding.decoder().decode(SnapshotManifest.self, from: data) else { return nil }
-                return (directory.url, manifest)
+                return StoredCopy(directory: directory.url, manifest: manifest)
             }
     }
 

@@ -21,8 +21,8 @@ struct CoreSupportTests {
             == "A folder that is not a finished copy is in the way: /Volumes/HDD/obsidian/2026-09-28_143000. It was left as is; move it away and retry.")
         #expect(DestinationError.invalidFolderName("../photos").localizedDescription
             == "The folder for copies of this source is named “../photos”, which is not a single folder name. Nothing was read, written or deleted. Fix “slug” of the source in config.json.")
-        #expect(DestinationError.copyMismatch(path: "/Users/max/a.mov", expected: 5, actual: 0).localizedDescription
-            == "The copy of “/Users/max/a.mov” came out 0 bytes long instead of 5. The copy was stopped so as not to keep a broken file.")
+        #expect(DestinationError.unsupportedFormat(name: "Stick", format: "exFAT").localizedDescription
+            == "Disk “Stick” is formatted as exFAT and can’t be used. Backups need APFS: reformat it in Disk Utility (this erases it).")
     }
 
     @Test func sourceErrorsExplainThemselves() {

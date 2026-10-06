@@ -41,6 +41,7 @@ struct SourceLinksTests {
         (.notConfirmed(connected: nil), "The disk isn’t confirmed"),
         (.otherDisk(DiskIdentity(uuid: "22222222-BBBB-4BBB-8BBB-222222222222", name: "TEST-BE-B")), "Another disk is connected"),
         (.unidentified(name: "TEST-BE-B"), "The disk’s ID can’t be read"),
+        (.unsupportedFormat(name: "TEST-BE-B", format: "exFAT"), "The disk is formatted as exFAT, not APFS"),
     ])
     func copyOnADiskThatIsNotConfirmedHereCannotBeOpened(check: DiskCheck, reason: String) {
         let disk = Destination(name: "HDD", kind: .localFolder(path: "/Volumes/TEST-BE-A/Backups"))

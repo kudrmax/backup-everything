@@ -89,6 +89,7 @@ public struct StepChainRunner: Sendable {
                 // A copy from the device cut short by unplugging may have left what it could not trash: not the start of the next step.
                 outputAtNextStep = next.outputAtStepEntry
                 next.outputAtDeviceStep = next.outputAtStepEntry
+                next.outputAtDeviceStepIsComplete = next.outputAtStepEntryIsComplete
             case .folder, .command:
                 try folders.prepare()
                 let process = StepProcessRecord(folders: folders)
@@ -115,6 +116,7 @@ public struct StepChainRunner: Sendable {
                         next.stepId = steps[device].id
                         next.stepEnteredAt = time.now
                         // The steps between the device and this one run again too: what they made goes as well.
+                        next.outputAtStepEntryIsComplete = next.outputAtDeviceStep == nil ? true : next.outputAtDeviceStepIsComplete
                         next.outputAtStepEntry = next.outputAtDeviceStep ?? before.sorted()
                         return .moved(next)
                     }
@@ -128,6 +130,7 @@ public struct StepChainRunner: Sendable {
         next.stepIndex += 1
         next.stepId = next.stepIndex < steps.count ? steps[next.stepIndex].id : nil
         next.stepEnteredAt = time.now
+        if outputAtNextStep == nil { next.outputAtStepEntryIsComplete = true }
         next.outputAtStepEntry = outputAtNextStep ?? contents(of: folders.output).sorted()
         return .moved(next)
     }
@@ -159,9 +162,11 @@ public struct StepChainRunner: Sendable {
     }
 
     /// The step was interrupted (the app quit or crashed) and runs again: what its earlier attempt added goes to the Trash.
+    /// A list saved by an earlier version did not show names starting with “._”, so those are kept.
     private func clearUnfinishedAttempt(of chain: ChainState, in folders: WorkFolders) throws {
         guard let atEntry = chain.outputAtStepEntry else { return }
-        for leftover in contents(of: folders.output).subtracting(atEntry) {
+        let listsAllNames = chain.outputAtStepEntryIsComplete == true
+        for leftover in contents(of: folders.output).subtracting(atEntry) where listsAllNames || !leftover.hasPrefix("._") {
             try trash(folders.output.appendingPathComponent(leftover))
         }
     }

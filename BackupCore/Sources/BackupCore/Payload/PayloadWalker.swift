@@ -78,6 +78,8 @@ public struct PayloadWalker: Sendable {
             let names = try DirectoryNames.of(directory.path)
             guard access(directory.path, X_OK) == 0 else { throw POSIXError(.EACCES) }
             return AppleDoubleCompanions.leftOut(of: names, in: directory.path)
+        } catch let error as DirectoryNamesError {
+            throw error
         } catch {
             return try unlessVanished(directory, origin: origin)
         }

@@ -105,7 +105,7 @@ struct DiskImageIdentityTests {
         #expect(throws: DiskIdentityError.unreadable) { try DiskArbitrationVolumes().identity(ofVolumeAt: temp.path("vault")) }
     }
 
-    @Test(arguments: [DiskImage.Format.apfs, .exFAT, .fat32])
+    @Test(arguments: [DiskImage.Format.apfs])
     func diskIsUsedOnlyOnceConfirmedAndOnlyThatDisk(_ format: DiskImage.Format) async throws {
         defer { temp.remove() }
         let first = try disk(format)

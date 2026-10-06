@@ -6,16 +6,16 @@ public struct DestinationUsage {
     public init() {}
 
     public func bytes(under root: URL) throws -> Int64 {
-        guard (try? DirectoryNames.of(root.path)) != nil else { throw DestinationError.unavailable }
+        guard (try? DirectoryNames.decodable(in: root.path)) != nil else { throw DestinationError.unavailable }
         var total: Int64 = 0
         var countedClones: Set<UInt64> = []
         add(root.path, to: &total, countedClones: &countedClones)
         return total
     }
 
-    /// Folders that cannot be read are skipped: the size is an estimate for showing.
+    /// Folders that cannot be read and names that are not valid UTF-8 are skipped: the size is an estimate for showing.
     private func add(_ directory: String, to total: inout Int64, countedClones: inout Set<UInt64>) {
-        for name in (try? DirectoryNames.of(directory)) ?? [] {
+        for name in (try? DirectoryNames.decodable(in: directory)) ?? [] {
             let path = directory + "/" + name
             var info = stat()
             guard lstat(path, &info) == 0 else { continue }

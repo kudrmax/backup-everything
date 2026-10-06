@@ -24,14 +24,15 @@ struct VanishingSourceTests {
     }
 
     /// Copies the listing, doing `interrupt` once the first file is in place.
-    private func copy(_ payload: Payload, interrupt: () throws -> Void) throws -> [PayloadEntry] {
+    private func copy(_ payload: Payload, interrupt: @escaping () throws -> Void) throws -> [PayloadEntry] {
         let listing = try PayloadWalker().listing(of: payload)
+        let copy = try temp.directory("copy").path
         var placed = 0
-        return try PayloadCopier().copy(listing, into: try temp.directory("copy").path) { entry, target in
-            if placed == 1 { try interrupt() }
-            try ExactNameFiles().copy(entry.url.path, to: target)
+        try PayloadCopier().copy(listing, into: copy) { _ in
             placed += 1
+            if placed == 1 { try? interrupt() }
         }
+        return try WrittenCopy(listing: listing).check(in: copy)
     }
 
     private func copiedFiles() -> [String] {
@@ -92,18 +93,23 @@ struct VanishingSourceTests {
         let vanished = try copy(Payload(root: temp.path("vault"), collectedAt: date)) {
             try? FileManager.default.removeItem(at: disk.root.appendingPathComponent("d1"))
         }
-        #expect(vanished.map(\.relativePath) == ["inner/d1/f.txt", "inner/d1"])
+        #expect(Set(vanished.map(\.relativePath)).isSubset(of: ["inner/d1/f.txt", "inner/d1"]))
+        #expect(!temp.exists("copy/inner/d1/f.txt"))
     }
 
     @Test func fileThatVanishedFromAnIntactSourceIsReported() throws {
         defer { temp.remove() }
         let payload = try vault(in: temp.url)
-        let vanished = try copy(payload) {
-            try FileManager.default.removeItem(at: temp.path("vault/d2/f2.txt"))
-            try FileManager.default.removeItem(at: temp.path("vault/d3"))
+        var removed: [String] = []
+        let vanished = try copy(payload) { [temp] in
+            for file in ["d2/f2.txt", "d3/f3.txt"] where !temp.exists("copy/" + file) {
+                try FileManager.default.removeItem(at: temp.path("vault/" + file))
+                removed.append(file)
+            }
         }
-        #expect(vanished.map(\.relativePath) == ["d2/f2.txt", "d3/f3.txt", "d3"])
-        #expect(copiedFiles().count == 3)
+        #expect(!removed.isEmpty)
+        #expect(Set(vanished.map(\.relativePath)) == Set(removed))
+        #expect(copiedFiles().count == 5 - removed.count)
     }
 
     @Test func listingStopsWhenThePayloadFolderIsGone() throws {
@@ -137,8 +143,13 @@ struct VanishingSourceTests {
 
     // MARK: The copy in the destination
 
+    /// The destination does `interrupt` once the payload is listed, before anything of it is copied.
     private func destination(_ interrupt: @escaping @Sendable () -> Void) throws -> LocalFolderDestination {
-        LocalFolderDestination(root: try temp.directory("disk"), naming: Fixtures.naming, cloning: InterruptingCloning(interrupt))
+        var destination = LocalFolderDestination(root: try temp.directory("disk"), naming: Fixtures.naming)
+        destination.afterWritingItem = { path in
+            if path.hasSuffix("/" + SnapshotManifest.unfinishedMarker) { interrupt() }
+        }
+        return destination
     }
 
     private func manifest() -> SnapshotManifest {
@@ -191,24 +202,5 @@ struct VanishingSourceTests {
         #expect(temp.exists("disk/obsidian/\(name)/\(SnapshotManifest.unfinishedMarker)"))
         #expect(!temp.exists("disk/obsidian/\(name)/\(SnapshotManifest.fileName)"))
         #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
-    }
-}
-
-/// Real clones, with `interrupt` done when the destination asks whether it can clone: after the payload was listed,
-/// before anything is copied.
-private final class InterruptingCloning: FileCloning, @unchecked Sendable {
-    private let interrupt: @Sendable () -> Void
-
-    init(_ interrupt: @escaping @Sendable () -> Void) {
-        self.interrupt = interrupt
-    }
-
-    func isSupported(at folder: URL) -> Bool {
-        interrupt()
-        return APFSCloning().isSupported(at: folder)
-    }
-
-    func clone(_ original: URL, to targetPath: String) throws {
-        try APFSCloning().clone(original, to: targetPath)
     }
 }

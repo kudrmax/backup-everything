@@ -261,6 +261,48 @@ struct LocalFolderDestinationTests {
         #expect(temp.exists("disk/obsidian/\(earlier)/sub/b.md"))
     }
 
+    // MARK: The written copy is checked before it is finished
+
+    /// Writes the vault while `meddle` changes the copy of `relativePath` right after it is written.
+    private func expectUnfinished(
+        _ error: (String) -> DestinationError,
+        at relativePath: String,
+        meddle: @escaping @Sendable (String) -> Void
+    ) async throws {
+        let payload = try vaultPayload()
+        try FileManager.default.createSymbolicLink(atPath: temp.path("vault/sub/link.md").path, withDestinationPath: "../a.md")
+        let copy = temp.path("disk/obsidian/\(name)").path
+        var meddling = destination
+        meddling.afterWritingItem = { path in
+            if path == copy + "/" + relativePath { meddle(path) }
+        }
+
+        await #expect(throws: error(copy + "/" + relativePath)) {
+            try await meddling.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+        }
+        #expect(temp.exists("disk/obsidian/\(name)/_unfinished"))
+        #expect(!temp.exists("disk/obsidian/\(name)/_snapshot.json"))
+        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
+    }
+
+    @Test func fileGoneFromTheCopyLeavesItUnfinished() async throws {
+        defer { temp.remove() }
+        try await expectUnfinished(DestinationError.missingFromCopy, at: "a.md") { unlink($0) }
+    }
+
+    @Test func fileShortenedInTheCopyLeavesItUnfinished() async throws {
+        defer { temp.remove() }
+        try await expectUnfinished(DestinationError.changedInCopy, at: "sub/b.md") { truncate($0, 1) }
+    }
+
+    @Test func linkPointedElsewhereInTheCopyLeavesItUnfinished() async throws {
+        defer { temp.remove() }
+        try await expectUnfinished(DestinationError.changedInCopy, at: "sub/link.md") { path in
+            unlink(path)
+            symlink("b.md", path)
+        }
+    }
+
     @Test func runningOutOfSpaceIsReportedAsSuch() async throws {
         defer { temp.remove() }
         let payload = try vaultPayload()

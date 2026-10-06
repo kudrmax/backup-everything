@@ -7,7 +7,12 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case commandFailed(String)
     case folderInTheWay(String)
     case invalidFolderName(String)
-    case copyMismatch(path: String, expected: Int64, actual: Int64)
+    /// A listed item is not in the finished copy although its original is still there.
+    case missingFromCopy(String)
+    /// An item of the finished copy is of another type, size or link target than its original.
+    case changedInCopy(String)
+    /// Copies are kept only on APFS; `format` is the name of the disk's file system as people know it.
+    case unsupportedFormat(name: String, format: String)
     /// Copies whose deletion stopped halfway (`<name>.deleting`) and still could not be deleted, with the reasons.
     case unfinishedDeletions([String])
     case diskNotConfirmed
@@ -28,8 +33,12 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "A folder that is not a finished copy is in the way: \(path). It was left as is; move it away and retry."
         case let .invalidFolderName(name):
             "The folder for copies of this source is named “\(name)”, which is not a single folder name. Nothing was read, written or deleted. Fix “slug” of the source in config.json."
-        case let .copyMismatch(path, expected, actual):
-            "The copy of “\(path)” came out \(actual) bytes long instead of \(expected). The copy was stopped so as not to keep a broken file."
+        case let .missingFromCopy(path):
+            "“\(path)” is missing from the copy although its original is still there. The copy was left unfinished so as not to pass for a complete one."
+        case let .changedInCopy(path):
+            "“\(path)” in the copy is not as its original (another type, size or link target). The copy was left unfinished so as not to pass for a complete one."
+        case let .unsupportedFormat(name, format):
+            DiskFormat.problem(name: name, format: format)
         case let .unfinishedDeletions(problems):
             "Could not finish deleting old copies: \(problems.joined(separator: " "))"
         case .diskNotConfirmed:

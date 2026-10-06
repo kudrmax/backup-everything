@@ -79,6 +79,8 @@ public enum DiskCheck: Equatable, Sendable {
     case otherDisk(DiskIdentity)
     /// A disk is connected, but which one could not be read: it is neither taken for the confirmed disk nor for another one.
     case unidentified(name: String)
+    /// The folder's disk is not APFS (`format` as people know it), so it is not used at all, whichever disk it is.
+    case unsupportedFormat(name: String, format: String)
 
     public static func of(_ location: DiskLocation, expected: DiskIdentity?) -> DiskCheck {
         switch (location, expected) {
@@ -100,7 +102,7 @@ public enum DiskCheck: Equatable, Sendable {
         switch self {
         case let .notConfirmed(connected): connected
         case let .otherDisk(disk): disk
-        case .notNeeded, .confirmed, .notConnected, .unidentified: nil
+        case .notNeeded, .confirmed, .notConnected, .unidentified, .unsupportedFormat: nil
         }
     }
 }

@@ -18,6 +18,8 @@ enum DestinationCondition: Equatable {
     case diskNotConfirmed(connected: String?)
     /// A disk is connected, but its ID could not be read; it is read again at the next check.
     case diskUnidentified(name: String)
+    /// The folder’s disk is not APFS, so the destination is not used at all.
+    case unsupportedFormat(name: String, format: String)
     case folderMissing(MissingFolder)
 
     static func of(
@@ -31,6 +33,7 @@ enum DestinationCondition: Equatable {
         case let .otherDisk(other): return .otherDisk(name: other.name)
         case let .notConfirmed(connected): return .diskNotConfirmed(connected: connected?.name)
         case let .unidentified(name): return .diskUnidentified(name: name)
+        case let .unsupportedFormat(name, format): return .unsupportedFormat(name: name, format: format)
         default: break
         }
         if let missingFolder { return .folderMissing(missingFolder) }
@@ -51,6 +54,7 @@ enum DestinationCondition: Equatable {
         case let .otherDisk(name): "another disk named “\(name)” is connected"
         case .diskNotConfirmed: "disk not confirmed"
         case let .diskUnidentified(name): "can’t read the ID of disk “\(name)”"
+        case let .unsupportedFormat(_, format): "formatted as \(format), needs APFS"
         case .folderMissing: "folder not found"
         case .available, .offline: nil
         }
@@ -67,6 +71,8 @@ enum DestinationCondition: Equatable {
             "Confirm the disk for “\(destinationName)”: if the connected disk “\(connected)” is it, press “\(Self.confirmTitle(destinationName))”."
         case let .diskUnidentified(name):
             "Couldn’t read the ID of the connected disk “\(name)”, so it isn’t known whether it is the disk of “\(destinationName)”. Nothing is written to it or deleted from it. The app checks again on its own; if this goes on, reconnect the disk."
+        case let .unsupportedFormat(name, format):
+            DiskFormat.problem(name: name, format: format)
         case let .folderMissing(folder):
             "\(DiskTexts.missing(folder)). The app doesn’t create it itself: create it or choose another folder."
         default:
@@ -97,6 +103,7 @@ enum DestinationCondition: Equatable {
         case .otherDisk: "exclamationmark.triangle.fill"
         case .diskNotConfirmed: "questionmark.circle.fill"
         case .diskUnidentified: "exclamationmark.triangle.fill"
+        case .unsupportedFormat: "exclamationmark.triangle.fill"
         case .folderMissing: "exclamationmark.circle.fill"
         }
     }
@@ -113,6 +120,7 @@ enum DiskTexts {
         case .otherDisk: "Another disk is connected — its contents aren’t shown."
         case .diskNotConfirmed: "The disk isn’t confirmed — copies aren’t shown."
         case .diskUnidentified: "The disk’s ID can’t be read — copies aren’t shown."
+        case let .unsupportedFormat(_, format): "The disk is formatted as \(format) — copies aren’t shown."
         case let .folderMissing(folder): "\(missing(folder)) — copies can’t be seen."
         default: "Not connected — copies can’t be seen."
         }
@@ -129,6 +137,7 @@ enum DiskTexts {
         case .notConfirmed: "The disk isn’t confirmed"
         case .otherDisk: "Another disk is connected"
         case .unidentified: "The disk’s ID can’t be read"
+        case let .unsupportedFormat(_, format): "The disk is formatted as \(format), not APFS"
         case .notNeeded, .confirmed, nil: nil
         }
     }

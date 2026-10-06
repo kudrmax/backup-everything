@@ -36,6 +36,22 @@ struct DiskConfirmationTests {
         #expect(DiskTexts.copiesNote(unreadable) == "The disk’s ID can’t be read — copies aren’t shown.")
     }
 
+    @Test func diskThatIsNotAPFSIsExplainedAndNotOfferedForConfirmation() {
+        let id = UUID()
+        #expect(DestinationCondition.of(id, report: StatusReport(items: []), unavailable: [id], disk: .unsupportedFormat(name: "TEST-BE-F", format: "exFAT"))
+            == .unsupportedFormat(name: "TEST-BE-F", format: "exFAT"))
+        let foreign = DestinationCondition.unsupportedFormat(name: "TEST-BE-F", format: "exFAT")
+        #expect(foreign.problem == "formatted as exFAT, needs APFS")
+        #expect(foreign.explanation(destinationName: "HDD")
+            == "Disk “TEST-BE-F” is formatted as exFAT and can’t be used. Backups need APFS: reformat it in Disk Utility (this erases it).")
+        #expect(!foreign.offersConfirmation)
+        #expect(!foreign.isConnected)
+        #expect(foreign.mark == "exclamationmark.triangle.fill")
+        #expect(DiskTexts.copiesNote(foreign) == "The disk is formatted as exFAT — copies aren’t shown.")
+        #expect(DiskCheck.unsupportedFormat(name: "TEST-BE-F", format: "exFAT").connectedDisk == nil)
+        #expect(!DiskCheck.unsupportedFormat(name: "TEST-BE-F", format: "exFAT").allowsAccess)
+    }
+
     @Test func folderMissingOnAConnectedDiskIsToldAsSuch() {
         let onDisk = DestinationCondition.folderMissing(MissingFolder(path: "/Volumes/TEST-BE-A/Backups", disk: "TEST-BE-A"))
         #expect(onDisk.problem == "folder not found")

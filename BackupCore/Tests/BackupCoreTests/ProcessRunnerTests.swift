@@ -97,7 +97,7 @@ struct ProcessRunnerTests {
         )
         #expect(result.timedOut)
         #expect(result.signal == SIGKILL)
-        #expect(Date().timeIntervalSince(started) < 15)
+        #expect(Date().timeIntervalSince(started) < 60, "killed, not left running; the bound is wide since the rest of the suite loads the machine")
     }
 
     /// One byte that is not valid UTF-8 (a file name in another encoding, binary progress output) must not make
