@@ -43,4 +43,21 @@ public struct Destination: Codable, Sendable, Equatable, Identifiable {
         self.expectedEvery = expectedEvery
         self.disk = disk
     }
+
+    public var location: DestinationLocation {
+        DestinationLocation(kind: kind, disk: disk.map { DestinationLocation.Disk(uuid: $0.uuid) })
+    }
+}
+
+/// Where the copies of a destination are: its folder or remote, and the disk the folder was confirmed on. What is known
+/// about copies holds only for this place; the name, the rhythm and the name the disk had when read are not part of it.
+public struct DestinationLocation: Codable, Sendable, Equatable {
+    public struct Disk: Codable, Sendable, Equatable {
+        /// The Volume UUID; `nil` when the disk reports none.
+        public var uuid: String?
+    }
+
+    public var kind: DestinationKind
+    /// The confirmed disk; `nil` while none is confirmed.
+    public var disk: Disk?
 }

@@ -107,20 +107,35 @@ final class AppModel {
     }
 
     var isWorking: Bool { activeOperations > 0 }
-    var report: StatusReport { LiveReport.of(latestReport ?? StatusReport(items: []), running: activity.active) }
+    /// Every status the app shows comes from this one snapshot of the last check.
+    var snapshot: StatusSnapshot {
+        StatusSnapshot(
+            config: config,
+            state: state,
+            checked: latestReport,
+            running: activity.active,
+            unavailable: unavailableDestinations,
+            disks: diskChecks,
+            missingFolders: missingFolders,
+            runs: runs
+        )
+    }
+    var report: StatusReport { snapshot.live }
     var hasReport: Bool { latestReport != nil }
-    var headline: String { hasReport ? Texts.headline(report, isWorking: isWorking) : "Checking…" }
+    /// `nil` until the first check.
+    var overall: OverallStatus? { snapshot.overall }
+    var headline: String { snapshot.headline(isWorking: isWorking) }
     var headlineSymbol: String {
         if isBusyWithoutProblems { return "arrow.triangle.2.circlepath.circle.fill" }
-        return hasReport ? StatusStyle.symbol(report.overall) : "circle.dashed"
+        return overall.map(StatusStyle.symbol) ?? "circle.dashed"
     }
     var headlineColor: Color {
         if isBusyWithoutProblems { return .blue }
-        return hasReport ? StatusStyle.color(report.overall) : .secondary
+        return overall.map(StatusStyle.color) ?? .secondary
     }
-    private var isBusyWithoutProblems: Bool { isWorking && report.items.isEmpty && report.overall == .ok }
-    /// “All good” is said only when the check proved a fresh copy of every source that should have one.
-    var isAllGood: Bool { hasReport && report.overall == .ok && menuLines.isEmpty }
+    private var isBusyWithoutProblems: Bool { isWorking && overall == .ok }
+    /// “All good” is said only when the check proved a fresh copy of every source that should have one and nothing is shown.
+    var isAllGood: Bool { snapshot.isAllGood }
     var isFirstLaunch: Bool { config.destinations.isEmpty }
     var isRcloneInstalled: Bool { rclone.find() != nil }
 
@@ -181,11 +196,12 @@ final class AppModel {
 
     func refresh() async {
         do {
-            config = try store.loadConfig()
-            state = try store.loadState()
+            let current = try await coordinator.currentStatus()
+            config = current.config
+            state = current.state
+            latestReport = current.report
             runs = store.loadRuns(limit: 300)
             templates = store.loadTemplates()
-            latestReport = try await coordinator.statusReport()
             problem = nil
             refreshAvailability()
             refreshSpace()
@@ -309,19 +325,7 @@ final class AppModel {
     // MARK: Queries
 
     func status(of source: Source) -> SourceStatus {
-        SourceStatus.of(source, report: report, lastBackup: lastBackup(of: source), gaps: copyGaps)
-    }
-
-    private var copyGaps: CopyGaps {
-        CopyGaps(
-            config: config,
-            state: state,
-            report: report,
-            unavailable: unavailableDestinations,
-            disks: diskChecks,
-            missingFolders: missingFolders,
-            runs: runs
-        )
+        snapshot.status(of: source, lastBackup: lastBackup(of: source))
     }
 
     /// When the newest copy of the source that is still known to be on one of its destinations was collected.
@@ -329,12 +333,12 @@ final class AppModel {
         source.destinationIds.compactMap { state.deliveredCopyDate(sourceId: source.id, destinationId: $0) }.max()
     }
 
-    /// The copy of the source on the destination is older than the destination's rhythm.
-    func isOutdated(_ source: Source, on destination: Destination) -> Bool {
-        report.items.contains { item in
-            guard case let .copiesOutdated(sourceId, outdated) = item else { return false }
-            return sourceId == source.id && outdated.destinationIds.contains(destination.id)
-        }
+    func delivery(of source: Source, to destination: Destination) -> DeliveryState {
+        snapshot.delivery(of: source, to: destination)
+    }
+
+    func isUsed(_ destination: Destination) -> Bool {
+        snapshot.isUsed(destination)
     }
 
     func nextDue(of source: Source) -> Date? {
@@ -376,15 +380,7 @@ final class AppModel {
     }
 
     var menuLines: [MenuLine] {
-        MenuLines.of(
-            config: config,
-            state: state,
-            report: report,
-            unavailable: unavailableDestinations,
-            disks: diskChecks,
-            missingFolders: missingFolders,
-            runs: runs
-        )
+        snapshot.menuLines
     }
 
     var latestBackup: Date? {
@@ -434,9 +430,7 @@ final class AppModel {
     }
 
     func condition(of destination: Destination) -> DestinationCondition {
-        DestinationCondition.of(
-            destination.id, report: report, unavailable: unavailableDestinations, disk: diskChecks[destination.id], missingFolder: missingFolders[destination.id]
-        )
+        snapshot.condition(of: destination)
     }
 
     func lastCaughtUp(_ destination: Destination) -> Date? {

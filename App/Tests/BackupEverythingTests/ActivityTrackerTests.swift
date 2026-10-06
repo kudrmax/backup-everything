@@ -42,14 +42,26 @@ struct ActivityTrackerTests {
         #expect(Texts.stage(.delivering(destinationId: disk), destinationName: "HDD") == "copying to “HDD”…")
     }
 
-    @Test func deliveryStateCombinesLastOutcomeAndDebt() {
-        #expect(DeliveryState.of(lastOutcome: nil, isWaiting: false) == .none)
-        #expect(DeliveryState.of(lastOutcome: nil, isWaiting: true) == .waiting)
-        #expect(DeliveryState.of(lastOutcome: .delivered(pruned: 0, warning: nil), isWaiting: false) == .delivered)
-        #expect(DeliveryState.of(lastOutcome: .delivered(pruned: 0, warning: nil), isWaiting: true) == .waiting)
-        #expect(DeliveryState.of(lastOutcome: .unavailable, isWaiting: true) == .waiting)
-        #expect(DeliveryState.of(lastOutcome: .failed(message: "quota"), isWaiting: true) == .failed)
-        #expect(DeliveryState.of(lastOutcome: .failed(message: "quota"), isWaiting: false) == .none)
+    /// A destination that is owed a copy shows the debt whatever the check said: red when the last write failed.
+    @Test func deliveryStateShowsADebtBeforeTheCheck() {
+        let disk = Destination(name: "HDD", kind: .localFolder(path: "/h"))
+        let source = Source(name: "Notes", slug: "notes", steps: [], schedule: .daily, destinationIds: [disk.id], createdAt: Date())
+        func state(debt: Bool, last outcome: DeliveryOutcome?) -> DeliveryState {
+            var state = AppState()
+            if debt { state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: Date())] }
+            let runs = outcome.map {
+                [RunRecord(sourceId: source.id, sourceName: "Notes", trigger: .scheduled, startedAt: Date(), finishedAt: Date(),
+                           deliveries: [Delivery(destinationId: disk.id, destinationName: "HDD", outcome: $0)])]
+            } ?? []
+            let report = StatusReport(items: [], fresh: [source.id], expected: [source.id])
+            return StatusSnapshot(config: Config(sources: [source], destinations: [disk]), state: state, checked: report, running: [], runs: runs)
+                .delivery(of: source, to: disk)
+        }
+        #expect(state(debt: true, last: nil) == .waiting)
+        #expect(state(debt: true, last: .delivered(pruned: 0, warning: nil)) == .waiting)
+        #expect(state(debt: true, last: .unavailable) == .waiting)
+        #expect(state(debt: true, last: .failed(message: "quota")) == .failed)
+        #expect(state(debt: false, last: .delivered(pruned: 0, warning: nil)) == .delivered)
     }
 
     @Test func remembersWhenTheRunStartedAndWhatTheSourceReports() {

@@ -987,6 +987,27 @@ struct StepChainRunnerTests {
         #expect(try String(contentsOf: output.appendingPathComponent("archive.zip"), encoding: .utf8) == "zip")
     }
 
+    /// A chain saved by an older version, waiting at its first step for the device, never had its work folders made: no
+    /// output folder yet is an empty output, not a failed step.
+    @Test func olderChainWaitingForTheDeviceWithoutWorkFoldersMovesOn() async throws {
+        defer { temp.remove() }
+        try temp.directory("device")
+        let source = source([.device(temp.path("device").path), command()])
+        var saved = chain(source, 0, startedAt: start, stepEnteredAt: start)
+        saved.outputAtStepEntry = nil
+        saved.outputAtStepEntryIsComplete = nil
+        #expect(!temp.exists(chainFolder(source, "output")))
+
+        let transition = await runner().advance(source, chain: saved, lastPickup: nil, permissions: allowAll)
+
+        guard case let .moved(next?) = transition else {
+            Issue.record("the device was not accepted: \(transition)")
+            return
+        }
+        #expect(next.stepIndex == 1)
+        #expect(next.outputAtStepEntry == [])
+    }
+
     @Test func outputWithANameThatIsNotUTF8FailsTheStep() async throws {
         let source = source([command()])
         let output = try temp.directory(chainFolder(source, "output"))

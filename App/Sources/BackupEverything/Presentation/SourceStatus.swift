@@ -4,7 +4,8 @@ import Foundation
 enum SourceStatus: Equatable {
     case disabled
     case failed(String)
-    case overdue
+    /// Long overdue; with the reason when copies are missing or stale, so the red mark does not hide the cause.
+    case overdue(CopyShortfall?)
     case noDestinations
     case warning(String)
     case filesFound(count: Int, bytes: Int64, downloading: Bool)
@@ -23,14 +24,18 @@ enum SourceStatus: Equatable {
     static func of(_ source: Source, report: StatusReport, lastBackup: Date?, gaps: CopyGaps? = nil) -> SourceStatus {
         guard source.enabled else { return .disabled }
         var found: [SourceStatus] = []
+        var shortfall: CopyShortfall?
+        for case let .copiesOutdated(id, outdated) in report.items where id == source.id {
+            shortfall = gaps?.shortfall(of: id, outdated) ?? CopyShortfall(
+                gaps: [], freshElsewhere: outdated.freshElsewhere, noCopyAnywhere: outdated.noCopyAnywhere
+            )
+        }
         for item in report.items {
             switch item {
             case let .runFailed(id, message) where id == source.id: found.append(.failed(message))
-            case let .copiesOutdated(id, outdated) where id == source.id:
-                found.append(.outdated(gaps?.shortfall(of: id, outdated) ?? CopyShortfall(
-                    gaps: [], freshElsewhere: outdated.freshElsewhere, noCopyAnywhere: outdated.noCopyAnywhere
-                )))
-            case let .severelyOverdue(id) where id == source.id: found.append(.overdue)
+            case let .copiesOutdated(id, _) where id == source.id:
+                if let shortfall { found.append(.outdated(shortfall)) }
+            case let .severelyOverdue(id) where id == source.id: found.append(.overdue(shortfall))
             case let .noDestinations(id) where id == source.id: found.append(.noDestinations)
             case let .deliveryWarning(id, message) where id == source.id: found.append(.warning(message))
             case let .filesAwaitingPickup(id, count, bytes, downloading) where id == source.id:
@@ -59,7 +64,7 @@ enum SourceStatus: Equatable {
         switch self {
         case .disabled: "Disabled"
         case let .failed(message): "Error: \(message)"
-        case .overdue: "Backup is long overdue"
+        case let .overdue(shortfall): (["Backup is long overdue"] + (shortfall.map { [$0.text] } ?? [])).joined(separator: "\n")
         case .noDestinations: "No destination chosen"
         case let .warning(message): "Delivered, but: \(message)"
         case let .filesFound(count, bytes, downloading):
@@ -91,7 +96,7 @@ enum SourceStatus: Equatable {
         case .ok, .neverRun, .unconfirmed: nil
         case .disabled: "disabled"
         case let .failed(message): Texts.errorHeadline(message)
-        case .overdue: "no backup for a long time"
+        case let .overdue(shortfall): shortfall.map { "\($0.note) · no backup for a long time" } ?? "no backup for a long time"
         case .noDestinations: "no destination chosen"
         case let .warning(message): Texts.errorHeadline(message)
         case let .filesFound(count, bytes, downloading):

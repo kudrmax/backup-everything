@@ -31,14 +31,33 @@ public struct SchedulePlanner: Sendable {
         dueDate(for: source, state: state).map { $0 <= now } ?? false
     }
 
-    /// Counted from the newest copy delivered anywhere, not from the last run: a run that delivered nothing is no backup.
-    /// A source that has never delivered a copy counts from its creation; one that has never run is not overdue.
-    public func isSeverelyOverdue(_ source: Source, state: SourceState, newestCopy: Date?, now: Date) -> Bool {
-        guard source.enabled, state.lastRun != nil,
-              let due = source.schedule.nextDue(after: newestCopy ?? source.createdAt, calendar: calendar),
-              let first = source.schedule.nextDue(after: due, calendar: calendar),
-              let second = source.schedule.nextDue(after: first, calendar: calendar) else { return false }
-        return now > second
+    /// Long overdue: two backups by the schedule were missed after the end of the rhythm of every copy the source has, on
+    /// each destination by that destination's rhythm (as for freshness, `isCopyFresh`): the next backup for an always
+    /// connected one, the connect interval for a disk that can stay unplugged. A run that delivered nothing is no backup.
+    /// Without any copy, each destination counts from the moment it was expected to hold one: its addition to the source
+    /// or its move (`expectedSince`), else the creation of the source; so a new destination is “no copy yet”, not red.
+    /// A source that has never run, or runs only by hand, is never long overdue.
+    public func isSeverelyOverdue(_ source: Source, on destinations: [Destination], state: AppState, now: Date) -> Bool {
+        guard source.enabled, state.sourceState(source.id).lastRun != nil else { return false }
+        let copies = destinations.compactMap { destination in
+            state.deliveredCopyDate(sourceId: source.id, destinationId: destination.id).map { (destination, $0) }
+        }
+        let references = copies.isEmpty
+            ? destinations.map { ($0, state.copyExpectedSince(sourceId: source.id, destinationId: $0.id) ?? source.createdAt) }
+            : copies
+        let deadlines = references.map { severeDeadline(source, on: $0.0, copiedAt: $0.1) }
+        guard !deadlines.isEmpty, deadlines.allSatisfy({ $0 != nil }) else { return false }
+        return deadlines.compactMap { $0 }.allSatisfy { now > $0 }
+    }
+
+    private func severeDeadline(_ source: Source, on destination: Destination, copiedAt: Date) -> Date? {
+        guard let due = source.schedule.nextDue(after: copiedAt, calendar: calendar) else { return nil }
+        var rhythmEnd = due
+        if case let .days(days) = destination.expectedEvery, let connect = calendar.date(byAdding: .day, value: days, to: copiedAt) {
+            rhythmEnd = max(due, connect)
+        }
+        guard let first = source.schedule.nextDue(after: rhythmEnd, calendar: calendar) else { return nil }
+        return source.schedule.nextDue(after: first, calendar: calendar)
     }
 
     /// Whether the newest copy of the source on the destination is within the destination's rhythm (5.5). A disk that

@@ -38,24 +38,9 @@ enum MenuLines {
         runs: [RunRecord] = [],
         now: Date = Date()
     ) -> [MenuLine] {
-        let gaps = CopyGaps(
-            config: config, state: state, report: report, unavailable: unavailable, disks: disks, missingFolders: missingFolders, runs: runs, now: now
-        )
-        let sources = config.sources.compactMap { source -> MenuLine? in
-            let status = SourceStatus.of(source, report: report, lastBackup: nil, gaps: gaps)
-            guard source.enabled, status.severity != .ok, let note = status.note else { return nil }
-            let text = ChainPosition.note(note, of: source, chain: state.sourceState(source.id).chain, status: status) ?? note
-            return MenuLine(subject: .source(source), severity: status.severity, text: text, canPickUp: status.offersPickUp)
-        }
-        let destinations = config.destinations.compactMap { destination -> MenuLine? in
-            let condition = DestinationCondition.of(
-                destination.id, report: report, unavailable: unavailable, disk: disks[destination.id], missingFolder: missingFolders[destination.id]
-            )
-            return condition.problem.map {
-                MenuLine(subject: .destination(destination), severity: .attention, text: $0, canPickUp: false)
-            }
-        }
-        let lines = sources + destinations
-        return lines.filter { $0.severity == .error } + lines.filter { $0.severity != .error }
+        StatusSnapshot(
+            config: config, state: state, checked: report, running: [],
+            unavailable: unavailable, disks: disks, missingFolders: missingFolders, runs: runs, now: now
+        ).menuLines
     }
 }

@@ -126,7 +126,7 @@ struct SettingsPresentationTests {
 
     @Test func statusTextsForTheTip() {
         let statuses: [SourceStatus] = [
-            .disabled, .failed("boom"), .overdue, .noDestinations, .warning("Could not clean up old copies: busy"),
+            .disabled, .failed("boom"), .overdue(nil), .noDestinations, .warning("Could not clean up old copies: busy"),
             .filesFound(count: 2, bytes: 1_500, downloading: false), .filesFound(count: 1, bytes: 10, downloading: true),
             .exportDue, .waiting, .deviceDue, .waitingForDevice, .neverRun, .unconfirmed, .ok,
         ]

@@ -5,8 +5,9 @@ struct MenuBarIcon: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let symbol = StatusStyle.menuBarSymbol(model.report.overall, working: model.isWorking || !model.hasReport)
-        if let color = MenuBarTint.of(model.report.overall).color, let image = Self.tinted(symbol, color) {
+        let overall = model.overall ?? .ok
+        let symbol = StatusStyle.menuBarSymbol(overall, working: model.isWorking || !model.hasReport)
+        if let color = MenuBarTint.of(overall).color, let image = Self.tinted(symbol, color) {
             Image(nsImage: image)
         } else {
             Image(systemName: symbol)

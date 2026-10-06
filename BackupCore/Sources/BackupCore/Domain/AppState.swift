@@ -82,10 +82,14 @@ public struct SourceState: Codable, Sendable, Equatable {
 public struct DestinationState: Codable, Sendable, Equatable {
     public var lastCaughtUp: Date?
     public var lastVerified: Date?
+    /// The place the facts about this destination's copies were learned at; `nil` until the state is first reconciled
+    /// with the settings (`StateReducer.reconcile`).
+    public var location: DestinationLocation?
 
-    public init(lastCaughtUp: Date? = nil, lastVerified: Date? = nil) {
+    public init(lastCaughtUp: Date? = nil, lastVerified: Date? = nil, location: DestinationLocation? = nil) {
         self.lastCaughtUp = lastCaughtUp
         self.lastVerified = lastVerified
+        self.location = location
     }
 }
 
@@ -133,6 +137,10 @@ public struct AppState: Codable, Sendable, Equatable {
     public var deliveredAt: [String: Date]?
     /// What went wrong after the last copy was delivered (old copies not cleaned up), by `deliveryKey`; absent when nothing did.
     public var deliveryWarnings: [String: String]
+    /// Since when each pair has been expected to hold a copy at the destination's current place, by `deliveryKey`: the
+    /// moment the destination was added to the source or moved to another place. `nil` until the state is first
+    /// reconciled with the settings; pairs that existed then count from the creation of their source.
+    public var expectedSince: [String: Date]?
 
     public init() {
         self.schemaVersion = Self.currentSchemaVersion
@@ -155,6 +163,7 @@ public struct AppState: Codable, Sendable, Equatable {
         lastDelivered = try container.decodeIfPresent([String: String].self, forKey: .lastDelivered) ?? [:]
         deliveredAt = try container.decodeIfPresent([String: Date].self, forKey: .deliveredAt)
         deliveryWarnings = try container.decodeIfPresent([String: String].self, forKey: .deliveryWarnings) ?? [:]
+        expectedSince = try container.decodeIfPresent([String: Date].self, forKey: .expectedSince)
     }
 
     public static func deliveryKey(sourceId: UUID, destinationId: UUID) -> String {
@@ -184,27 +193,48 @@ public struct AppState: Codable, Sendable, Equatable {
         deliveredAt?[key] = nil
     }
 
+    /// Everything known about copies at the destination: which copy is there, how old it is, what went wrong after it,
+    /// when it was last caught up and checked.
+    public mutating func forgetCopies(at destinationId: UUID) {
+        let suffix = "|" + destinationId.uuidString
+        lastDelivered = lastDelivered.filter { !$0.key.hasSuffix(suffix) }
+        deliveredAt = deliveredAt?.filter { !$0.key.hasSuffix(suffix) }
+        deliveryWarnings = deliveryWarnings.filter { !$0.key.hasSuffix(suffix) }
+        updateDestination(destinationId) {
+            $0.lastCaughtUp = nil
+            $0.lastVerified = nil
+        }
+    }
+
+    /// Since when the source has been expected to hold a copy at the destination's current place; `nil` when not recorded.
+    public func copyExpectedSince(sourceId: UUID, destinationId: UUID) -> Date? {
+        expectedSince?[Self.deliveryKey(sourceId: sourceId, destinationId: destinationId)]
+    }
+
     /// State saved before `deliveredAt` was kept learns the dates from the history: the run that delivered the copy named in
-    /// `lastDelivered`, else the date in its name; for copies made before `lastDelivered` was kept, the newest run that
-    /// delivered to the destination (5.3.1).
+    /// `lastDelivered`, else the date in its name (5.3.1). A date is a fact about a copy that is there now, so it is learned
+    /// only for a pair whose copy is named in `lastDelivered` and owes nothing: an open debt says the copy may be gone
+    /// (the check forgets a missing copy and opens a debt). Pairs without a name get their date from the check of the
+    /// destination, which looks at the copies themselves.
     public func learningDeliveryDates(from history: [RunRecord], naming: SnapshotNaming) -> AppState {
         guard deliveredAt == nil else { return self }
-        var learned = self
+        let owed = Set(debts.map { Self.deliveryKey(sourceId: $0.sourceId, destinationId: $0.destinationId) })
+        let named = lastDelivered.filter { !owed.contains($0.key) }
         var dates: [String: Date] = [:]
         for run in history.sorted(by: { $0.startedAt > $1.startedAt }) {
             for delivery in run.deliveries where delivery.outcome.isDelivered {
                 let key = Self.deliveryKey(sourceId: run.sourceId, destinationId: delivery.destinationId)
-                guard dates[key] == nil else { continue }
-                if let expected = lastDelivered[key], expected != run.snapshotName { continue }
+                guard dates[key] == nil, let expected = named[key], expected == run.snapshotName else { continue }
                 dates[key] = run.copyCollectedAt
             }
         }
-        for (key, name) in lastDelivered where dates[key] == nil {
+        for (key, name) in named where dates[key] == nil {
             guard let date = naming.date(from: name) else { continue }
             let sourceId = key.split(separator: "|").first.flatMap { UUID(uuidString: String($0)) }
             let lastSuccess = sourceId.flatMap { sourceState($0).lastSuccess }
             dates[key] = min(date, lastSuccess ?? date)
         }
+        var learned = self
         learned.deliveredAt = dates
         return learned
     }

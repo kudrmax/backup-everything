@@ -110,19 +110,6 @@ enum Texts {
             .last { !$0.isEmpty }
     }
 
-    static func headline(_ report: StatusReport, isWorking: Bool = false) -> String {
-        var failed: Set<UUID> = []
-        for item in report.items {
-            switch item {
-            case let .runFailed(sourceId, _), let .severelyOverdue(sourceId): failed.insert(sourceId)
-            default: break
-            }
-        }
-        if !failed.isEmpty { return errors(failed.count) }
-        guard report.overall == .ok else { return "Needs your action" }
-        return isWorking ? "Backing up" : "All good"
-    }
-
     static func plural(_ count: Int, _ one: String, _ other: String) -> String {
         count == 1 ? one : other
     }

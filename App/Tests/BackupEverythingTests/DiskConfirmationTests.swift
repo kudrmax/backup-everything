@@ -108,9 +108,22 @@ struct DiskConfirmationTests {
         #expect(DiskTexts.copiesNote(.offline) == "Not connected — copies can’t be seen.")
     }
 
+    private func user(of destination: Destination) -> Source {
+        Source(name: "Notes", slug: "notes", steps: [.folder("/a", excludes: [])], schedule: .manual, destinationIds: [destination.id], createdAt: Date())
+    }
+
+    /// A destination no enabled source uses is not part of the backup health and is not listed.
+    @Test func menuLeavesOutADestinationNoSourceUses() {
+        let hdd = Destination(name: "HDD", kind: .localFolder(path: "/x"), disk: mine)
+        var notes = user(of: hdd)
+        notes.enabled = false
+        let lines = MenuLines.of(config: Config(sources: [notes], destinations: [hdd]), state: AppState(), report: StatusReport(items: []), unavailable: [hdd.id], disks: [hdd.id: .otherDisk(stranger)])
+        #expect(lines.isEmpty)
+    }
+
     @Test func menuListsADestinationOnAnotherDisk() {
         let hdd = Destination(name: "HDD", kind: .localFolder(path: "/x"), disk: mine)
-        let lines = MenuLines.of(config: Config(destinations: [hdd]), state: AppState(), report: StatusReport(items: []), unavailable: [hdd.id], disks: [hdd.id: .otherDisk(stranger)])
+        let lines = MenuLines.of(config: Config(sources: [user(of: hdd)], destinations: [hdd]), state: AppState(), report: StatusReport(items: []), unavailable: [hdd.id], disks: [hdd.id: .otherDisk(stranger)])
         #expect(lines.map(\.text) == ["another disk named “TEST-BE-B” is connected"])
         #expect(lines.map(\.severity) == [.attention])
     }
@@ -118,7 +131,7 @@ struct DiskConfirmationTests {
     @Test func menuListsADestinationWhoseFolderIsMissing() {
         let hdd = Destination(name: "HDD", kind: .localFolder(path: "/x"), disk: mine)
         let lines = MenuLines.of(
-            config: Config(destinations: [hdd]), state: AppState(), report: StatusReport(items: []), unavailable: [hdd.id],
+            config: Config(sources: [user(of: hdd)], destinations: [hdd]), state: AppState(), report: StatusReport(items: []), unavailable: [hdd.id],
             disks: [hdd.id: .confirmed], missingFolders: [hdd.id: MissingFolder(path: "/x", disk: "TEST-BE-A")]
         )
         #expect(lines.map(\.text) == ["folder not found"])

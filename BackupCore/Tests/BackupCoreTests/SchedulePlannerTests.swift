@@ -48,20 +48,64 @@ struct SchedulePlannerTests {
         #expect(planner.dueAutomaticSources(config: config, state: AppState(), now: now).map(\.name) == ["Obsidian"])
     }
 
+    private func ran(_ source: Source, at lastRun: Date, copies: [(Destination, Date)] = []) -> AppState {
+        var state = AppState()
+        state.updateSource(source.id) { $0.lastRun = lastRun }
+        for (destination, date) in copies {
+            state.recordDelivery(sourceId: source.id, destinationId: destination.id, snapshotName: nil, collectedAt: date)
+        }
+        return state
+    }
+
+    private func overdue(_ source: Source, _ state: AppState, at now: String, on destinations: [Destination]? = nil) -> Bool {
+        let destinations = destinations ?? [cloud, disk].filter { source.destinationIds.contains($0.id) }
+        return planner.isSeverelyOverdue(source, on: destinations, state: state, now: Fixtures.date(now))
+    }
+
     @Test func severeOverdueStartsTwoMissedIntervalsAfterTheNewestDeliveredCopy() {
         let source = Fixtures.source(schedule: .daily, destinations: [cloud])
-        let copy = Fixtures.date("2026-09-25 10:00:00")
-        let state = SourceState(lastRun: Fixtures.date("2026-09-28 09:00:00"))
-        #expect(!planner.isSeverelyOverdue(source, state: state, newestCopy: copy, now: Fixtures.date("2026-09-28 10:00:00")))
-        #expect(planner.isSeverelyOverdue(source, state: state, newestCopy: copy, now: Fixtures.date("2026-09-28 10:00:01")))
+        let state = ran(source, at: Fixtures.date("2026-09-28 09:00:00"), copies: [(cloud, Fixtures.date("2026-09-25 10:00:00"))])
+        #expect(!overdue(source, state, at: "2026-09-28 10:00:00"))
+        #expect(overdue(source, state, at: "2026-09-28 10:00:01"))
     }
 
     /// Runs that deliver nothing are no backup: without any copy the source is overdue counting from its creation.
     @Test func sourceThatNeverDeliveredIsOverdueCountingFromItsCreation() {
         let source = Fixtures.source(schedule: .daily, destinations: [cloud], createdAt: Fixtures.date("2026-09-25 10:00:00"))
-        let state = SourceState(lastRun: Fixtures.date("2026-09-28 09:00:00"))
-        #expect(!planner.isSeverelyOverdue(source, state: state, newestCopy: nil, now: Fixtures.date("2026-09-28 10:00:00")))
-        #expect(planner.isSeverelyOverdue(source, state: state, newestCopy: nil, now: Fixtures.date("2026-09-28 10:00:01")))
+        let state = ran(source, at: Fixtures.date("2026-09-28 09:00:00"))
+        #expect(!overdue(source, state, at: "2026-09-28 10:00:00"))
+        #expect(overdue(source, state, at: "2026-09-28 10:00:01"))
+    }
+
+    /// A disk that may stay unplugged for a week is not late with a copy of a daily source until the week is over: the
+    /// two missed intervals count from the end of its own rhythm.
+    @Test func copyOnADiskThatCanStayUnpluggedIsLongOverdueOnlyAfterItsRhythm() {
+        let weekDisk = Destination(name: "HDD", kind: .localFolder(path: "/h"), expectedEvery: .days(7))
+        let source = Fixtures.source(schedule: .daily, destinations: [weekDisk])
+        let state = ran(source, at: Fixtures.date("2026-09-28 09:00:00"), copies: [(weekDisk, Fixtures.date("2026-09-20 10:00:00"))])
+        #expect(!overdue(source, state, at: "2026-09-24 10:00:00", on: [weekDisk]))
+        #expect(!overdue(source, state, at: "2026-09-29 10:00:00", on: [weekDisk]))
+        #expect(overdue(source, state, at: "2026-09-29 10:00:01", on: [weekDisk]))
+    }
+
+    /// The freshest copy anywhere decides: a fresh copy in the cloud keeps the source from being long overdue, however old
+    /// the copy on the disk is.
+    @Test func freshestCopyAnywhereDecides() {
+        let source = Fixtures.source(schedule: .daily, destinations: [cloud, disk])
+        let state = ran(source, at: Fixtures.date("2026-09-28 09:00:00"), copies: [
+            (cloud, Fixtures.date("2026-09-28 09:00:00")), (disk, Fixtures.date("2026-07-01 10:00:00")),
+        ])
+        #expect(!overdue(source, state, at: "2026-09-28 10:00:00"))
+    }
+
+    /// A source moved to a new destination has no copy there yet: it counts from the move, not from its creation.
+    @Test func sourceMovedToANewDestinationCountsFromTheMove() {
+        let source = Fixtures.source(schedule: .daily, destinations: [cloud], createdAt: Fixtures.date("2026-01-01 00:00:00"))
+        var state = ran(source, at: Fixtures.date("2026-09-28 09:00:00"))
+        state.expectedSince = [AppState.deliveryKey(sourceId: source.id, destinationId: cloud.id): Fixtures.date("2026-09-28 08:00:00")]
+        #expect(!overdue(source, state, at: "2026-09-28 10:00:00"))
+        #expect(!overdue(source, state, at: "2026-10-01 08:00:00"))
+        #expect(overdue(source, state, at: "2026-10-01 08:00:01"))
     }
 
     @Test func copyOnAnAlwaysConnectedDestinationIsFreshUntilTheNextBackupAndAnHour() {
@@ -144,7 +188,7 @@ struct SchedulePlannerTests {
 
     @Test func sourceThatHasNeverRunIsNotSeverelyOverdue() {
         let source = Fixtures.source(schedule: .daily, destinations: [cloud], createdAt: created)
-        #expect(!planner.isSeverelyOverdue(source, state: SourceState(), newestCopy: nil, now: now))
+        #expect(!planner.isSeverelyOverdue(source, on: [cloud], state: AppState(), now: now))
         #expect(planner.isDue(source, state: SourceState(), now: now))
     }
 

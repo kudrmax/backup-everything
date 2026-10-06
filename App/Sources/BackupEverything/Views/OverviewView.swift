@@ -393,11 +393,7 @@ struct DestinationBadge: View {
     }
 
     private var state: DeliveryState {
-        DeliveryState.of(
-            lastOutcome: model.lastDelivery(of: source, to: destination)?.outcome,
-            isWaiting: model.isWaiting(source, for: destination),
-            isOutdated: model.isOutdated(source, on: destination)
-        )
+        model.delivery(of: source, to: destination)
     }
 
     private var color: Color {
@@ -407,7 +403,7 @@ struct DestinationBadge: View {
         case .outdated: return .orange
         case .failed: return .red
         case .waiting: return .orange
-        case .none: return .secondary
+        case .none, .unconfirmed: return .secondary
         }
     }
 
@@ -444,7 +440,7 @@ struct DestinationStrip: View {
                     HStack(spacing: 6) {
                         DestinationIcon(destination: destination, showsMarks: false)
                         Text(title(of: destination, condition: condition))
-                            .foregroundStyle(style(condition))
+                            .foregroundStyle(model.isUsed(destination) ? style(condition) : AnyShapeStyle(.secondary))
                     }
                     .font(.callout)
                 }

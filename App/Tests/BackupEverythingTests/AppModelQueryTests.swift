@@ -113,7 +113,7 @@ struct AppModelQueryTests {
         #expect(fixture.model.latestBackup == delivered)
     }
 
-    /// State written before the newest delivered copy was remembered has only the last run; the history tells which runs delivered.
+    /// State written before the age of copies was kept learns it from the history: the run that delivered the copy it names.
     @Test func lastBackupOfOldSettingsComesFromDeliveredRunsInTheHistory() async throws {
         let fixture = try ModelFixture()
         let disk = try fixture.disk()
@@ -122,7 +122,7 @@ struct AppModelQueryTests {
         let record = { (started: Date, collected: Date?, outcome: DeliveryOutcome) in
             RunRecord(
                 sourceId: notes.id, sourceName: "Notes", trigger: .scheduled, startedAt: started, finishedAt: started.addingTimeInterval(600),
-                collectedAt: collected, deliveries: [Delivery(destinationId: disk.id, destinationName: "HDD", outcome: outcome)]
+                snapshotName: "copy-\(Int(started.timeIntervalSince1970))", collectedAt: collected, deliveries: [Delivery(destinationId: disk.id, destinationName: "HDD", outcome: outcome)]
             )
         }
         try fixture.store.appendRun(record(Date.wholeSeconds(-9000), nil, .delivered(pruned: 0, warning: nil)))
@@ -130,6 +130,7 @@ struct AppModelQueryTests {
         try fixture.store.appendRun(record(Date.wholeSeconds(-60), Date.wholeSeconds(-60), .unavailable))
         var state = AppState()
         state.updateSource(notes.id) { $0.lastRun = Date.wholeSeconds(-60) }
+        state.lastDelivered = [AppState.deliveryKey(sourceId: notes.id, destinationId: disk.id): "copy-\(Int(Date.wholeSeconds(-7300).timeIntervalSince1970))"]
         state.deliveredAt = nil
         try await fixture.use(Config(sources: [notes], destinations: [disk]), state: state)
         #expect(fixture.model.lastBackup(of: notes) == collected)

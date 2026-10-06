@@ -181,7 +181,8 @@ struct StoreTests {
     }
 
     /// State from before the dates of delivered copies were kept learns them from the history: the run that delivered the
-    /// remembered copy, else the date in its name; for copies older than that record, the newest delivering run.
+    /// remembered copy, else the date in its name. A pair with no remembered copy learns nothing: the history says a copy
+    /// was delivered once, not that it is there now; the check of the destination finds it (5.3.1).
     @Test func stateWithoutDeliveryDatesLearnsThemFromTheHistory() throws {
         defer { temp.remove() }
         let source = UUID()
@@ -207,12 +208,33 @@ struct StoreTests {
         let state = try store.loadState()
         #expect(state.deliveredAt == [
             key(cloud): Fixtures.date("2026-09-27 10:00:00"),
-            key(disk): Fixtures.date("2026-09-20 10:01:00"),
             key(nas): min(named, Fixtures.date("2026-09-27 10:00:00")),
         ])
 
         try store.saveState(state)
         #expect(try store.loadState() == state)
+    }
+
+    /// A copy the check found missing has no name in `lastDelivered` and an open debt: the history must not bring it back.
+    @Test func copyFoundMissingIsNotRevivedFromTheHistory() throws {
+        defer { temp.remove() }
+        let source = UUID()
+        let nas = UUID()
+        let disk = UUID()
+        try store.appendRun(RunRecord(
+            sourceId: source, sourceName: "Obsidian", trigger: .scheduled,
+            startedAt: Fixtures.date("2026-10-05 10:00:00"), finishedAt: Fixtures.date("2026-10-05 10:10:00"),
+            snapshotName: "2026-10-05_100000", collectedAt: Fixtures.date("2026-10-05 10:00:00"),
+            deliveries: [nas, disk].map { Delivery(destinationId: $0, destinationName: "d", outcome: .delivered(pruned: 0, warning: nil)) }
+        ))
+        let diskKey = AppState.deliveryKey(sourceId: source, destinationId: disk)
+        try temp.file("data/state.json", """
+        {"schemaVersion":1,"sources":{"\(source.uuidString)":{"lastRun":"2026-10-05T10:00:00Z","lastSuccess":"2026-10-05T10:00:00Z"}},
+         "debts":[{"sourceId":"\(source.uuidString)","destinationId":"\(nas.uuidString)","since":"2026-10-05T12:00:00Z","elsewhere":false},
+                  {"sourceId":"\(source.uuidString)","destinationId":"\(disk.uuidString)","since":"2026-10-05T12:00:00Z"}],
+         "lastDelivered":{"\(diskKey)":"2026-10-05_100000"}}
+        """)
+        #expect(try store.loadState().deliveredAt == [:])
     }
 
     @Test func chainSavedByAnOlderVersionDoesNotKnowItsStepOutput() throws {

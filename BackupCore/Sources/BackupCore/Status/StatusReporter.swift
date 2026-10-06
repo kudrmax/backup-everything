@@ -144,7 +144,7 @@ public struct StatusReporter: Sendable {
             if !warnings.isEmpty {
                 items.append(.deliveryWarning(sourceId: source.id, message: warnings.joined(separator: " ")))
             }
-            if planner.isSeverelyOverdue(source, state: sourceState, newestCopy: newestCopy, now: now) {
+            if planner.isSeverelyOverdue(source, on: destinations, state: state, now: now) {
                 items.append(.severelyOverdue(sourceId: source.id))
             }
             guard source.needsHuman else { continue }

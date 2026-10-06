@@ -26,27 +26,13 @@ struct OverviewTextsTests {
         #expect(Texts.files(count) == expected)
     }
 
-    @Test func headlineSummarisesTheReport() {
-        let first = UUID()
-        let second = UUID()
-        #expect(Texts.headline(StatusReport(items: [])) == "All good")
-        #expect(Texts.headline(StatusReport(items: [.waitingForFile(sourceId: first)])) == "All good")
-        #expect(Texts.headline(StatusReport(items: [.manualExportDue(sourceId: first)])) == "Needs your action")
-        #expect(Texts.headline(StatusReport(items: [
-            .runFailed(sourceId: first, message: "a"),
-            .severelyOverdue(sourceId: first),
-            .runFailed(sourceId: second, message: "b"),
-            .manualExportDue(sourceId: second),
-        ])) == "2 errors")
-    }
-
     @Test func rowNoteIsEmptyWhenNothingNeedsSaying() {
         #expect(SourceStatus.ok.note == nil)
         #expect(SourceStatus.neverRun.note == nil)
         #expect(SourceStatus.disabled.note == "disabled")
         #expect(SourceStatus.failed("disk dropped off").note == "disk dropped off")
         #expect(SourceStatus.failed("Command exited with code 1. fatal: early EOF").errorMessage == "Command exited with code 1. fatal: early EOF")
-        #expect(SourceStatus.overdue.errorMessage == nil)
+        #expect(SourceStatus.overdue(nil).errorMessage == nil)
         #expect(SourceStatus.warning("Could not clean up old copies: “a.deleting”: busy").note == "Could not clean up old copies")
         #expect(SourceStatus.warning("x").severity == .attention)
         #expect(SourceStatus.failed("Source path not found: /Users/max/Obsidian").note == "Source path not found")
@@ -64,7 +50,7 @@ struct OverviewTextsTests {
         #expect(SourceStatus.waitingForDevice.note == "waiting for the device")
         #expect(SourceStatus.waitingForDevice.severity == .ok)
         #expect(SourceStatus.noDestinations.note == "no destination chosen")
-        #expect(SourceStatus.overdue.note == "no backup for a long time")
+        #expect(SourceStatus.overdue(nil).note == "no backup for a long time")
     }
 
     @Test(arguments: [(0, "0 copies"), (1, "1 copy"), (3, "3 copies"), (14, "14 copies"), (21, "21 copies")])
@@ -97,12 +83,6 @@ struct OverviewTextsTests {
             .connectDestination(destinationId: disk),
         ])
         #expect(LiveReport.of(report, running: []).items == report.items)
-    }
-
-    @Test func headlineSaysThatABackupIsRunningWhenNothingElseNeedsAttention() {
-        #expect(Texts.headline(StatusReport(items: []), isWorking: true) == "Backing up")
-        #expect(Texts.headline(StatusReport(items: [.runFailed(sourceId: UUID(), message: "a")]), isWorking: true) == "1 error")
-        #expect(Texts.headline(StatusReport(items: []), isWorking: false) == "All good")
     }
 
     @Test func menuBarIconIsTintedOnlyWhenSomethingNeedsAttention() {

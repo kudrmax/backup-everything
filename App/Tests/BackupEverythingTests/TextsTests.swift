@@ -15,7 +15,8 @@ struct TextsTests {
     @Test func menuListsOneLinePerProblemWithErrorsFirst() {
         let photos = source("Google Photos")
         let github = source("GitHub")
-        let healthy = source("Obsidian")
+        var healthy = source("Obsidian")
+        healthy.destinationIds = [disk.id]
         let config = Config(sources: [photos, github, healthy], destinations: [cloud, disk])
         let report = StatusReport(items: [
             .filesAwaitingPickup(sourceId: photos.id, fileCount: 2, totalBytes: 23_000_000_000, downloadInProgress: false),
@@ -72,7 +73,6 @@ struct TextsTests {
         #expect(SourceStatus.of(obsidian, report: report, lastBackup: now) == .failed("quota"))
         let warned = StatusReport(items: [.manualExportDue(sourceId: obsidian.id), .deliveryWarning(sourceId: obsidian.id, message: "left")])
         #expect(SourceStatus.of(obsidian, report: warned, lastBackup: now) == .warning("left"))
-        #expect(Texts.headline(warned) == "Needs your action")
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: [], fresh: [obsidian.id], expected: [obsidian.id]), lastBackup: now) == .ok)
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastBackup: now) == .unconfirmed)
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: [], expected: [obsidian.id]), lastBackup: nil) == .unconfirmed)

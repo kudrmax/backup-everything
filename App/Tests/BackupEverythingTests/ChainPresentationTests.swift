@@ -47,7 +47,7 @@ struct ChainPresentationTests {
     @Test func positionIsNotAddedToNotesUnrelatedToTheChain() {
         #expect(ChainPosition.note("no destination chosen", of: claude, chain: nil, status: .noDestinations) == "no destination chosen")
         #expect(ChainPosition.note("disk dropped off", of: claude, chain: nil, status: .failed("disk dropped off")) == "disk dropped off")
-        #expect(ChainPosition.note("no backup for a long time", of: claude, chain: nil, status: .overdue) == "no backup for a long time")
+        #expect(ChainPosition.note("no backup for a long time", of: claude, chain: nil, status: .overdue(nil)) == "no backup for a long time")
     }
 
     @Test func runButtonIsOfferedOnlyWhenItWouldDoSomething() {

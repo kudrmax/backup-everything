@@ -180,6 +180,88 @@ struct StateReducerTests {
         #expect(state.deliveryWarnings == [kept: "old"])
     }
 
+    /// Facts about copies belong to the place they are in. Another folder, remote or disk is another place: what was proven
+    /// at the old one is forgotten, with the time of the last check, so the new place is checked and caught up. The name,
+    /// the rhythm and the name the disk had when read are not the place.
+    @Test func factsOfADestinationAreForgottenWhenItsPlaceChanges() {
+        let disk = Destination(
+            name: "HDD", kind: .localFolder(path: "/tmp/TEST-BE-HDD/Backups"), disk: DiskIdentity(uuid: "A", name: "TEST-BE-HDD")
+        )
+        let cloud = Destination(name: "Cloud", kind: .rclone(remote: "drive", path: "Backups"))
+        let source = Fixtures.source(destinations: [disk, cloud])
+        let other = Fixtures.source(name: "Other", destinations: [disk])
+        let created = Fixtures.date("2026-09-01 00:00:00")
+        var config = Config(sources: [source, other], destinations: [disk, cloud])
+        let key = { (source: Source, destination: Destination) in AppState.deliveryKey(sourceId: source.id, destinationId: destination.id) }
+
+        var adopted = AppState()
+        for (owner, place) in [(source, disk), (source, cloud), (other, disk)] {
+            adopted.recordDelivery(sourceId: owner.id, destinationId: place.id, snapshotName: "2026-09-28_100000", collectedAt: started)
+            adopted.deliveryWarnings[key(owner, place)] = "Could not clean up old copies: busy"
+        }
+        for place in [disk, cloud] {
+            adopted.updateDestination(place.id) {
+                $0.lastCaughtUp = finished
+                $0.lastVerified = finished
+            }
+        }
+        reducer.reconcile(config: config, state: &adopted, now: started)
+        #expect(adopted.deliveredAt?.count == 3)
+        #expect(adopted.expectedSince == [key(source, disk): created, key(source, cloud): created, key(other, disk): created])
+
+        var kept = adopted
+        var renamed = config
+        renamed.destinations[0].name = "Disk"
+        renamed.destinations[0].expectedEvery = .days(7)
+        renamed.destinations[0].disk = DiskIdentity(uuid: "A", name: "Renamed disk")
+        reducer.reconcile(config: renamed, state: &kept, now: finished)
+        #expect(kept == adopted)
+
+        let moves: [(inout Config) -> Void] = [
+            { $0.destinations[0].kind = .localFolder(path: "/tmp/TEST-BE-HDD/Other") },
+            { $0.destinations[0].disk = DiskIdentity(uuid: "B", name: "TEST-BE-HDD") },
+            { $0.destinations[0].disk = nil },
+        ]
+        for move in moves {
+            var moved = config
+            move(&moved)
+            var state = adopted
+            reducer.reconcile(config: moved, state: &state, now: finished)
+            #expect(state.deliveredAt == [key(source, cloud): started])
+            #expect(state.lastDelivered == [key(source, cloud): "2026-09-28_100000"])
+            #expect(state.deliveryWarnings.keys.sorted() == [key(source, cloud)])
+            #expect(state.destinationState(disk.id).lastCaughtUp == nil)
+            #expect(state.destinationState(disk.id).lastVerified == nil)
+            #expect(state.destinationState(cloud.id) == adopted.destinationState(cloud.id))
+            #expect(state.expectedSince == [key(source, disk): finished, key(source, cloud): created, key(other, disk): finished])
+
+            var again = state
+            reducer.reconcile(config: moved, state: &again, now: finished.addingTimeInterval(60))
+            #expect(again == state)
+        }
+
+        config.destinations[1].kind = .rclone(remote: "drive2", path: "Backups")
+        var recloud = adopted
+        reducer.reconcile(config: config, state: &recloud, now: finished)
+        #expect(recloud.deliveredAt?.keys.sorted() == [key(source, disk), key(other, disk)].sorted())
+        #expect(recloud.destinationState(cloud.id).lastVerified == nil)
+    }
+
+    /// A pair added later is expected to hold a copy from the moment it was added, not from the source's creation.
+    @Test func pairAddedLaterIsExpectedFromThatMoment() {
+        let first = Destination(name: "First", kind: .localFolder(path: "/a"))
+        let second = Destination(name: "Second", kind: .localFolder(path: "/b"))
+        var source = Fixtures.source(destinations: [first])
+        var state = AppState()
+        reducer.reconcile(config: Config(sources: [source], destinations: [first, second]), state: &state, now: started)
+        source.destinationIds.append(second.id)
+        reducer.reconcile(config: Config(sources: [source], destinations: [first, second]), state: &state, now: finished)
+        #expect(state.expectedSince == [
+            AppState.deliveryKey(sourceId: source.id, destinationId: first.id): source.createdAt,
+            AppState.deliveryKey(sourceId: source.id, destinationId: second.id): finished,
+        ])
+    }
+
     @Test func collectFailurePostponesRetryOfTheSourceDebts() {
         var state = AppState()
         state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: started)]

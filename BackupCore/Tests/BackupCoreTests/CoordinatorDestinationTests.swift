@@ -187,6 +187,127 @@ struct CoordinatorDestinationTests {
         #expect(temp.names(in: "remote/obsidian").count == 1)
     }
 
+    // MARK: Facts belong to a place
+
+    /// A copy proven in the old folder says nothing about the new one: until a copy is proven there, the source is not
+    /// fresh, and the check copies it there at once, without a “Copy missing” notice.
+    @Test func movedFolderForgetsTheCopiesOfItsOldPlace() async throws {
+        defer { temp.remove() }
+        var first = try local("First")
+        let source = weekly([first])
+        try store.saveConfig(Config(sources: [source], destinations: [first]))
+        _ = try await coordinator.tick()
+        #expect(try await coordinator.statusReport().overall == .ok)
+
+        try temp.directory("moved")
+        first.kind = .localFolder(path: temp.path("moved").path)
+        try store.saveConfig(Config(sources: [source], destinations: [first]))
+        time.advance(600)
+        let current = try await coordinator.currentStatus()
+        #expect(current.state.deliveredCopyDate(sourceId: source.id, destinationId: first.id) == nil)
+        #expect(current.state.lastDeliveredSnapshot(sourceId: source.id, destinationId: first.id) == nil)
+        #expect(current.report.overall == .attention)
+        #expect(!current.report.fresh.contains(source.id))
+
+        let result = try await coordinator.tick()
+        #expect(result.notices.isEmpty)
+        #expect(result.runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "moved/obsidian").count == 1)
+        #expect(try await coordinator.statusReport().overall == .ok)
+    }
+
+    /// Another remote or folder in the cloud is another place: it is checked right away, not a day after the old one was.
+    @Test func cloudPointedElsewhereIsCheckedAndCopiedToAtOnce() async throws {
+        defer { temp.remove() }
+        _ = try #require(RcloneLocator().find(), "rclone is required: brew install rclone")
+        try temp.directory("remote")
+        try temp.directory("remote2")
+        var cloud = Destination(name: "Cloud", kind: .rclone(remote: ":local", path: temp.path("remote").path))
+        let source = weekly([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        _ = try await coordinator.tick()
+
+        cloud.kind = .rclone(remote: ":local", path: temp.path("remote2").path)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        time.advance(600)
+        #expect(try await coordinator.statusReport().overall == .attention)
+
+        let result = try await coordinator.tick()
+        #expect(result.notices.isEmpty)
+        #expect(result.runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "remote2/obsidian").count == 1)
+        #expect(try await coordinator.statusReport().overall == .ok)
+    }
+
+    /// The name and the rhythm of a destination are not its place: its copies stay known.
+    @Test func renamedDestinationKeepsItsCopies() async throws {
+        defer { temp.remove() }
+        var first = try local("First")
+        let source = weekly([first])
+        try store.saveConfig(Config(sources: [source], destinations: [first]))
+        _ = try await coordinator.tick()
+
+        first.name = "Renamed"
+        first.expectedEvery = .days(7)
+        try store.saveConfig(Config(sources: [source], destinations: [first]))
+        time.advance(600)
+        #expect(try await coordinator.tick() == TickResult())
+        #expect(try await coordinator.statusReport().overall == .ok)
+        #expect(try store.loadState().deliveredCopyDate(sourceId: source.id, destinationId: first.id) == start)
+    }
+
+    /// A destination taken off a source and added back still holds its copy: the check finds it there and the copy counts
+    /// again at once, instead of “no copy yet” until the next backup.
+    @Test func destinationAddedBackWithItsCopyCountsAtOnce() async throws {
+        defer { temp.remove() }
+        let first = try local("First")
+        let second = try local("Second")
+        var source = weekly([first, second])
+        try store.saveConfig(Config(sources: [source], destinations: [first, second]))
+        _ = try await coordinator.tick()
+
+        source.destinationIds = [first.id]
+        try store.saveConfig(Config(sources: [source], destinations: [first, second]))
+        time.advance(600)
+        _ = try await coordinator.tick()
+        #expect(try store.loadState().deliveredCopyDate(sourceId: source.id, destinationId: second.id) == nil)
+
+        source.destinationIds = [first.id, second.id]
+        try store.saveConfig(Config(sources: [source], destinations: [first, second]))
+        time.advance(600)
+        let result = try await coordinator.tick()
+
+        #expect(result == TickResult())
+        let state = try store.loadState()
+        #expect(state.deliveredCopyDate(sourceId: source.id, destinationId: second.id) == start)
+        #expect(state.lastDeliveredSnapshot(sourceId: source.id, destinationId: second.id) == "2026-09-28_100000")
+        #expect(try await coordinator.statusReport().overall == .ok)
+    }
+
+    /// Copies of another source with the same folder name are not this source's copy.
+    @Test func destinationAddedBackWithOnlyAnotherSourcesCopyGetsItsOwn() async throws {
+        defer { temp.remove() }
+        let first = try local("First")
+        let second = try local("Second")
+        let source = weekly([first])
+        try temp.file("second/obsidian/2026-09-27_100000/a.md", "foreign")
+        try temp.file("second/obsidian/2026-09-27_100000/_snapshot.json", """
+        {"sourceId":"\(UUID().uuidString)","sourceName":"Other","collectedAt":"2026-09-27T10:00:00Z","fileCount":1,"totalBytes":7}
+        """)
+        try store.saveConfig(Config(sources: [source], destinations: [first, second]))
+        _ = try await coordinator.tick()
+
+        var added = source
+        added.destinationIds.append(second.id)
+        try store.saveConfig(Config(sources: [added], destinations: [first, second]))
+        time.advance(600)
+        let result = try await coordinator.tick()
+
+        #expect(result.notices.isEmpty)
+        #expect(result.runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "second/obsidian").count == 2)
+    }
+
     // MARK: Catch-up and a failing source
 
     /// The vault can no longer be read, so the scheduled backup fails. A catch-up copy of yesterday's snapshot to a newly

@@ -1,5 +1,11 @@
 import Foundation
 
+public struct CurrentStatus: Sendable, Equatable {
+    public let config: Config
+    public let state: AppState
+    public let report: StatusReport
+}
+
 public actor BackupCoordinator {
     private let store: Store
     private let engine: BackupEngine
@@ -48,7 +54,7 @@ public actor BackupCoordinator {
     /// If another backup is running ahead, whatever the check will certainly do is marked “queued” right away, not when its turn comes.
     public func tick() async throws -> TickResult {
         var announced: Set<UUID> = []
-        if let config = try? store.loadConfig(), let state = try? store.loadState() {
+        if let config = try? store.loadConfig(), let state = try? loadState(for: config, now: time.now) {
             let foreseen = await foreseenWork(config: config, state: state, now: time.now)
             announce(foreseen)
             announced = Set(foreseen.map(\.id))
@@ -132,17 +138,30 @@ public actor BackupCoordinator {
     }
 
     public func statusReport() async throws -> StatusReport {
+        try await currentStatus().report
+    }
+
+    /// The settings, the state as it stands against them and the status built from both: what the window shows.
+    public func currentStatus() async throws -> CurrentStatus {
         let config = try store.loadConfig()
-        let state = try store.loadState()
-        return await report(config: config, state: state, now: time.now)
+        let now = time.now
+        let state = try loadState(for: config, now: now)
+        return CurrentStatus(config: config, state: state, report: await report(config: config, state: state, now: now))
     }
 
     public func nextWake() async throws -> Date? {
         let config = try store.loadConfig()
-        let state = try store.loadState()
         let now = time.now
+        let state = try loadState(for: config, now: now)
         let report = await report(config: config, state: state, now: now)
         return planner.nextWake(config: config, state: state, now: now, needsAttention: report.overall != .ok)
+    }
+
+    /// The saved state brought in line with the settings: facts of places the destinations no longer point to are gone.
+    private func loadState(for config: Config, now: Date) throws -> AppState {
+        var state = try store.loadState()
+        reducer.reconcile(config: config, state: &state, now: now)
+        return state
     }
 
     private func enqueue<Value: Sendable>(_ operation: @escaping @Sendable () async throws -> Value) async throws -> Value {
@@ -157,10 +176,9 @@ public actor BackupCoordinator {
 
     private func performTick(announced: Set<UUID> = []) async throws -> TickResult {
         let config = try store.loadConfig()
-        var state = try store.loadState()
-        reducer.dropOrphans(config: config, state: &state)
-        forgetRemovedSources(config)
         let now = time.now
+        var state = try loadState(for: config, now: now)
+        forgetRemovedSources(config)
         let debtorsBefore = Set(state.pausingDisabledSources(of: config).debts.map(\.destinationId))
         var runs: [RunRecord] = []
         let missing = await verifyCopies(config: config, state: &state, now: now)
@@ -214,7 +232,7 @@ public actor BackupCoordinator {
 
     private func performRunNow(sourceId: UUID) async throws -> TickResult {
         let config = try store.loadConfig()
-        var state = try store.loadState()
+        var state = try loadState(for: config, now: time.now)
         var runs: [RunRecord] = []
         guard let source = config.source(sourceId) else { return TickResult() }
         let destinations = config.destinations(of: source)
@@ -234,7 +252,7 @@ public actor BackupCoordinator {
 
     private func performRunAllNow() async throws -> TickResult {
         let config = try store.loadConfig()
-        var state = try store.loadState()
+        var state = try loadState(for: config, now: time.now)
         var runs: [RunRecord] = []
         let sources = config.sources.filter { $0.enabled && !$0.needsHuman && !config.destinations(of: $0).isEmpty }
         announce(sources)
@@ -250,7 +268,7 @@ public actor BackupCoordinator {
 
     private func performConfirmPickup(sourceId: UUID) async throws -> TickResult {
         let config = try store.loadConfig()
-        var state = try store.loadState()
+        var state = try loadState(for: config, now: time.now)
         var runs: [RunRecord] = []
         guard let source = config.source(sourceId), source.needsHuman else { return TickResult() }
         var notices: [Notice] = []
@@ -276,14 +294,27 @@ public actor BackupCoordinator {
                 var expected = state.lastDeliveredSnapshot(sourceId: source.id, destinationId: destination.id)
                 if expected == nil {
                     if history == nil { history = store.loadRuns() }
+                    let since = state.copyExpectedSince(sourceId: source.id, destinationId: destination.id) ?? .distantPast
                     expected = history?.first { run in
-                        run.sourceId == source.id && run.deliveries.contains {
+                        run.sourceId == source.id && run.startedAt >= since && run.deliveries.contains {
                             $0.destinationId == destination.id && $0.outcome.isDelivered
                         }
                     }?.snapshotName
                 }
-                let isIntact = expected.map { name in present.contains { $0.name == name } } ?? !present.isEmpty
-                guard !isIntact else { continue }
+                let proven: Snapshot?
+                if let expected {
+                    proven = present.first { $0.name == expected }
+                } else {
+                    guard let own = try? await destinationStore.copies(of: source) else { continue }
+                    proven = own.max { $0.date < $1.date }
+                }
+                if let proven {
+                    if state.deliveredCopyDate(sourceId: source.id, destinationId: destination.id) == nil
+                        || state.lastDeliveredSnapshot(sourceId: source.id, destinationId: destination.id) == nil {
+                        state.recordDelivery(sourceId: source.id, destinationId: destination.id, snapshotName: proven.name, collectedAt: proven.date)
+                    }
+                    continue
+                }
                 let elsewhere = config.destinations(of: source).contains { other in
                     other.id != destination.id && state.lastDeliveredSnapshot(sourceId: source.id, destinationId: other.id) != nil
                 }

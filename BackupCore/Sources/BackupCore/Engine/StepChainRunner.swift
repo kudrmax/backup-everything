@@ -173,8 +173,13 @@ public struct StepChainRunner: Sendable {
         }
     }
 
+    /// A folder that was not made yet holds nothing.
     private func contents(of directory: URL) throws -> Set<String> {
-        Set(try DirectoryNames.of(directory.path))
+        do {
+            return Set(try DirectoryNames.of(directory.path))
+        } catch let error as POSIXError where error.code == .ENOENT {
+            return []
+        }
     }
 
     /// A step after the device failed and the device is gone: it was disconnected mid-copy. This is waiting, not an error.

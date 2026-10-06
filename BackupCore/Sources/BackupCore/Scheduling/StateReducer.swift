@@ -51,6 +51,35 @@ public struct StateReducer: Sendable {
         }
     }
 
+    /// Brings the state in line with the settings before anything is judged or done by it. Facts belong to a place: when a
+    /// destination now points to another folder, remote or disk than the one its facts were learned at, they are forgotten,
+    /// so it is checked and caught up and no copy counts there until one is proven. Each pair remembers since when it is
+    /// expected to hold a copy: pairs present at the first reconciliation since their source was created, later ones since
+    /// they appeared or their destination moved.
+    public func reconcile(config: Config, state: inout AppState, now: Date) {
+        dropOrphans(config: config, state: &state)
+        let isFirst = state.expectedSince == nil
+        var since = state.expectedSince ?? [:]
+        for destination in config.destinations {
+            let recorded = state.destinationState(destination.id).location
+            guard recorded != destination.location else { continue }
+            if recorded != nil {
+                state.forgetCopies(at: destination.id)
+                for source in config.sources where source.destinationIds.contains(destination.id) {
+                    since[AppState.deliveryKey(sourceId: source.id, destinationId: destination.id)] = now
+                }
+            }
+            state.updateDestination(destination.id) { $0.location = destination.location }
+        }
+        for source in config.sources {
+            for destination in config.destinations(of: source) {
+                let key = AppState.deliveryKey(sourceId: source.id, destinationId: destination.id)
+                if since[key] == nil { since[key] = isFirst ? source.createdAt : now }
+            }
+        }
+        state.expectedSince = since
+    }
+
     public func dropOrphans(config: Config, state: inout AppState) {
         state.debts.removeAll { debt in
             guard let source = config.source(debt.sourceId) else { return true }
@@ -61,8 +90,9 @@ public struct StateReducer: Sendable {
         state.sources = state.sources.filter { sourceKeys.contains($0.key) }
         state.destinations = state.destinations.filter { destinationKeys.contains($0.key) }
         let pairs = Set(config.sources.flatMap { source in
-            source.destinationIds.map { AppState.deliveryKey(sourceId: source.id, destinationId: $0) }
+            config.destinations(of: source).map { AppState.deliveryKey(sourceId: source.id, destinationId: $0.id) }
         })
+        state.expectedSince = state.expectedSince?.filter { pairs.contains($0.key) }
         state.lastDelivered = state.lastDelivered.filter { pairs.contains($0.key) }
         state.deliveredAt = state.deliveredAt?.filter { pairs.contains($0.key) }
         state.deliveryWarnings = state.deliveryWarnings.filter { pairs.contains($0.key) }

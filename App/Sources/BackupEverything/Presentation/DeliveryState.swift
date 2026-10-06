@@ -7,16 +7,10 @@ enum DeliveryState: Equatable {
     case outdated
     case failed
     case waiting
+    /// No copy has been there yet.
     case none
-
-    static func of(lastOutcome: DeliveryOutcome?, isWaiting: Bool, isOutdated: Bool = false) -> DeliveryState {
-        switch lastOutcome {
-        case .failed where isWaiting: .failed
-        case _ where isWaiting: .waiting
-        case .delivered: isOutdated ? .outdated : .delivered
-        default: .none
-        }
-    }
+    /// Not proven either way: before the first check, or the source is not checked (disabled).
+    case unconfirmed
 
     var mark: String? {
         switch self {
@@ -24,7 +18,7 @@ enum DeliveryState: Equatable {
         case .outdated: "exclamationmark.circle.fill"
         case .failed: "xmark.circle.fill"
         case .waiting: "clock.fill"
-        case .none: nil
+        case .none, .unconfirmed: nil
         }
     }
 }
@@ -50,6 +44,8 @@ enum DeliveryText {
             "\(destinationName)\nwaiting to be connected\n\(waitingLine())"
         case .none:
             "\(destinationName)\nno copies yet"
+        case .unconfirmed:
+            "\(destinationName)\n" + (last.map { "delivered \(Texts.relative($0.date, to: now)) · " } ?? "") + "not checked yet"
         }
     }
 }

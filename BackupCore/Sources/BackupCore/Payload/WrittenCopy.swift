@@ -5,12 +5,13 @@ import Foundation
 /// of the same type, a file as long as its original, a link pointing where its original points, and no two listed items
 /// are one item of the copy. One look at each item: content is not read again. A difference the source explains is no
 /// error: an original that changed while it was copied leaves in the copy what was read, and one that vanished before it
-/// was copied is not in the copy. Part of a file whose original vanished while it was copied is not taken for the whole.
+/// was copied is not in the copy. Part of a file whose original vanished while it was copied is not taken for the whole: it
+/// is taken out of the copy, so the copy holds what it would hold had the file vanished a moment earlier.
 struct WrittenCopy {
     let listing: PayloadListing
 
     /// Fails on the first item that is missing from the copy or not as its original. Returns the items that vanished from
-    /// the source and are not in the copy.
+    /// the source and are not in the copy, including parts of files taken out of it.
     @discardableResult
     func check(in base: String) throws -> [PayloadEntry] {
         var vanished: [PayloadEntry] = []
@@ -31,7 +32,16 @@ struct WrittenCopy {
             guard items.insert(Item(device: copy.st_dev, inode: copy.st_ino)).inserted else {
                 throw DestinationError.collisionInCopy(path)
             }
-            guard try matches(entry, copy, at: path) else { throw DestinationError.changedInCopy(path) }
+            do {
+                guard try matches(entry, copy, at: path) else { throw DestinationError.changedInCopy(path) }
+            } catch DestinationError.vanishedWhileCopied(let partial) where partial == path {
+                do {
+                    try FolderRemoval().remove(path)
+                } catch {
+                    throw DestinationError.vanishedWhileCopied(path)
+                }
+                vanished.append(entry)
+            }
         }
         return vanished
     }

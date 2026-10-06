@@ -174,6 +174,31 @@ struct VanishingSourceTests {
         #expect(stored.files?.map(\.path) == ["d0/f0.txt", "d2/f2.txt", "d3/f3.txt", "d4/f4.txt"])
     }
 
+    /// A live folder: a temporary file grew and vanished while it was copied. What was copied of it is only a part, so it
+    /// leaves the copy and the manifest, as a file that vanished before it was copied; the rest of the backup goes on.
+    @Test func fileThatVanishedWhileItWasCopiedLeavesTheCopy() async throws {
+        defer { temp.remove() }
+        let payload = try vault(in: temp.url)
+        var destination = LocalFolderDestination(root: try temp.directory("disk"), naming: Fixtures.naming)
+        let original = temp.path("vault/d1/f1.txt")
+        destination.afterWritingItem = { path in
+            guard path.hasSuffix("/d1/f1.txt") else { return }
+            truncate(path, 2)
+            try? FileManager.default.removeItem(at: original)
+        }
+
+        let written = try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+
+        #expect(written == PayloadStats(fileCount: 4, totalBytes: 24))
+        #expect(!temp.exists("disk/obsidian/\(name)/d1/f1.txt"))
+        let stored = try JSONCoding.decoder().decode(
+            SnapshotManifest.self,
+            from: Data(contentsOf: temp.path("disk/obsidian/\(name)/\(SnapshotManifest.fileName)"))
+        )
+        #expect(stored.files?.map(\.path) == ["d0/f0.txt", "d2/f2.txt", "d3/f3.txt", "d4/f4.txt"])
+        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").map(\.name) == [name])
+    }
+
     @Test func copyOfASourceWhoseFilesAllVanishedIsNotFinished() async throws {
         defer { temp.remove() }
         let payload = try vault(in: temp.url)

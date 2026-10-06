@@ -42,7 +42,8 @@ struct CopyFreshnessPresentationTests {
         #expect(status.note == "no copy anywhere · formatted as exFAT, needs APFS")
         #expect(status.text == "No copy anywhere\n“TEST-BE-SSD”: formatted as exFAT, needs APFS\n“TEST-BE-NAS”: formatted as exFAT, needs APFS")
         #expect(SourceMark.of(stage: nil, isEnabled: true, status: status) == .severity(.attention))
-        #expect(Texts.headline(report) == "Needs your action")
+        #expect(StatusSnapshot(config: config, state: state, checked: report, running: [], unavailable: [ssd.id, nas.id], disks: disks, now: now)
+            .headline(isWorking: false) == "Needs your action")
         #expect(MenuLines.of(config: config, state: state, report: report, unavailable: [ssd.id, nas.id], disks: disks, now: now) == [
             MenuLine(subject: .source(notes), severity: .attention, text: "no copy anywhere · formatted as exFAT, needs APFS", canPickUp: false),
             MenuLine(subject: .destination(ssd), severity: .attention, text: "formatted as exFAT, needs APFS", canPickUp: false),
@@ -150,19 +151,23 @@ struct CopyFreshnessPresentationTests {
         #expect(SourceStatus.of(disabled, report: StatusReport(items: [], expected: [notes.id]), lastBackup: now) == .disabled)
     }
 
-    @Test func headlineSaysAllGoodOnlyWhenEveryExpectedCopyIsFresh() {
-        let first = UUID()
-        let second = UUID()
-        #expect(Texts.headline(StatusReport(items: [], fresh: [first, second], expected: [first, second])) == "All good")
-        #expect(Texts.headline(StatusReport(items: [], fresh: [first], expected: [first, second])) == "Needs your action")
-        #expect(Texts.headline(StatusReport(items: [], fresh: [first], expected: [first, second]), isWorking: true) == "Needs your action")
-        #expect(MenuBarTint.of(StatusReport(items: [], fresh: [first], expected: [first, second]).overall) == .attention)
+    @Test func menuBarIsTintedWhileAnExpectedCopyIsNotProven() {
+        #expect(MenuBarTint.of(StatusReport(items: [], fresh: [UUID()], expected: [UUID()]).overall) == .attention)
     }
 
     @Test func copyOlderThanItsRhythmIsMarkedOnTheDestinationIcon() {
-        #expect(DeliveryState.of(lastOutcome: .delivered(pruned: 0, warning: nil), isWaiting: false, isOutdated: true) == .outdated)
+        let notes = source([ssd, nas])
+        var state = AppState()
+        for destination in [ssd, nas] {
+            state.recordDelivery(sourceId: notes.id, destinationId: destination.id, snapshotName: nil, collectedAt: now)
+        }
+        let report = StatusReport(items: [outdated(notes, [nas], freshElsewhere: true, noCopy: false)], expected: [notes.id])
+        let snapshot = StatusSnapshot(config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [])
+        #expect(snapshot.delivery(of: notes, to: nas) == .outdated)
+        #expect(snapshot.delivery(of: notes, to: ssd) == .delivered)
         #expect(DeliveryState.outdated.mark == "exclamationmark.circle.fill")
-        #expect(DeliveryState.of(lastOutcome: .delivered(pruned: 0, warning: nil), isWaiting: true, isOutdated: true) == .waiting)
-        #expect(DeliveryState.of(lastOutcome: .delivered(pruned: 0, warning: nil), isWaiting: false, isOutdated: false) == .delivered)
+        state.debts = [Debt(sourceId: notes.id, destinationId: nas.id, since: now)]
+        #expect(StatusSnapshot(config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [])
+            .delivery(of: notes, to: nas) == .waiting)
     }
 }

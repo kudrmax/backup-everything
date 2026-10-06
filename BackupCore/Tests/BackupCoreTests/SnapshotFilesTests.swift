@@ -188,16 +188,41 @@ struct SnapshotFilesTests {
         try WrittenCopy(listing: listing).check(in: copy.path)
     }
 
-    @Test func partOfAFileThatVanishedWhileItWasCopiedIsNotTakenForTheWhole() throws {
+    /// Part of a file whose original vanished while it was copied is not taken for the whole: it leaves the copy, even
+    /// locked, and is reported with the files that vanished before they were copied.
+    @Test func partOfAFileThatVanishedWhileItWasCopiedLeavesTheCopy() throws {
         defer { temp.remove() }
         try temp.file("vault/a.md", "alpha")
+        try temp.file("vault/b.md", "beta")
         let listing = try listing()
         let copy = try temp.directory("copy")
         try PayloadCopier().copy(listing, into: copy.path)
         truncate(copy.path + "/a.md", 2)
+        chflags(copy.path + "/a.md", UInt32(UF_IMMUTABLE))
         try FileManager.default.removeItem(at: temp.path("vault/a.md"))
 
-        #expect(throws: DestinationError.vanishedWhileCopied(copy.path + "/a.md")) { try WrittenCopy(listing: listing).check(in: copy.path) }
+        let vanished = try WrittenCopy(listing: listing).check(in: copy.path)
+
+        #expect(vanished.map(\.relativePath) == ["a.md"])
+        #expect(!temp.exists("copy/a.md"))
+        #expect(temp.exists("copy/b.md"))
+    }
+
+    /// When the part cannot be taken out of the copy (its folder is read-only), the copy is not finished.
+    @Test func partOfAVanishedFileThatCannotLeaveTheCopyLeavesItUnfinished() throws {
+        defer {
+            chmod(temp.path("copy/sub").path, 0o755)
+            temp.remove()
+        }
+        try temp.file("vault/sub/a.md", "alpha")
+        let listing = try listing()
+        let copy = try temp.directory("copy")
+        try PayloadCopier().copy(listing, into: copy.path)
+        truncate(copy.path + "/sub/a.md", 2)
+        chmod(copy.path + "/sub", 0o555)
+        try FileManager.default.removeItem(at: temp.path("vault/sub/a.md"))
+
+        #expect(throws: DestinationError.vanishedWhileCopied(copy.path + "/sub/a.md")) { try WrittenCopy(listing: listing).check(in: copy.path) }
     }
 
     @Test func partOfAFileFromAnEjectedDiskIsTheSourceGone() throws {
