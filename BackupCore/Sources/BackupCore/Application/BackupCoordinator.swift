@@ -17,6 +17,7 @@ public actor BackupCoordinator {
     private let progress: ProgressHandler
     private let planner: SchedulePlanner
     private let reporter: StatusReporter
+    private let excess: ExcessCalculator
     private let reminders = ReminderPlanner()
     private let reducer = StateReducer()
     private var queueTail: Task<Void, Never>?
@@ -35,6 +36,7 @@ public actor BackupCoordinator {
         self.progress = progress
         self.planner = SchedulePlanner(calendar: calendar)
         self.reporter = StatusReporter(planner: planner)
+        self.excess = ExcessCalculator(retention: RetentionPolicy(timeZone: calendar.timeZone))
     }
 
     /// Sources the check will certainly run are marked “queued” right away, before their turn.
@@ -67,6 +69,32 @@ public actor BackupCoordinator {
     public func cancelWaiting(sourceId: UUID) async throws -> TickResult { try await enqueue { try await self.performCancelWaiting(sourceId: sourceId) } }
 
     public func statusReport() async throws -> StatusReport { try await currentStatus().report }
+
+    /// Copies the retention rule no longer keeps: real folders on reachable destinations, the display cache otherwise.
+    public func excessCopies() async throws -> [ExcessCopies] {
+        let current = try await currentStatus()
+        var result: [ExcessCopies] = []
+        for source in current.config.sources where source.enabled {
+            for destination in current.config.destinations(of: source) {
+                let store = stores.store(for: destination)
+                let available = await store.isAvailable()
+                let copies: [Snapshot]
+                let asOf: Date?
+                if available, let listed = try? await store.copies(of: source.slug) {
+                    copies = listed
+                    asOf = nil
+                } else if let cached = current.state.cachedCopies(sourceId: source.id, destinationId: destination.id) {
+                    copies = cached.copies.map { Snapshot(name: $0.name, date: $0.date) }
+                    asOf = cached.seenAt
+                } else {
+                    continue
+                }
+                let found = excess.excess(of: source, on: destination, copies: copies, folder: { try store.url(of: $0, sourceSlug: source.slug) }, asOf: asOf)
+                if !found.items.isEmpty { result.append(found) }
+            }
+        }
+        return result
+    }
 
     /// The settings, the state with the copy cache refreshed from every reachable destination, and the status from both.
     /// Not queued behind backups: the refreshed cache is laid over the state as saved once the destinations are listed,
