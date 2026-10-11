@@ -129,6 +129,57 @@ struct AppModelQueryTests {
         #expect(model.chain(of: notes.id) == nil)
     }
 
+    @Test func diskWithoutACopyOfASourceIsDueNowLikeTheReporterSays() async throws {
+        let fixture = try ModelFixture()
+        let hdd = try fixture.disk("HDD", connected: false, every: 30)
+        let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [hdd])
+        let photos = fixture.source("Photos", steps: [.folder("~/Photos")], to: [hdd])
+        var state = AppState()
+        let copied = Date.wholeSeconds(-86_400)
+        state.recordCopies(sourceId: notes.id, destinationId: hdd.id, [Snapshot(name: SnapshotNaming().name(for: copied), date: copied)], seenAt: copied)
+        try await fixture.use(Config(sources: [notes, photos], destinations: [hdd]), state: state)
+
+        let deadline = try #require(fixture.model.connectDeadline(of: hdd))
+        #expect(deadline <= Date())
+        #expect(fixture.model.report.items.contains(.connectDestination(destinationId: hdd.id)))
+    }
+
+    @Test func copiesBeyondTheRulesAreListedWithTheCommandOnceTheRuleShrinks() async throws {
+        let fixture = try ModelFixture()
+        let hdd = try fixture.disk("HDD")
+        let notes = try fixture.folderSource("Notes", to: [hdd])
+        let older = Date.wholeSeconds(-3 * 86_400)
+        try fixture.copy(of: notes, on: hdd, at: older)
+        try fixture.copy(of: notes, on: hdd, at: Date.wholeSeconds(-86_400))
+        try await fixture.use(Config(sources: [notes], destinations: [hdd]))
+
+        var shrunk = notes
+        shrunk.retention = RetentionRules(daily: 1, weekly: 0, monthly: 0, yearly: 0)
+        await fixture.model.save(shrunk)
+
+        #expect(await eventually { fixture.model.excessCopies.count == 1 })
+        let excess = try #require(fixture.model.excessCopies.first)
+        #expect(excess.items.map(\.snapshot.name) == [SnapshotNaming().name(for: older)])
+        let command = fixture.model.excessCommand(for: excess)
+        #expect(command.hasPrefix("sudo chown -R '\(NSUserName())' "))
+        #expect(command.contains("trash "))
+        #expect(command.contains(excess.items[0].folder.path))
+    }
+
+    @Test func unpluggedDiskIsNotASetupProblem() {
+        let hdd = UUID()
+        let found: [StorageSetup.Problem] = [
+            .accountMissing,
+            .destinationNotReady(id: hdd, .folderMissing),
+            .destinationNotReady(id: hdd, .accountMissing),
+            .destinationNotReady(id: hdd, .volumeIgnoresOwners),
+            .destinationNotReady(id: hdd, .notOwnedByBackupAccount(owner: "max")),
+        ]
+        #expect(AppModel.relevantSetupProblems(found) == [
+            .accountMissing, .destinationNotReady(id: hdd, .volumeIgnoresOwners), .destinationNotReady(id: hdd, .notOwnedByBackupAccount(owner: "max")),
+        ])
+    }
+
     @Test func disabledSourceDoesNotAskToConnectTheDisk() async throws {
         let fixture = try ModelFixture()
         let hdd = try fixture.disk("HDD", every: 30)

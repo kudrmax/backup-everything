@@ -16,8 +16,7 @@ struct ConnectReminderTests {
         #expect(notice.body == "The disk hasn’t been connected for a while. Copies are on other disks, but this one needs updating too.")
     }
 
-    @Test func waitingBadgeSaysWhereElseTheBackupIs() {
-        #expect(ConnectReminder.waitingLine(elsewhere: true, otherDestinations: ["Laptop folder"]) == "a copy is on “Laptop folder”")
-        #expect(ConnectReminder.waitingLine(elsewhere: false, otherDestinations: ["Laptop folder"]) == "this backup exists nowhere else — connect the disk")
+    @Test func settingsSayTheReminderCountsFromTheNewestCopyOnTheDisk() {
+        #expect(ConnectReminder.settingsExplanation == "The reminder to connect the disk comes once the newest copy of a source on it is older than this period, and right away for a source that has no copy there yet. Once connected, the disk gets a fresh copy of every source.")
     }
 }

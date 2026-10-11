@@ -29,7 +29,9 @@ final class AppServices {
     private let quit: () -> Void
 
     private convenience init() {
-        let model = AppModel(dataDirectory: AppPaths.dataDirectory, workDirectory: AppPaths.workDirectory)
+        let model = AppPaths.writesDirectly
+            ? AppModel(dataDirectory: AppPaths.dataDirectory, workDirectory: AppPaths.workDirectory, access: AlwaysReadyAccess(), receiver: nil)
+            : AppModel(dataDirectory: AppPaths.dataDirectory, workDirectory: AppPaths.workDirectory)
         self.init(
             model: model,
             driver: BackgroundDriver(model: model),

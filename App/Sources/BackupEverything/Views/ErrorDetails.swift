@@ -3,10 +3,11 @@ import SwiftUI
 
 struct CopyButton: View {
     let text: String
+    var title = "Copy"
     @State private var isCopied = false
 
     var body: some View {
-        Button(isCopied ? "Copied" : "Copy", systemImage: isCopied ? "checkmark" : "doc.on.doc") {
+        Button(isCopied ? "Copied" : title, systemImage: isCopied ? "checkmark" : "doc.on.doc") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
             isCopied = true

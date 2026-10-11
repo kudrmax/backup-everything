@@ -34,6 +34,11 @@ final class AppModel {
     private(set) var destinationUsage: [UUID: Int64]
     private(set) var waitingPackages: [UUID: Int64] = [:]
     private(set) var freeSpace: Int64?
+    /// What the storage setup still lacks; checked on the same cadence as the space.
+    private(set) var setupProblems: [StorageSetup.Problem] = []
+    /// Copies the retention rules no longer keep; sizing them walks the copies, so on the same cadence as the space.
+    private(set) var excessCopies: [ExcessCopies] = []
+    @ObservationIgnored private var storageCheck = 0
     @ObservationIgnored private var lastSpaceCheck = Date.distantPast
     @ObservationIgnored private var lastConnected: Set<UUID> = []
 
@@ -53,6 +58,9 @@ final class AppModel {
     @ObservationIgnored private let workDirectory: URL
     @ObservationIgnored private let coordinator: BackupCoordinator
     @ObservationIgnored private let stores: any DestinationStoreFactory
+    /// `nil` without the receiver (the sandbox): copies are written straight into the folder, only rsync has to be there.
+    @ObservationIgnored private let setup: StorageSetup?
+    @ObservationIgnored private let rsync: URL
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let finder: any FileRevealing
     @ObservationIgnored private let trash: ManualExportInbox.Trash
@@ -98,6 +106,8 @@ final class AppModel {
             access: access,
             transfer: RsyncTransfer(rsync: rsync, receiver: receiver, runner: runner, scratch: CoreAssembly.scratchDirectory(in: workDirectory))
         )
+        setup = receiver == nil ? nil : StorageSetup(rsync: rsync, access: access, runner: runner)
+        self.rsync = rsync
         var calendar = Calendar(identifier: .iso8601)
         calendar.timeZone = .current
         planner = SchedulePlanner(calendar: calendar)
@@ -134,6 +144,15 @@ final class AppModel {
     /// “All good” is said only when the check proved a fresh copy of every source that should have one and nothing is shown.
     var isAllGood: Bool { snapshot.isAllGood }
     var isFirstLaunch: Bool { config.destinations.isEmpty }
+    var isStorageReady: Bool { setupProblems.isEmpty }
+
+    /// A disk that is not connected is not a setup problem, and a missing account is said once, not per destination.
+    static func relevantSetupProblems(_ problems: [StorageSetup.Problem]) -> [StorageSetup.Problem] {
+        problems.filter { problem in
+            guard case let .destinationNotReady(_, readiness) = problem else { return true }
+            return readiness != .folderMissing && readiness != .accountMissing
+        }
+    }
 
     func prepare() {
         do {
@@ -367,12 +386,18 @@ final class AppModel {
         runs.first { $0.sourceId == source.id && $0.totalBytes != nil }?.totalBytes
     }
 
-    /// When a “from time to time” disk will be asked to connect: its interval after the oldest of the newest copies on it.
-    func connectDeadline(of destination: Destination) -> Date? {
-        config.sources
+    /// When a “from time to time” disk will be asked to connect: its interval after the oldest of the newest copies on it,
+    /// right away if a source has no copy there yet.
+    func connectDeadline(of destination: Destination, now: Date = Date()) -> Date? {
+        guard case .days = destination.expectedEvery else { return nil }
+        return config.sources
             .filter { $0.enabled && $0.destinationIds.contains(destination.id) }
-            .compactMap { planner.connectDeadline(for: destination, newestCopy: state.newestCopyDate(sourceId: $0.id, destinationId: destination.id)) }
+            .map { planner.connectDeadline(for: destination, newestCopy: state.newestCopyDate(sourceId: $0.id, destinationId: destination.id)) ?? now }
             .min()
+    }
+
+    func excessCommand(for excess: ExcessCopies) -> String {
+        ExcessCopies.command(for: excess.items, user: NSUserName())
     }
 
     func condition(of destination: Destination) -> DestinationCondition {
@@ -476,6 +501,7 @@ final class AppModel {
     private func refreshSpace(force: Bool = false) {
         guard activeOperations == 0, force || Date().timeIntervalSince(lastSpaceCheck) > 60 else { return }
         lastSpaceCheck = Date()
+        refreshStorage()
         let destinations = config.destinations
         let stores = stores
         let pending = CoreAssembly.pendingDirectory(in: workDirectory)
@@ -501,6 +527,27 @@ final class AppModel {
             defaults.set(Dictionary(uniqueKeysWithValues: usage.map { ($0.key.uuidString, $0.value) }), forKey: Self.usageKey)
             waitingPackages = measured.0
             freeSpace = measured.1
+        }
+    }
+
+    /// A later check may finish first: only the latest one's result is shown.
+    private func refreshStorage() {
+        storageCheck += 1
+        let check = storageCheck
+        let destinations = config.destinations
+        let setup = setup
+        let rsync = rsync
+        let coordinator = coordinator
+        Task {
+            let problems = if let setup {
+                Self.relevantSetupProblems(await setup.check(destinations))
+            } else {
+                FileManager.default.isExecutableFile(atPath: rsync.path) ? [] : [StorageSetup.Problem.rsyncMissing]
+            }
+            let excess = (try? await coordinator.excessCopies()) ?? []
+            guard check == storageCheck else { return }
+            setupProblems = problems
+            excessCopies = excess
         }
     }
 
@@ -568,6 +615,7 @@ final class AppModel {
         } catch {
             failure = error.localizedDescription
         }
+        lastSpaceCheck = .distantPast
         await refresh()
         if let failure { problem = failure }
         onChange()

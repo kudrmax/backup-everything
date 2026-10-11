@@ -99,21 +99,19 @@ struct OverviewPresentationTests {
         let delivered = (date: now.addingTimeInterval(-7_200), outcome: DeliveryOutcome.delivered(pruned: 0, warning: nil))
         let failed = (date: now, outcome: DeliveryOutcome.failed(message: "disk full"))
         func details(_ state: DeliveryState, writing: Bool = false, last: (date: Date, outcome: DeliveryOutcome)? = nil) -> String {
-            DeliveryText.details(destinationName: "HDD", isWriting: writing, state: state, last: last, now: now) { "a copy is on “SSD”" }
+            DeliveryText.details(destinationName: "HDD", isWriting: writing, state: state, last: last, now: now)
         }
         #expect(details(.delivered, writing: true) == "HDD\nwriting…")
         #expect(details(.delivered, last: delivered) == "HDD\ndelivered \(Texts.relative(delivered.date, to: now))")
         #expect(details(.delivered) == "HDD\ndelivered ")
         #expect(details(.failed, last: failed) == "HDD\nError: disk full\nretrying later")
         #expect(details(.failed) == "HDD\nerror\nretrying later")
-        #expect(details(.waiting) == "HDD\nwaiting to be connected\na copy is on “SSD”")
         #expect(details(.none) == "HDD\nno copies yet")
     }
 
     @Test func badgeMarkFollowsTheDeliveryState() {
         #expect(DeliveryState.delivered.mark == "checkmark.circle.fill")
         #expect(DeliveryState.failed.mark == "xmark.circle.fill")
-        #expect(DeliveryState.waiting.mark == "clock.fill")
         #expect(DeliveryState.none.mark == nil)
     }
 

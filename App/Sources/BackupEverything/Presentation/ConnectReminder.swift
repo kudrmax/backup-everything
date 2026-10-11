@@ -1,6 +1,6 @@
 import Foundation
 
-/// Texts about a “from time to time” disk: why it asks to be connected and what happens to the missed backups.
+/// Texts about a “from time to time” disk: when and why it asks to be connected.
 enum ConnectReminder {
     static func notice(destinationName: String, onlyCopyOf sources: [String]) -> (title: String, body: String) {
         let title = "Connect “\(destinationName)”"
@@ -14,10 +14,5 @@ enum ConnectReminder {
         return (title, body)
     }
 
-    static func waitingLine(elsewhere: Bool, otherDestinations: [String]) -> String {
-        guard elsewhere, !otherDestinations.isEmpty else { return "this backup exists nowhere else — connect the disk" }
-        return "a copy is on " + otherDestinations.map { "“\($0)”" }.joined(separator: ", ")
-    }
-
-    static let settingsExplanation = "Until the period runs out, there are no reminders, as long as the missed backups are on other disks. If a backup exists nowhere else, you’ll be reminded right away. Once connected, the disk gets a fresh copy of every source."
+    static let settingsExplanation = "The reminder to connect the disk comes once the newest copy of a source on it is older than this period, and right away for a source that has no copy there yet. Once connected, the disk gets a fresh copy of every source."
 }

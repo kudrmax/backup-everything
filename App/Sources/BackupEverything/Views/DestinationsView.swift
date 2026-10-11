@@ -8,6 +8,23 @@ struct DestinationsView: View {
     @State private var session = EditorSession<DestinationDraft>()
 
     var body: some View {
+        VStack(spacing: 0) {
+            SetupSection()
+            if !model.isStorageReady { Divider() }
+            list
+            if !model.excessCopies.isEmpty { Divider() }
+            ExcessCopiesSection()
+        }
+        .navigationTitle("Destinations")
+        .onAppear {
+            session.appear(remembered: UUID(uuidString: storedSelection), in: model.config.destinations)
+        }
+        .onChange(of: session.selection) { _, id in
+            if let id = session.selectionChanged(to: id, in: model.config.destinations) { storedSelection = id.uuidString }
+        }
+    }
+
+    private var list: some View {
         EditorLayout(items: model.config.destinations, selection: $session.selection) { destination in
             HStack(spacing: 11) {
                 DestinationIcon(destination: destination).frame(width: 18)
@@ -28,13 +45,6 @@ struct DestinationsView: View {
             } else {
                 EmptyState(symbol: "externaldrive", title: "No destinations yet", message: "Add a folder or disk with the “Add” button on the left.")
             }
-        }
-        .navigationTitle("Destinations")
-        .onAppear {
-            session.appear(remembered: UUID(uuidString: storedSelection), in: model.config.destinations)
-        }
-        .onChange(of: session.selection) { _, id in
-            if let id = session.selectionChanged(to: id, in: model.config.destinations) { storedSelection = id.uuidString }
         }
     }
 

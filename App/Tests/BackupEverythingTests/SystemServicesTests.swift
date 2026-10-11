@@ -146,6 +146,11 @@ struct AppPathsTests {
         #expect(AppPaths.workDirectory(environment: environment, applicationSupport: support).path == "/tmp/sandbox/work")
     }
 
+    @Test func sandboxCanWriteCopiesStraightIntoTheFolders() {
+        #expect(AppPaths.writesDirectly(environment: ["BACKUP_EVERYTHING_DIRECT_RSYNC": "1"]))
+        #expect(!AppPaths.writesDirectly(environment: ["BACKUP_EVERYTHING_HOME": "/tmp/sandbox"]))
+    }
+
     @Test func realPathsFollowTheProcessEnvironment() {
         let environment = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser

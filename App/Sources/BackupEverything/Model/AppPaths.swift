@@ -2,6 +2,7 @@ import Foundation
 
 enum AppPaths {
     private static let overrideVariable = "BACKUP_EVERYTHING_HOME"
+    private static let directRsyncVariable = "BACKUP_EVERYTHING_DIRECT_RSYNC"
 
     static var dataDirectory: URL {
         dataDirectory(environment: ProcessInfo.processInfo.environment, home: FileManager.default.homeDirectoryForCurrentUser)
@@ -10,6 +11,15 @@ enum AppPaths {
     static var workDirectory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return workDirectory(environment: ProcessInfo.processInfo.environment, applicationSupport: support)
+    }
+
+    /// The sandbox writes copies straight into the destination folders, without the receiver and the backup account.
+    static var writesDirectly: Bool {
+        writesDirectly(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func writesDirectly(environment: [String: String]) -> Bool {
+        environment[directRsyncVariable] != nil
     }
 
     static func dataDirectory(environment: [String: String], home: URL) -> URL {

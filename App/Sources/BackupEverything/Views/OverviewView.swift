@@ -402,7 +402,6 @@ struct DestinationBadge: View {
         case .delivered: return .green
         case .outdated: return .orange
         case .failed: return .red
-        case .waiting: return .orange
         case .none, .unconfirmed: return .secondary
         }
     }
@@ -417,9 +416,7 @@ struct DestinationBadge: View {
             isWriting: isDelivering,
             state: state,
             last: model.lastDelivery(of: source, to: destination)
-        ) {
-            ConnectReminder.waitingLine(elsewhere: false, otherDestinations: [])
-        }
+        )
     }
 }
 
