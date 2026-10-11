@@ -983,7 +983,7 @@ struct StepChainRunnerTests {
             return
         }
         let output = temp.path(chainFolder(source, "output"))
-        #expect(failed.failure == DestinationError.collisionInCopy(output.path + "/archive.zip").localizedDescription)
+        #expect(failed.failure == CopyError.collisionInCopy(output.path + "/archive.zip").localizedDescription)
         #expect(try String(contentsOf: output.appendingPathComponent("archive.zip"), encoding: .utf8) == "zip")
     }
 

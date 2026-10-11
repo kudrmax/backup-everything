@@ -15,7 +15,6 @@ struct DestinationsView: View {
             }
         } addMenu: {
             Button("Folder or external disk") { start(.localFolder(path: "")) }
-            Button("Cloud (rclone)") { start(.rclone(remote: "", path: "backups")) }
         } detail: {
             if let draft = session.draft {
                 DestinationEditor(
@@ -27,7 +26,7 @@ struct DestinationsView: View {
                 )
                 .id(draft.id)
             } else {
-                EmptyState(symbol: "externaldrive", title: "No destinations yet", message: "Add a folder, disk or cloud with the “Add” button on the left.")
+                EmptyState(symbol: "externaldrive", title: "No destinations yet", message: "Add a folder or disk with the “Add” button on the left.")
             }
         }
         .navigationTitle("Destinations")
@@ -69,7 +68,6 @@ struct DestinationEditor: View {
     let onDelete: (Destination) -> Void
     let onCancel: () -> Void
 
-    @State private var remotes: [String] = []
     @State private var confirmsDeletion = false
 
     private var saved: Destination? {
@@ -78,12 +76,12 @@ struct DestinationEditor: View {
 
     var body: some View {
         EditorPage {
-            EditorHeader(name: $draft.name, prompt: draft.typeChoice == .local ? "Name, e.g. External HDD" : "Name, e.g. Cloud") {
+            EditorHeader(name: $draft.name, prompt: "Name, e.g. External HDD") {
                 if let saved {
                     DestinationIcon(destination: saved)
                         .hoverTip(DestinationDetails.text(of: saved, model: model))
                 } else {
-                    Image(systemName: draft.typeChoice == .local ? "externaldrive" : "cloud").foregroundStyle(.secondary)
+                    Image(systemName: "externaldrive").foregroundStyle(.secondary)
                 }
             } accessory: {
                 if let saved {
@@ -106,16 +104,16 @@ struct DestinationEditor: View {
                     .padding(.leading, 40)
                     .padding(.top, -8)
             }
-            if let saved {
-                DiskConfirmation(destination: saved) { draft.diskConfirmed($0) }
+            if let saved, let explanation = model.condition(of: saved).explanation(destinationName: saved.name) {
+                Text(explanation)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 40)
             }
         } content: {
             SettingsCard {
-                switch draft.typeChoice {
-                case .local: localRows
-                case .rclone: rcloneRows
-                }
+                localRows
                 SettingsRow(title: "Connection") {
                     Picker("", selection: $draft.isPeriodic) {
                         Text("Always connected").tag(false)
@@ -152,9 +150,6 @@ struct DestinationEditor: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: isNew || draft.hasChanges)
-        .task(id: draft.typeChoice) {
-            if draft.typeChoice == .rclone { remotes = await model.rcloneRemotes() }
-        }
         .confirmationDialog("Delete destination “\(draft.name)”?", isPresented: $confirmsDeletion) {
             Button("Delete destination", role: .destructive) { onDelete(draft.build()) }
         } message: {
@@ -163,7 +158,7 @@ struct DestinationEditor: View {
     }
 
     private func attention(for destination: Destination) -> String? {
-        DestinationAttention.text(problem: model.condition(of: destination).problem, waiting: model.waitingSources(for: destination).map(\.name))
+        DestinationAttention.text(problem: model.condition(of: destination).problem, waiting: [])
     }
 
     @ViewBuilder
@@ -173,104 +168,6 @@ struct DestinationEditor: View {
             tip: "For an external disk, choose a folder on it.\nThe app doesn’t create this folder itself:\nif the disk isn’t connected, the backup just waits."
         ) {
             PathField(path: $draft.path)
-        }
-        let location = draft.path.isEmpty ? .systemDisk : model.diskLocation(ofFolder: draft.path)
-        if location != .systemDisk {
-            SettingsRow(title: "Disk", tip: DiskTexts.rowTip) {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(DiskTexts.name(draft.disk))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if let id = DiskTexts.id(draft.disk) {
-                        Text(id)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .hoverTip(id)
-                    }
-                }
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .layoutPriority(-1)
-                Button(DiskTexts.readButton) {
-                    if let disk = model.readConnectedDisk(atFolder: draft.path) { draft.disk = disk }
-                }
-                .pointing()
-                .fixedSize()
-                .disabled(location == .notConnected)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var rcloneRows: some View {
-        if !model.isRcloneInstalled {
-            Text("rclone not found. Install it in Terminal with `brew install rclone` and open this screen again.")
-                .foregroundStyle(.orange)
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if remotes.isEmpty {
-            HStack(alignment: .top) {
-                Text("rclone has no connected clouds yet. Run `rclone config` in Terminal, choose “n” (new remote), give it a name, pick the service and sign in in the browser.")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                refreshButton
-            }
-            .padding(14)
-        } else {
-            SettingsRow(title: "Cloud") {
-                Picker("", selection: $draft.remote) {
-                    Text("Not chosen").tag("")
-                    ForEach(remotes, id: \.self) { Text($0).tag($0) }
-                }
-                .labelsHidden()
-                .fixedSize()
-                .pointing()
-                refreshButton
-            }
-        }
-        SettingsRow(title: "Folder in the cloud") {
-            TextField("", text: $draft.remotePath, prompt: Text("backups"))
-                .textFieldStyle(.plain)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-
-    private var refreshButton: some View {
-        Button {
-            Task { remotes = await model.rcloneRemotes() }
-        } label: {
-            Image(systemName: "arrow.clockwise")
-        }
-        .buttonStyle(.borderlessPointing)
-        .hoverTip("Refresh the list of clouds")
-    }
-}
-
-/// Under the name of a destination whose disk is not the confirmed one: what is wrong and the button to take the connected disk.
-struct DiskConfirmation: View {
-    @Environment(AppModel.self) private var model
-    let destination: Destination
-    let onConfirmed: (DiskIdentity?) -> Void
-
-    var body: some View {
-        let condition = model.condition(of: destination)
-        if let explanation = condition.explanation(destinationName: destination.name) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(explanation)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if condition.offersConfirmation {
-                    Button(DestinationCondition.confirmTitle(destination.name)) {
-                        Task {
-                            if let confirmed = await model.confirmConnectedDisk(for: destination) { onConfirmed(confirmed.disk) }
-                        }
-                    }
-                    .pointing()
-                }
-            }
         }
     }
 }
@@ -304,7 +201,7 @@ struct DestinationCopies: View {
             } else if model.condition(of: destination).isConnected {
                 ProgressView().controlSize(.small).padding(.horizontal, 14)
             } else {
-                note(DiskTexts.copiesNote(model.condition(of: destination)))
+                note(model.condition(of: destination).copiesNote)
             }
         }
         .task(id: LoadKey(destination: destination, isConnected: model.condition(of: destination).isConnected, runs: model.runs.count)) {

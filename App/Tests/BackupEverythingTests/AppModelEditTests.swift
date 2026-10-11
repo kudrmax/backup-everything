@@ -300,7 +300,7 @@ struct AppModelEditTests {
         let fixture = try ModelFixture()
         let disk = try fixture.disk()
         guard case let .localFolder(path) = disk.kind else { return }
-        try fixture.temp.file("_snapshot.json", in: URL(fileURLWithPath: path).appendingPathComponent("photos/2026-09-28_100000"), contents: "{}")
+        try fixture.temp.file(".complete", in: URL(fileURLWithPath: path).appendingPathComponent("photos/2026-09-28_100000"), contents: "")
         await fixture.model.save(disk)
 
         var source = fixture.model.newSource(from: nil)

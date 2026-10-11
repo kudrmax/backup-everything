@@ -24,7 +24,7 @@ struct StoreTests {
         let config = Config(sources: [Fixtures.source()], destinations: [])
         var state = AppState()
         state.updateSource(config.sources[0].id) { $0.lastRun = Fixtures.date("2026-09-28 10:00:00") }
-        state.debts = [Debt(sourceId: config.sources[0].id, destinationId: UUID(), since: Fixtures.date("2026-09-28 10:00:00"))]
+        state.recordCopies(sourceId: config.sources[0].id, destinationId: UUID(), [Fixtures.snapshot("2026-09-28 10:00:00")], seenAt: Fixtures.date("2026-09-28 11:00:00"))
         try store.saveConfig(config)
         try store.saveState(state)
         #expect(try store.loadConfig() == config)
@@ -170,72 +170,37 @@ struct StoreTests {
     @Test func stateWrittenByOlderVersionStillLoads() throws {
         defer { temp.remove() }
         let sourceId = UUID()
+        let destinationId = UUID()
+        let key = AppState.deliveryKey(sourceId: sourceId, destinationId: destinationId)
         try temp.file("data/state.json", """
-        {"schemaVersion":1,"sources":{"\(sourceId.uuidString)":{"lastRun":"2026-09-28T10:00:00Z"}},"destinations":{},"debts":[],"lastReminders":{}}
+        {"schemaVersion":1,"sources":{"\(sourceId.uuidString)":{"lastRun":"2026-09-28T10:00:00Z"}},"destinations":{},
+         "debts":[{"sourceId":"\(sourceId.uuidString)","destinationId":"\(destinationId.uuidString)","since":"2026-09-28T10:00:00Z"}],
+         "lastDelivered":{"\(key)":"2026-09-27_100000"},"deliveredAt":{"\(key)":"2026-09-27T10:00:00Z"},
+         "deliveryWarnings":{"\(key)":"Could not clean up old copies"},"lastReminders":{}}
         """)
         let state = try store.loadState()
+        #expect(state.schemaVersion == AppState.currentSchemaVersion)
         #expect(state.sourceState(sourceId).lastRun == Fixtures.date("2026-09-28 10:00:00"))
-        #expect(state.lastDelivered.isEmpty)
-        #expect(state.deliveryWarnings.isEmpty)
+        #expect(state.copyCache.isEmpty)
         #expect(temp.names(in: "data") == ["state.json"])
-    }
-
-    /// State from before the dates of delivered copies were kept learns them from the history: the run that delivered the
-    /// remembered copy, else the date in its name. A pair with no remembered copy learns nothing: the history says a copy
-    /// was delivered once, not that it is there now; the check of the destination finds it (5.3.1).
-    @Test func stateWithoutDeliveryDatesLearnsThemFromTheHistory() throws {
-        defer { temp.remove() }
-        let source = UUID()
-        let cloud = UUID()
-        let disk = UUID()
-        let nas = UUID()
-        func run(_ day: String, _ name: String, to destinations: [UUID], collected: String? = nil) -> RunRecord {
-            RunRecord(
-                sourceId: source, sourceName: "Obsidian", trigger: .scheduled,
-                startedAt: Fixtures.date(day), finishedAt: Fixtures.date(day).addingTimeInterval(600),
-                snapshotName: name, collectedAt: collected.map(Fixtures.date),
-                deliveries: destinations.map { Delivery(destinationId: $0, destinationName: "d", outcome: .delivered(pruned: 0, warning: nil)) }
-            )
-        }
-        try store.appendRun(run("2026-09-20 10:00:00", "2026-09-20_100100", to: [cloud, disk], collected: "2026-09-20 10:01:00"))
-        try store.appendRun(run("2026-09-27 10:00:00", "2026-09-27_100000", to: [cloud]))
-        let key = { AppState.deliveryKey(sourceId: source, destinationId: $0) }
-        try temp.file("data/state.json", """
-        {"schemaVersion":1,"sources":{"\(source.uuidString)":{"lastSuccess":"2026-09-27T10:00:00Z"}},"debts":[],
-         "lastDelivered":{"\(key(cloud))":"2026-09-27_100000","\(key(nas))":"2026-09-26_120000"}}
-        """)
-        let named = try #require(SnapshotNaming().date(from: "2026-09-26_120000"))
-        let state = try store.loadState()
-        #expect(state.deliveredAt == [
-            key(cloud): Fixtures.date("2026-09-27 10:00:00"),
-            key(nas): min(named, Fixtures.date("2026-09-27 10:00:00")),
-        ])
 
         try store.saveState(state)
+        let written = try String(contentsOf: store.stateURL, encoding: .utf8)
+        #expect(!written.contains("debts"))
+        #expect(!written.contains("lastDelivered"))
         #expect(try store.loadState() == state)
     }
 
-    /// A copy the check found missing has no name in `lastDelivered` and an open debt: the history must not bring it back.
-    /// A named copy keeps its date even though a newer one is owed: the debt says nothing about the named copy being gone.
-    @Test func copyFoundMissingIsNotRevivedFromTheHistory() throws {
+    @Test func configWithACloudDestinationIsRefusedInPlainWords() throws {
         defer { temp.remove() }
-        let source = UUID()
-        let nas = UUID()
-        let disk = UUID()
-        try store.appendRun(RunRecord(
-            sourceId: source, sourceName: "Obsidian", trigger: .scheduled,
-            startedAt: Fixtures.date("2026-10-05 10:00:00"), finishedAt: Fixtures.date("2026-10-05 10:10:00"),
-            snapshotName: "2026-10-05_100000", collectedAt: Fixtures.date("2026-10-05 10:00:00"),
-            deliveries: [nas, disk].map { Delivery(destinationId: $0, destinationName: "d", outcome: .delivered(pruned: 0, warning: nil)) }
-        ))
-        let diskKey = AppState.deliveryKey(sourceId: source, destinationId: disk)
-        try temp.file("data/state.json", """
-        {"schemaVersion":1,"sources":{"\(source.uuidString)":{"lastRun":"2026-10-05T10:00:00Z","lastSuccess":"2026-10-05T10:00:00Z"}},
-         "debts":[{"sourceId":"\(source.uuidString)","destinationId":"\(nas.uuidString)","since":"2026-10-05T12:00:00Z","elsewhere":false},
-                  {"sourceId":"\(source.uuidString)","destinationId":"\(disk.uuidString)","since":"2026-10-05T12:00:00Z"}],
-         "lastDelivered":{"\(diskKey)":"2026-10-05_100000"}}
-        """)
-        #expect(try store.loadState().deliveredAt == [diskKey: Fixtures.date("2026-10-05 10:00:00")])
+        let config = """
+        {"schemaVersion":2,"sources":[],"destinations":[{"id":"00000000-0000-0000-0000-000000000003","name":"Drive","kind":{"rclone":{"remote":"gdrive","path":"backups"}},"expectedEvery":{"always":{}}}]}
+        """
+        try temp.file("data/config.json", config)
+        #expect(throws: StoreError.cloudDestinationUnsupported) { try store.loadConfig() }
+        #expect(StoreError.cloudDestinationUnsupported.localizedDescription
+            == "config.json contains a cloud (rclone) destination. This version keeps copies only in folders: remove the cloud destination from config.json.")
+        #expect(try String(contentsOf: store.configURL, encoding: .utf8) == config)
     }
 
     @Test func chainSavedByAnOlderVersionDoesNotKnowItsStepOutput() throws {
@@ -270,16 +235,11 @@ struct StoreTests {
 
     @Test func minimalStateFillsInTheRest() throws {
         defer { temp.remove() }
-        let sourceId = UUID()
-        let destinationId = UUID()
-        try temp.file("data/state.json", """
-        {"schemaVersion":1,"debts":[{"sourceId":"\(sourceId.uuidString)","destinationId":"\(destinationId.uuidString)","since":"2026-09-28T10:00:00Z"}]}
-        """)
+        try temp.file("data/state.json", #"{"schemaVersion":1,"lastReminders":{"x":"2026-09-28T10:00:00Z"}}"#)
         let state = try store.loadState()
         #expect(state.sources.isEmpty)
-        #expect(state.destinations.isEmpty)
-        #expect(state.lastReminders.isEmpty)
-        #expect(state.debts == [Debt(sourceId: sourceId, destinationId: destinationId, since: Fixtures.date("2026-09-28 10:00:00"), elsewhere: true)])
+        #expect(state.copyCache.isEmpty)
+        #expect(state.lastReminders == ["x": Fixtures.date("2026-09-28 10:00:00")])
     }
 
     @Test func copyOfTheOldConfigIsNeverOverwritten() throws {

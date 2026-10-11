@@ -2,7 +2,6 @@ import Foundation
 
 public struct SchedulePlanner: Sendable {
     public static let retryInterval: TimeInterval = 3600
-    public static let remoteVerificationInterval: TimeInterval = 86_400
 
     private let calendar: Calendar
 
@@ -18,8 +17,11 @@ public struct SchedulePlanner: Sendable {
 
     public func isDue(_ source: Source, state: SourceState, now: Date) -> Bool {
         guard let due = dueDate(for: source, state: state), due <= now else { return false }
-        if let retryAfter = state.retryAfter, retryAfter > now { return false }
-        return true
+        return mayRetry(state, now: now)
+    }
+
+    public func mayRetry(_ state: SourceState, now: Date) -> Bool {
+        state.retryAfter.map { $0 <= now } ?? true
     }
 
     /// A manual step at the start of a source is accepted only when it is awaited: the time has come or the button was pressed.
@@ -31,95 +33,65 @@ public struct SchedulePlanner: Sendable {
         dueDate(for: source, state: state).map { $0 <= now } ?? false
     }
 
-    /// Long overdue: two backups by the schedule were missed after the end of the rhythm of every copy the source has, on
-    /// each destination by that destination's rhythm (as for freshness, `isCopyFresh`): the next backup for an always
-    /// connected one, the connect interval for a disk that can stay unplugged. A run that delivered nothing is no backup.
-    /// Without any copy, each destination counts from the moment it was expected to hold one: its addition to the source
-    /// or its move (`expectedSince`), else the creation of the source; so a new destination is “no copy yet”, not red.
-    /// A source that has never run, or runs only by hand, is never long overdue.
-    public func isSeverelyOverdue(_ source: Source, on destinations: [Destination], state: AppState, now: Date) -> Bool {
-        guard source.enabled, state.sourceState(source.id).lastRun != nil else { return false }
-        let copies = destinations.compactMap { destination in
-            state.deliveredCopyDate(sourceId: source.id, destinationId: destination.id).map { (destination, $0) }
+    /// Destinations of the source whose newest copy is older than one interval of the schedule, or that hold none.
+    /// `newest` tells the date of the newest copy on a destination. A source without a schedule needs nothing by itself.
+    public func destinationsNeedingCopy(of source: Source, in config: Config, newest: (UUID) -> Date?, now: Date) -> [Destination] {
+        guard source.enabled, source.schedule != .manual else { return [] }
+        return config.destinations(of: source).filter { destination in
+            guard let copiedAt = newest(destination.id),
+                  let next = source.schedule.nextDue(after: copiedAt, calendar: calendar) else { return true }
+            return next <= now
         }
-        let references = copies.isEmpty
-            ? destinations.map { ($0, state.copyExpectedSince(sourceId: source.id, destinationId: $0.id) ?? source.createdAt) }
-            : copies
-        let deadlines = references.map { severeDeadline(source, on: $0.0, copiedAt: $0.1) }
-        guard !deadlines.isEmpty, deadlines.allSatisfy({ $0 != nil }) else { return false }
+    }
+
+    /// Whether the newest copy on the destination is within its rhythm (5.5): on a disk that can stay unplugged, until
+    /// its connect deadline; elsewhere, until the next backup by the schedule plus the time a run takes.
+    public func isCopyFresh(_ source: Source, on destination: Destination, copiedAt: Date?, now: Date) -> Bool {
+        guard let copiedAt else { return false }
+        switch destination.expectedEvery {
+        case .days:
+            return connectDeadline(for: destination, newestCopy: copiedAt).map { $0 > now } ?? true
+        case .always:
+            guard let next = source.schedule.nextDue(after: copiedAt, calendar: calendar) else { return true }
+            return next.addingTimeInterval(Self.retryInterval) > now
+        }
+    }
+
+    /// When a “from time to time” disk should be connected again: its interval after the newest copy on it.
+    public func connectDeadline(for destination: Destination, newestCopy: Date?) -> Date? {
+        guard case let .days(days) = destination.expectedEvery, let newestCopy else { return nil }
+        return calendar.date(byAdding: .day, value: days, to: newestCopy)
+    }
+
+    /// Long overdue: two backups by the schedule were missed after the end of the rhythm of every copy of the source.
+    /// Without any copy, each destination counts from the creation of the source.
+    public func isSeverelyOverdue(_ source: Source, on destinations: [Destination], newest: (UUID) -> Date?, hasRun: Bool, now: Date) -> Bool {
+        guard source.enabled, hasRun, !destinations.isEmpty else { return false }
+        let deadlines = destinations.map { severeDeadline(source, on: $0, copiedAt: newest($0.id) ?? source.createdAt) }
+        guard deadlines.allSatisfy({ $0 != nil }) else { return false }
         return deadlines.compactMap { $0 }.allSatisfy { now > $0 }
     }
 
     private func severeDeadline(_ source: Source, on destination: Destination, copiedAt: Date) -> Date? {
         guard let due = source.schedule.nextDue(after: copiedAt, calendar: calendar) else { return nil }
-        var rhythmEnd = due
-        if case let .days(days) = destination.expectedEvery, let connect = calendar.date(byAdding: .day, value: days, to: copiedAt) {
-            rhythmEnd = max(due, connect)
-        }
+        let rhythmEnd = max(due, connectDeadline(for: destination, newestCopy: copiedAt) ?? due)
         guard let first = source.schedule.nextDue(after: rhythmEnd, calendar: calendar) else { return nil }
         return source.schedule.nextDue(after: first, calendar: calendar)
     }
 
-    /// Whether the newest copy of the source on the destination is within the destination's rhythm (5.5). A disk that
-    /// can stay unplugged keeps its copy fresh until its connect deadline. On an always-connected destination the copy
-    /// stays fresh until the next backup by the schedule, counted from the moment the copy was collected, plus
-    /// `retryInterval` for the run to finish; for a source without a schedule, until a newer copy is owed to it.
-    public func isCopyFresh(_ source: Source, on destination: Destination, copiedAt: Date?, state: AppState, now: Date) -> Bool {
-        guard let copiedAt else { return false }
-        let owed = state.hasDebt(sourceId: source.id, destinationId: destination.id)
-        switch destination.expectedEvery {
-        case .days:
-            guard owed, let deadline = connectDeadline(for: destination, state: state) else { return true }
-            return deadline > now
-        case .always:
-            guard let next = source.schedule.nextDue(after: copiedAt, calendar: calendar) else { return !owed }
-            return next.addingTimeInterval(Self.retryInterval) > now
-        }
-    }
-
-    public func dueAutomaticSources(config: Config, state: AppState, now: Date) -> [Source] {
-        config.sources.filter { source in
-            !source.needsHuman
-                && !config.destinations(of: source).isEmpty
-                && isDue(source, state: state.sourceState(source.id), now: now)
-        }
-    }
-
-    public func retryableDebts(state: AppState, now: Date) -> [Debt] {
-        state.debts.filter { debt in
-            guard let lastAttempt = debt.lastAttempt else { return true }
-            return lastAttempt.addingTimeInterval(Self.retryInterval) <= now
-        }
-    }
-
-    public func connectDeadline(for destination: Destination, state: AppState) -> Date? {
-        guard case let .days(days) = destination.expectedEvery,
-              let earliestDebt = state.debts(forDestination: destination.id).map(\.since).min() else { return nil }
-        if let firstUnique = state.debts(forDestination: destination.id).filter({ !$0.elsewhere }).map(\.since).min() {
-            return firstUnique
-        }
-        let reference = state.destinationState(destination.id).lastCaughtUp ?? earliestDebt
-        return calendar.date(byAdding: .day, value: days, to: reference)
-    }
-
-    public func shouldVerify(_ destination: Destination, state: AppState, now: Date) -> Bool {
-        guard case .rclone = destination.kind,
-              let lastVerified = state.destinationState(destination.id).lastVerified else { return true }
-        return lastVerified.addingTimeInterval(Self.remoteVerificationInterval) <= now
-    }
-
     public func nextWake(config: Config, state: AppState, now: Date, needsAttention: Bool) -> Date? {
-        let state = state.pausingDisabledSources(of: config)
         var candidates: [Date] = []
-        for source in config.sources {
+        for source in config.sources where source.enabled {
             let sourceState = state.sourceState(source.id)
-            guard let due = dueDate(for: source, state: sourceState) else { continue }
-            candidates.append(max(due, sourceState.retryAfter ?? due))
+            if let retryAfter = sourceState.retryAfter { candidates.append(retryAfter) }
+            for destination in config.destinations(of: source) {
+                guard let copiedAt = state.newestCopyDate(sourceId: source.id, destinationId: destination.id) else { continue }
+                if let next = source.schedule.nextDue(after: copiedAt, calendar: calendar) { candidates.append(next) }
+                if let deadline = connectDeadline(for: destination, newestCopy: copiedAt) { candidates.append(deadline) }
+            }
+            if let due = dueDate(for: source, state: sourceState) { candidates.append(due) }
         }
-        candidates.append(contentsOf: config.destinations.compactMap { connectDeadline(for: $0, state: state) })
-        if needsAttention {
-            candidates.append(now.addingTimeInterval(Self.retryInterval))
-        }
+        if needsAttention { candidates.append(now.addingTimeInterval(Self.retryInterval)) }
         return candidates.filter { $0 > now }.min()
     }
 }

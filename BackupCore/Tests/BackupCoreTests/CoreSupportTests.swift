@@ -13,21 +13,17 @@ struct CoreSupportTests {
 
     @Test func destinationErrorsExplainThemselves() {
         defer { temp.remove() }
-        #expect(DestinationError.unavailable.localizedDescription == "The destination is unavailable.")
-        #expect(DestinationError.outOfSpace(needed: 1_200_000_000, free: 300_000_000).localizedDescription
-            == "The destination is out of space: this copy needs about 1.2 GB (the size of the source), and 300 MB is free there. Free up space on it or choose a larger one: old copies are removed only after a new copy is complete.")
-        #expect(DestinationError.outOfSpace(needed: 1_200_000_000, free: nil).localizedDescription
-            == "The destination is out of space: this copy needs about 1.2 GB (the size of the source). Free up space on it or choose a larger one: old copies are removed only after a new copy is complete.")
-        #expect(DestinationError.copyInProgress("/d/obsidian/2026-09-28_143000").localizedDescription
-            == "Another copy of this source is being written into “/d/obsidian/2026-09-28_143000” right now (is a second Backup Everything running?). It was left alone; the backup is retried later.")
-        #expect(DestinationError.rcloneMissing.localizedDescription == "rclone is not installed. Install it with “brew install rclone”.")
-        #expect(DestinationError.commandFailed("quota exceeded").localizedDescription == "rclone failed: quota exceeded")
-        #expect(DestinationError.folderInTheWay("/Volumes/HDD/obsidian/2026-09-28_143000").localizedDescription
-            == "A folder that is not a finished copy is in the way: /Volumes/HDD/obsidian/2026-09-28_143000. It was left as is; move it away and retry.")
+        #expect(DestinationError.rsyncMissing.localizedDescription == "rsync 3 is not installed. Install it with “brew install rsync”.")
+        #expect(DestinationError.commandFailed("No space left on device").localizedDescription == "rsync failed: No space left on device")
         #expect(DestinationError.invalidFolderName("../photos").localizedDescription
-            == "The folder for copies of this source is named “../photos”, which is not a single folder name. Nothing was read, written or deleted. Fix “slug” of the source in config.json.")
-        #expect(DestinationError.unsupportedFormat(name: "Stick", format: "exFAT").localizedDescription
-            == "Disk “Stick” is formatted as exFAT and can’t be used. Backups need APFS: reformat it in Disk Utility (this erases it).")
+            == "The folder for copies of this source is named “../photos”, which is not a single folder name. Nothing was read or written. Fix “slug” of the source in config.json.")
+        #expect(DestinationError.notReady(.folderMissing).localizedDescription == "The destination folder is not there (disk not connected?).")
+        #expect(DestinationError.notReady(.notOwnedByBackupAccount(owner: "max")).localizedDescription
+            == "The destination folder belongs to “max”, not to the backup account. Run the setup script.")
+        #expect(DestinationError.notReady(.volumeIgnoresOwners).localizedDescription
+            == "The disk ignores file owners, so copies there cannot be protected. Run the setup script: it enables ownership on the disk.")
+        #expect(DestinationError.notReady(.accountMissing).localizedDescription
+            == "The backup account “_backupeverything” does not exist. Run the setup script.")
     }
 
     @Test func sourceErrorsExplainThemselves() {
@@ -57,16 +53,16 @@ struct CoreSupportTests {
         #expect([OverallStatus.attention, .error, .ok].max() == .error)
     }
 
-    @Test func destinationKindPicksItsStore() async {
+    @Test func destinationKindPicksItsStore() async throws {
         defer { temp.remove() }
         let runner = FakeProcessRunner()
-        let factory = DefaultDestinationStoreFactory(runner: runner, rclone: RcloneLocator(candidates: []), naming: Fixtures.naming)
-        let cloud = factory.store(for: Destination(name: "Cloud", kind: .rclone(remote: "gdrive", path: "backups")))
-        let disk = factory.store(for: Fixtures.localDestination("HDD", at: temp.url))
-        #expect(cloud is RcloneDestination)
+        let transfer = RsyncTransfer(rsync: RsyncTransfer.homebrewRsync, receiver: nil, runner: runner, scratch: temp.path("scratch"))
+        let factory = DefaultDestinationStoreFactory(naming: Fixtures.naming, access: AlwaysReadyAccess(), transfer: transfer)
+        let disk = factory.store(for: Fixtures.localDestination("HDD", at: try temp.directory("hdd")))
+        let unplugged = factory.store(for: Fixtures.localDestination("SSD", at: temp.path("ssd")))
         #expect(disk is LocalFolderDestination)
-        #expect(await cloud.isAvailable() == false)
-        #expect(await disk.isAvailable())
+        #expect(await disk.readiness() == .ready)
+        #expect(await unplugged.readiness() == .folderMissing)
         #expect(runner.calls.isEmpty)
     }
 
@@ -128,55 +124,5 @@ struct CoreSupportTests {
         let entries = try walker.entries(of: Payload(root: temp.path("vault"), excludes: [".trash"], collectedAt: date))
         #expect(entries.map(\.relativePath) == ["empty"])
         #expect(walker.stats(of: entries) == PayloadStats(fileCount: 0, totalBytes: 0))
-    }
-
-    @Test func volumeFoldersCountOnlyWhileSomethingIsMountedThere() throws {
-        defer { temp.remove() }
-        try temp.directory("Volumes/HDD/Backups")
-        try temp.directory("elsewhere")
-        try FileManager.default.createSymbolicLink(at: temp.path("Volumes/Macintosh HD"), withDestinationURL: temp.path("elsewhere"))
-        let volumes = VolumeMounts(volumesRoot: temp.path("Volumes").path)
-
-        #expect(volumes.isOnMountedVolume(temp.path("Volumes/HDD")) == false)
-        #expect(volumes.isOnMountedVolume(temp.path("Volumes/HDD/Backups")) == false)
-        #expect(volumes.isOnMountedVolume(temp.path("Volumes/Gone/Backups")) == false)
-        #expect(volumes.isOnMountedVolume(temp.path("Volumes/Macintosh HD/Backups")))
-        #expect(volumes.isOnMountedVolume(temp.path("elsewhere")))
-        #expect(volumes.isOnMountedVolume(temp.path("Volumes")))
-    }
-
-    /// The same folder can be reached by another spelling or through a link; the check looks at where the path really leads.
-    @Test func volumeFoldersAreRecognisedWhateverThePathLeadsThere() throws {
-        defer { temp.remove() }
-        try temp.directory("Volumes/HDD/Backups")
-        try temp.directory("elsewhere")
-        try FileManager.default.createSymbolicLink(at: temp.path("to-hdd"), withDestinationURL: temp.path("Volumes/HDD"))
-        try FileManager.default.createSymbolicLink(at: temp.path("to-volumes"), withDestinationURL: temp.path("Volumes"))
-        try FileManager.default.createSymbolicLink(at: temp.path("to-elsewhere"), withDestinationURL: temp.path("elsewhere"))
-        let volumes = VolumeMounts(volumesRoot: temp.path("Volumes").path)
-
-        #expect(volumes.isOnMountedVolume(temp.path("to-hdd/Backups")) == false)
-        #expect(volumes.isOnMountedVolume(temp.path("to-volumes/HDD/Backups")) == false)
-        #expect(volumes.isOnMountedVolume(temp.path("to-volumes/Gone/Backups")) == false)
-        #expect(volumes.isOnMountedVolume(temp.path("elsewhere/../Volumes/HDD")) == false)
-        #expect(volumes.isOnMountedVolume(temp.path("to-elsewhere/Backups")))
-    }
-
-    @Test func systemSpellingsOfVolumesAreRecognised() {
-        defer { temp.remove() }
-        let volumes = VolumeMounts()
-        for path in ["/System/Volumes/Data/Volumes/NoSuchDisk/Backups", "/volumes/NoSuchDisk", "/Volumes/./NoSuchDisk/../NoSuchDisk/x"] {
-            #expect(volumes.isOnMountedVolume(URL(fileURLWithPath: path)) == false, "\(path)")
-        }
-        #expect(volumes.isOnMountedVolume(URL(fileURLWithPath: "/Volumes/Macintosh HD/Users")))
-        #expect(VolumeMounts(volumesRoot: temp.path("missing").path).isOnMountedVolume(temp.path("missing/HDD")))
-    }
-
-    @Test func realMountPointsCount() {
-        defer { temp.remove() }
-        let fromRoot = VolumeMounts(volumesRoot: "/")
-        #expect(fromRoot.isOnMountedVolume(URL(fileURLWithPath: "/dev/null")))
-        #expect(fromRoot.isOnMountedVolume(URL(fileURLWithPath: "/usr/bin")) == false)
-        #expect(VolumeMounts().isOnMountedVolume(URL(fileURLWithPath: NSHomeDirectory())))
     }
 }

@@ -152,17 +152,6 @@ struct SourceEditor: View {
                         }
                     }
                 }
-                SettingsRow(title: "Save space", tip: SpaceSaving.tip) {
-                    if let note = spaceSaving.note {
-                        Text(note).foregroundStyle(.secondary)
-                    }
-                    Toggle("", isOn: Binding(get: { draft.savesSpace && spaceSaving.isPossible }, set: { draft.savesSpace = $0 }))
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .labelsHidden()
-                        .pointing()
-                        .disabled(!spaceSaving.isPossible)
-                }
             }
             StepsEditor(steps: $draft.steps, currentIndex: isNew ? nil : model.chain(of: draft.id)?.stepIndex)
             SettingsSection(title: "More") {
@@ -196,11 +185,6 @@ struct SourceEditor: View {
 
     private var symbol: String {
         draft.symbol
-    }
-
-    private var spaceSaving: SpaceSaving {
-        let chosen = model.config.destinations.filter { draft.destinationIds.contains($0.id) }
-        return SpaceSaving.of(chosen, sharing: model.destinationSharing)
     }
 
     private var instructionsEditor: some View {

@@ -47,3 +47,10 @@ enum Fixtures {
         Destination(name: name, kind: .localFolder(path: url.path), expectedEvery: expectedEvery)
     }
 }
+
+extension AppState {
+    mutating func recordCopy(sourceId: UUID, destinationId: UUID, at date: Date) {
+        let existing = cachedCopies(sourceId: sourceId, destinationId: destinationId)?.copies.map { Snapshot(name: $0.name, date: $0.date) } ?? []
+        recordCopies(sourceId: sourceId, destinationId: destinationId, existing + [Snapshot(name: Fixtures.naming.name(for: date), date: date)], seenAt: date)
+    }
+}

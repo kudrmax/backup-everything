@@ -14,10 +14,6 @@ enum NoticeText {
             ConnectReminder.notice(destinationName: destinationName, onlyCopyOf: onlyCopyOf)
         case let .runFailed(_, sourceName, message):
             ("Backup failed", "\(sourceName): \(message)")
-        case let .destinationCaughtUp(_, destinationName):
-            ("Safe to disconnect the disk", "“\(destinationName)” has received all pending backups.")
-        case let .copiesMissing(_, sourceName, destinationName):
-            ("Copy missing", "The latest copy of “\(sourceName)” was not found on “\(destinationName)”. Making a new one.")
         }
     }
 }

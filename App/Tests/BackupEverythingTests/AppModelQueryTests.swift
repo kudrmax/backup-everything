@@ -106,88 +106,41 @@ struct AppModelQueryTests {
             $0.lastSuccess = Date.wholeSeconds(-3600)
             $0.lastRun = Date.wholeSeconds(-60)
         }
-        state.recordDelivery(sourceId: notes.id, destinationId: ssd.id, snapshotName: nil, collectedAt: delivered.addingTimeInterval(-86_400))
-        state.recordDelivery(sourceId: notes.id, destinationId: hdd.id, snapshotName: nil, collectedAt: delivered)
+        state.recordCopy(sourceId: notes.id, destinationId: ssd.id, at: delivered.addingTimeInterval(-86_400))
+        state.recordCopy(sourceId: notes.id, destinationId: hdd.id, at: delivered)
         try await fixture.use(Config(sources: [notes], destinations: [ssd, hdd]), state: state)
         #expect(fixture.model.lastBackup(of: notes) == delivered)
         #expect(fixture.model.latestBackup == delivered)
     }
 
-    /// State written before the age of copies was kept learns it from the history: the run that delivered the copy it names.
-    @Test func lastBackupOfOldSettingsComesFromDeliveredRunsInTheHistory() async throws {
-        let fixture = try ModelFixture()
-        let disk = try fixture.disk()
-        let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [disk])
-        let collected = Date.wholeSeconds(-7200)
-        let record = { (started: Date, collected: Date?, outcome: DeliveryOutcome) in
-            RunRecord(
-                sourceId: notes.id, sourceName: "Notes", trigger: .scheduled, startedAt: started, finishedAt: started.addingTimeInterval(600),
-                snapshotName: "copy-\(Int(started.timeIntervalSince1970))", collectedAt: collected, deliveries: [Delivery(destinationId: disk.id, destinationName: "HDD", outcome: outcome)]
-            )
-        }
-        try fixture.store.appendRun(record(Date.wholeSeconds(-9000), nil, .delivered(pruned: 0, warning: nil)))
-        try fixture.store.appendRun(record(Date.wholeSeconds(-7300), collected, .delivered(pruned: 0, warning: nil)))
-        try fixture.store.appendRun(record(Date.wholeSeconds(-60), Date.wholeSeconds(-60), .unavailable))
-        var state = AppState()
-        state.updateSource(notes.id) { $0.lastRun = Date.wholeSeconds(-60) }
-        state.lastDelivered = [AppState.deliveryKey(sourceId: notes.id, destinationId: disk.id): "copy-\(Int(Date.wholeSeconds(-7300).timeIntervalSince1970))"]
-        state.deliveredAt = nil
-        try await fixture.use(Config(sources: [notes], destinations: [disk]), state: state)
-        #expect(fixture.model.lastBackup(of: notes) == collected)
-    }
-
-    @Test func missedCopiesAreTrackedPerDisk() async throws {
+    @Test func connectDeadlineCountsFromTheNewestCopyOnTheDisk() async throws {
         let fixture = try ModelFixture()
         let hdd = try fixture.disk("HDD", connected: false, every: 30)
         let ssd = try fixture.disk("SSD")
-        let cloud = try fixture.disk("Cloud")
-        let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [hdd, ssd, cloud])
-        let photos = fixture.source("Photos", steps: [.folder("~/Photos")], to: [hdd])
-        var state = AppState.backedUp(notes, photos)
-        state.debts = [
-            Debt(sourceId: notes.id, destinationId: hdd.id, since: Date(), elsewhere: true),
-            Debt(sourceId: photos.id, destinationId: hdd.id, since: Date(), elsewhere: false),
-        ]
-        state.lastDelivered[AppState.deliveryKey(sourceId: notes.id, destinationId: ssd.id)] = "2026-10-01_10-00-00"
-        let caughtUp = Date.wholeSeconds(-86_400)
-        state.updateDestination(ssd.id) { $0.lastCaughtUp = caughtUp }
-        try await fixture.use(Config(sources: [notes, photos], destinations: [hdd, ssd, cloud]), state: state)
+        let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [hdd, ssd])
+        var state = AppState.backedUp(notes)
+        let copied = Date.wholeSeconds(-86_400)
+        state.recordCopies(sourceId: notes.id, destinationId: hdd.id, [Snapshot(name: SnapshotNaming().name(for: copied), date: copied)], seenAt: copied)
+        try await fixture.use(Config(sources: [notes], destinations: [hdd, ssd]), state: state)
         let model = fixture.model
 
-        #expect(model.isWaiting(notes, for: hdd))
-        #expect(!model.isWaiting(notes, for: ssd))
-        #expect(model.isCoveredElsewhere(notes, for: hdd))
-        #expect(!model.isCoveredElsewhere(photos, for: hdd))
-        #expect(model.isCoveredElsewhere(notes, for: ssd))
-        #expect(model.otherCopies(of: notes, besides: hdd) == [ssd])
-        #expect(model.waitingSources(for: hdd) == [notes, photos])
-        #expect(model.waitingSources(for: ssd).isEmpty)
-        #expect(model.lastCaughtUp(ssd) == caughtUp)
-        #expect(model.lastCaughtUp(hdd) == nil)
-        #expect(model.connectDeadline(of: hdd) != nil)
+        #expect(model.connectDeadline(of: hdd) == Calendar.current.date(byAdding: .day, value: 30, to: copied))
         #expect(model.connectDeadline(of: ssd) == nil)
         #expect(model.chain(of: notes.id) == nil)
     }
 
-    @Test func disabledSourceStillWaitsButDoesNotAskToConnectTheDisk() async throws {
+    @Test func disabledSourceDoesNotAskToConnectTheDisk() async throws {
         let fixture = try ModelFixture()
         let hdd = try fixture.disk("HDD", every: 30)
         var notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [hdd])
         notes.enabled = false
-        var state = AppState.backedUp(notes)
-        state.debts = [Debt(sourceId: notes.id, destinationId: hdd.id, since: Date(), elsewhere: false)]
-        try await fixture.use(Config(sources: [notes], destinations: [hdd]), state: state)
-        let model = fixture.model
-
-        #expect(model.isWaiting(notes, for: hdd))
-        #expect(model.waitingSources(for: hdd) == [notes])
-        #expect(model.connectDeadline(of: hdd) == nil)
+        try await fixture.use(Config(sources: [notes], destinations: [hdd]), state: .backedUp(notes))
+        #expect(fixture.model.connectDeadline(of: hdd) == nil)
     }
 
     @Test func disconnectedDiskIsShownAsOffline() async throws {
-        let disks = UnpluggedDisks()
-        let fixture = try ModelFixture(disks: disks)
-        let hdd = try fixture.unpluggedDisk("HDD", on: disks)
+        let fixture = try ModelFixture()
+        let hdd = fixture.unpluggedDisk("HDD")
         let ssd = try fixture.disk("SSD")
         try await fixture.use(Config(destinations: [hdd, ssd]))
         let model = fixture.model
@@ -209,33 +162,27 @@ struct AppModelQueryTests {
 
         let model = fixture.model
         #expect(await eventually { (model.destinationUsage[disk.id] ?? 0) > 0 })
-        #expect(await eventually { model.destinationSharing[disk.id] != nil })
         #expect(model.freeSpace.map { $0 > 0 } == true)
 
         let reopened = AppModel(
             dataDirectory: fixture.store.dataDirectory,
             workDirectory: fixture.workDirectory,
-            rclone: RcloneLocator(candidates: []),
             defaults: fixture.defaults.defaults
         )
         #expect(reopened.destinationUsage == model.destinationUsage)
-        #expect(reopened.destinationSharing == model.destinationSharing)
     }
 
     @Test func rememberedSizesIgnoreEntriesThatAreNotDisks() throws {
         let defaults = TestDefaults()
         let disk = UUID()
         defaults.defaults.set([disk.uuidString: Int64(42), "junk": Int64(7)], forKey: "destinationUsage")
-        defaults.defaults.set([disk.uuidString: false, "junk": true], forKey: "destinationSharing")
         let temp = try TemporaryFolder()
         let model = AppModel(
             dataDirectory: temp.url.appendingPathComponent("data"),
             workDirectory: temp.url.appendingPathComponent("work"),
-            rclone: RcloneLocator(candidates: []),
             defaults: defaults.defaults
         )
         #expect(model.destinationUsage == [disk: 42])
-        #expect(model.destinationSharing == [disk: false])
     }
 
     @Test func removedDiskIsForgotten() async throws {

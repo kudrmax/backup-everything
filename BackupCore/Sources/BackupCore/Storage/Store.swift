@@ -4,6 +4,7 @@ public enum StoreError: Error, Equatable, LocalizedError {
     case corrupted(file: String)
     case unreadable(file: String)
     case unsupportedVersion(file: String, version: Int)
+    case cloudDestinationUnsupported
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +14,8 @@ public enum StoreError: Error, Equatable, LocalizedError {
             "Could not read the file \(file). Check the access permissions."
         case let .unsupportedVersion(file, version):
             "The file \(file) was created by a newer version of the app (format \(version))."
+        case .cloudDestinationUnsupported:
+            "config.json contains a cloud (rclone) destination. This version keeps copies only in folders: remove the cloud destination from config.json."
         }
     }
 }
@@ -39,7 +42,12 @@ public struct Store: Sendable {
         guard let data = try? Data(contentsOf: configURL) else {
             throw StoreError.unreadable(file: configURL.lastPathComponent)
         }
-        guard let config = try? JSONCoding.decoder().decode(Config.self, from: data) else {
+        let config: Config
+        do {
+            config = try JSONCoding.decoder().decode(Config.self, from: data)
+        } catch let DecodingError.dataCorrupted(context) where context.debugDescription.contains("Cloud destinations") {
+            throw StoreError.cloudDestinationUnsupported
+        } catch {
             throw StoreError.corrupted(file: configURL.lastPathComponent)
         }
         guard config.schemaVersion <= Config.currentSchemaVersion else {
@@ -78,8 +86,9 @@ public struct Store: Sendable {
         guard state.schemaVersion <= AppState.currentSchemaVersion else {
             throw StoreError.unsupportedVersion(file: stateURL.lastPathComponent, version: state.schemaVersion)
         }
-        guard state.deliveredAt == nil else { return state }
-        return state.learningDeliveryDates(from: loadRuns(), naming: SnapshotNaming())
+        var current = state
+        current.schemaVersion = AppState.currentSchemaVersion
+        return current
     }
 
     public func saveState(_ state: AppState) throws {

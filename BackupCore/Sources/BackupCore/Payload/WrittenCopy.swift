@@ -40,21 +40,21 @@ struct WrittenCopy {
             var copy = stat()
             guard lstat(path, &copy) == 0 else {
                 guard errno == ENOENT else { throw Self.currentError() }
-                guard !written.contains(entry.relativePath) else { throw DestinationError.missingFromCopy(path) }
+                guard !written.contains(entry.relativePath) else { throw CopyError.missingFromCopy(path) }
                 if case let .gone(loss) = listing.origin.loss(of: entry.url, wasOn: entry.device) { throw loss }
                 vanished.append(entry)
                 continue
             }
             guard items.insert(Item(device: copy.st_dev, inode: copy.st_ino)).inserted else {
-                throw DestinationError.collisionInCopy(path)
+                throw CopyError.collisionInCopy(path)
             }
             do {
-                guard try matches(entry, copy, at: path) else { throw DestinationError.changedInCopy(path) }
-            } catch DestinationError.vanishedWhileCopied(let partial) where partial == path {
+                guard try matches(entry, copy, at: path) else { throw CopyError.changedInCopy(path) }
+            } catch CopyError.vanishedWhileCopied(let partial) where partial == path {
                 do {
                     try FolderRemoval().remove(path)
                 } catch {
-                    throw DestinationError.vanishedWhileCopied(path)
+                    throw CopyError.vanishedWhileCopied(path)
                 }
                 vanished.append(entry)
             }
@@ -84,7 +84,7 @@ struct WrittenCopy {
             return true
         case .absent?:
             if case let .gone(loss) = listing.origin.loss(of: entry.url, wasOn: entry.device) { throw loss }
-            throw DestinationError.vanishedWhileCopied(path)
+            throw CopyError.vanishedWhileCopied(path)
         default:
             break
         }
@@ -95,7 +95,7 @@ struct WrittenCopy {
                 ? listing.origin.lossOfMissing(entry.url, wasOn: entry.device)
                 : listing.origin.loss(of: entry.url, wasOn: entry.device)
             switch loss {
-            case .vanished: throw DestinationError.vanishedWhileCopied(path)
+            case .vanished: throw CopyError.vanishedWhileCopied(path)
             case let .gone(loss): throw loss
             case nil: throw error
             }

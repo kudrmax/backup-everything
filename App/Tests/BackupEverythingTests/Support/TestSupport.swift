@@ -83,46 +83,17 @@ final class FakeFinder: FileRevealing {
     }
 }
 
-/// Stands in for macOS: which disk every folder is on, as the test says.
-final class FakeDisks: DiskLocating, @unchecked Sendable {
-    private let lock = NSLock()
-    private var current: DiskLocation
-
-    init(_ location: DiskLocation) {
-        current = location
-    }
-
-    var location: DiskLocation {
-        get { lock.withLock { current } }
-        set { lock.withLock { current = newValue } }
-    }
-
-    func location(of url: URL) -> DiskLocation {
-        location
-    }
-}
-
-/// Stands in for macOS: the folders of unplugged disks, by path; everything else is on the system disk.
-final class UnpluggedDisks: DiskLocating, @unchecked Sendable {
-    static let disk = DiskIdentity(uuid: "33333333-CCCC-4CCC-8CCC-333333333333", name: "TEST-BE-OFF")
-    private let lock = NSLock()
-    private var folders: Set<String> = []
-
-    func unplug(_ path: String) {
-        lock.withLock { _ = folders.insert(path) }
-    }
-
-    func location(of url: URL) -> DiskLocation {
-        lock.withLock { folders.contains(url.path) } ? .notConnected : .systemDisk
-    }
-}
-
 extension ModelFixture {
-    /// A destination on a disk that is confirmed and unplugged.
-    func unpluggedDisk(_ name: String, every days: Int? = nil, on disks: UnpluggedDisks) throws -> Destination {
-        var destination = try disk(name, connected: false, every: days)
-        destination.disk = UnpluggedDisks.disk
-        if case let .localFolder(path) = destination.kind { disks.unplug(path) }
-        return destination
+    /// A destination on a disk that is not connected: its volume is not mounted, and nothing is ever written there.
+    func unpluggedDisk(_ name: String, every days: Int? = nil) -> Destination {
+        let path = "/Volumes/TEST-BE-OFF-\(UUID().uuidString)/\(name)"
+        return Destination(name: name, kind: .localFolder(path: path), expectedEvery: days.map { .days($0) } ?? .always)
+    }
+}
+
+extension AppState {
+    mutating func recordCopy(sourceId: UUID, destinationId: UUID, at date: Date) {
+        let existing = cachedCopies(sourceId: sourceId, destinationId: destinationId)?.copies.map { Snapshot(name: $0.name, date: $0.date) } ?? []
+        recordCopies(sourceId: sourceId, destinationId: destinationId, existing + [Snapshot(name: SnapshotNaming().name(for: date), date: date)], seenAt: date)
     }
 }

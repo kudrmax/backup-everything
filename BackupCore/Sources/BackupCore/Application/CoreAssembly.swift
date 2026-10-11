@@ -13,14 +13,19 @@ public enum CoreAssembly {
         workDirectory.appendingPathComponent("chains", isDirectory: true)
     }
 
+    public static func scratchDirectory(in workDirectory: URL) -> URL {
+        workDirectory.appendingPathComponent("scratch", isDirectory: true)
+    }
+
     public static func makeCoordinator(
         dataDirectory: URL,
         workDirectory: URL,
         timeZone: TimeZone = .current,
         runner: any ProcessRunner = SystemProcessRunner(),
         time: any TimeSource = SystemTimeSource(),
-        rclone: RcloneLocator = RcloneLocator(),
-        disks: any DiskLocating = SystemDisks(),
+        rsync: URL = RsyncTransfer.homebrewRsync,
+        receiver: ReceiverCommand? = .standard,
+        access: any DestinationAccess = SystemDestinationAccess(),
         quit: any QuitSignal = ProcessGroups.shared,
         trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
         progress: @escaping ProgressHandler = { _ in }
@@ -28,7 +33,7 @@ public enum CoreAssembly {
         var calendar = Calendar(identifier: .iso8601)
         calendar.timeZone = timeZone
         let naming = SnapshotNaming(timeZone: timeZone)
-        let inbox = ManualExportInbox(pendingRoot: pendingDirectory(in: workDirectory), naming: naming)
+        let inbox = ManualExportInbox(pendingRoot: pendingDirectory(in: workDirectory), naming: naming, trash: trash)
         let chains = StepChainRunner(
             chainsRoot: chainsDirectory(in: workDirectory),
             inbox: inbox,
@@ -37,7 +42,8 @@ public enum CoreAssembly {
             trash: trash,
             progress: progress
         )
-        let stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: naming, disks: disks)
+        let transfer = RsyncTransfer(rsync: rsync, receiver: receiver, runner: runner, scratch: scratchDirectory(in: workDirectory))
+        let stores = DefaultDestinationStoreFactory(naming: naming, access: access, transfer: transfer)
         let engine = BackupEngine(
             providers: DefaultSourceProviderFactory(
                 runner: runner,
@@ -48,7 +54,6 @@ public enum CoreAssembly {
                 progress: progress
             ),
             stores: stores,
-            retention: RetentionPolicy(timeZone: timeZone),
             naming: naming,
             time: time,
             progress: progress

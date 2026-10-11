@@ -18,7 +18,7 @@ struct StatusSnapshotTests {
         var state = AppState()
         state.updateSource(source.id) { $0.lastRun = now }
         for destination in destinations {
-            state.recordDelivery(sourceId: source.id, destinationId: destination.id, snapshotName: "n", collectedAt: now)
+            state.recordCopies(sourceId: source.id, destinationId: destination.id, [Snapshot(name: "n", date: now)], seenAt: now)
         }
         let run = RunRecord(
             sourceId: source.id, sourceName: source.name, trigger: .scheduled, startedAt: now, finishedAt: now,
@@ -43,11 +43,10 @@ struct StatusSnapshotTests {
         #expect(snapshot.status(of: notes, lastBackup: now) != .ok)
     }
 
-    /// The history says the copy was delivered, but the check found it gone: the icon must not be green.
+    /// The history says the copy was delivered, but the destination holds none: the icon must not be green.
     @Test func destinationIconFollowsTheCheckNotTheHistory() {
         let notes = source([ssd, nas])
-        var (state, runs) = delivered(notes, to: [ssd, nas])
-        state.forgetDelivery(sourceId: notes.id, destinationId: nas.id)
+        let (state, runs) = delivered(notes, to: [ssd])
         let report = StatusReport(items: [outdated(notes, [nas])], expected: [notes.id])
         let snapshot = StatusSnapshot(config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [], runs: runs)
         #expect(snapshot.delivery(of: notes, to: ssd) == .delivered)
@@ -71,10 +70,10 @@ struct StatusSnapshotTests {
         let notes = source([ssd])
         let (state, runs) = delivered(notes, to: [ssd])
         let report = StatusReport(items: [], fresh: [notes.id], expected: [notes.id])
-        let exFAT: DiskCheck = .unsupportedFormat(name: "TEST-BE-NAS", format: "exFAT")
+        let foreign = DestinationReadiness.notOwnedByBackupAccount(owner: "max")
 
         let unused = StatusSnapshot(
-            config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [], disks: [nas.id: exFAT], runs: runs
+            config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [], readiness: [nas.id: foreign], runs: runs
         )
         #expect(unused.menuLines.isEmpty)
         #expect(unused.overall == .ok)
@@ -83,9 +82,9 @@ struct StatusSnapshotTests {
         #expect(!unused.isUsed(nas))
 
         let used = StatusSnapshot(
-            config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [], disks: [ssd.id: exFAT], runs: runs
+            config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [], readiness: [ssd.id: foreign], runs: runs
         )
-        #expect(used.menuLines.map(\.text) == ["formatted as exFAT, needs APFS"])
+        #expect(used.menuLines.map(\.text) == ["not set up"])
         #expect(used.overall == .attention)
         #expect(!used.isAllGood)
         #expect(used.headline(isWorking: false) == "Needs your action")
@@ -120,14 +119,11 @@ struct StatusSnapshotTests {
         var state = AppState()
         state.updateSource(notes.id) { $0.lastRun = now }
         let report = StatusReport(items: [outdated(notes, [ssd, nas], noCopy: true), .severelyOverdue(sourceId: notes.id)], expected: [notes.id])
-        let disks: [UUID: DiskCheck] = [
-            ssd.id: .unsupportedFormat(name: "TEST-BE-SSD", format: "exFAT"),
-            nas.id: .unsupportedFormat(name: "TEST-BE-NAS", format: "exFAT"),
-        ]
-        let snapshot = StatusSnapshot(config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [], disks: disks)
+        let readiness: [UUID: DestinationReadiness] = [ssd.id: .volumeIgnoresOwners, nas.id: .volumeIgnoresOwners]
+        let snapshot = StatusSnapshot(config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [], readiness: readiness)
         let status = snapshot.status(of: notes, lastBackup: nil)
         #expect(status.severity == .error)
-        #expect(status.note == "no copy anywhere · formatted as exFAT, needs APFS · no backup for a long time")
+        #expect(status.note == "no copy anywhere · not set up · no backup for a long time")
         #expect(status.text.hasPrefix("Backup is long overdue\nNo copy anywhere"))
     }
 }

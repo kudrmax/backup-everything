@@ -4,7 +4,7 @@ import Testing
 @testable import BackupCore
 
 /// A file may vanish from a live source while it is copied; the source itself may not: a copy of a disk that was ejected
-/// halfway, or of a folder renamed halfway, would look finished and let old complete copies be pruned.
+/// halfway, or of a folder renamed halfway, would look finished.
 struct VanishingSourceTests {
     private let temp: TempDirectory
     private let date = Fixtures.date("2026-09-28 14:30:00")
@@ -141,91 +141,24 @@ struct VanishingSourceTests {
         }
     }
 
-    // MARK: The copy in the destination
-
-    /// The destination does `interrupt` once the payload is listed, before anything of it is copied.
-    private func destination(_ interrupt: @escaping @Sendable () -> Void) throws -> LocalFolderDestination {
-        var destination = LocalFolderDestination(root: try temp.directory("disk"), naming: Fixtures.naming)
-        destination.afterWritingItem = { path in
-            if path.hasSuffix("/" + SnapshotManifest.unfinishedMarker) { interrupt() }
-        }
-        return destination
-    }
-
-    private func manifest() -> SnapshotManifest {
-        SnapshotManifest(sourceId: UUID(), sourceName: "Obsidian", collectedAt: date, fileCount: 5, totalBytes: 30)
-    }
-
-    @Test func manifestCountsWhatWasActuallyWritten() async throws {
-        defer { temp.remove() }
-        let payload = try vault(in: temp.url)
-        let gone = temp.path("vault/d1/f1.txt")
-        let destination = try destination { try? FileManager.default.removeItem(at: gone) }
-
-        let written = try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
-
-        #expect(written == PayloadStats(fileCount: 4, totalBytes: 24))
-        let stored = try JSONCoding.decoder().decode(
-            SnapshotManifest.self,
-            from: Data(contentsOf: temp.path("disk/obsidian/\(name)/\(SnapshotManifest.fileName)"))
-        )
-        #expect(stored.fileCount == 4)
-        #expect(stored.totalBytes == 24)
-        #expect(stored.files?.map(\.path) == ["d0/f0.txt", "d2/f2.txt", "d3/f3.txt", "d4/f4.txt"])
-    }
-
     /// A live folder: a temporary file grew and vanished while it was copied. What was copied of it is only a part, so it
-    /// leaves the copy and the manifest, as a file that vanished before it was copied; the rest of the backup goes on.
-    @Test func fileThatVanishedWhileItWasCopiedLeavesTheCopy() async throws {
+    /// leaves the copy, as a file that vanished before it was copied; the rest of the copy goes on.
+    @Test func fileThatVanishedWhileItWasCopiedLeavesTheCopy() throws {
         defer { temp.remove() }
         let payload = try vault(in: temp.url)
-        var destination = LocalFolderDestination(root: try temp.directory("disk"), naming: Fixtures.naming)
+        let listing = try PayloadWalker().listing(of: payload)
+        let copy = try temp.directory("copy").path
         let original = temp.path("vault/d1/f1.txt")
-        destination.afterWritingItem = { path in
+        let written = try PayloadCopier().copy(listing, into: copy) { path in
             guard path.hasSuffix("/d1/f1.txt") else { return }
             truncate(path, 2)
             try? FileManager.default.removeItem(at: original)
         }
 
-        let written = try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
+        let vanished = try written.check(in: copy)
 
-        #expect(written == PayloadStats(fileCount: 4, totalBytes: 24))
-        #expect(!temp.exists("disk/obsidian/\(name)/d1/f1.txt"))
-        let stored = try JSONCoding.decoder().decode(
-            SnapshotManifest.self,
-            from: Data(contentsOf: temp.path("disk/obsidian/\(name)/\(SnapshotManifest.fileName)"))
-        )
-        #expect(stored.files?.map(\.path) == ["d0/f0.txt", "d2/f2.txt", "d3/f3.txt", "d4/f4.txt"])
-        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").map(\.name) == [name])
-    }
-
-    @Test func copyOfASourceWhoseFilesAllVanishedIsNotFinished() async throws {
-        defer { temp.remove() }
-        let payload = try vault(in: temp.url)
-        let destination = try destination { [temp] in
-            for index in 0..<5 { try? FileManager.default.removeItem(at: temp.path("vault/d\(index)")) }
-        }
-
-        await #expect(throws: SourceError.vanishedWhileCopied) {
-            try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
-        }
-
-        #expect(temp.exists("disk/obsidian/\(name)/\(SnapshotManifest.unfinishedMarker)"))
-        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
-    }
-
-    @Test func copyOfASourceEjectedHalfwayStaysUnfinished() async throws {
-        defer { temp.remove() }
-        let disk = try DiskImage(.apfs)
-        let payload = try vault(in: disk.root)
-        let destination = try destination { disk.detach() }
-
-        await #expect(throws: (any Error).self) {
-            try await destination.write(payload, manifest: manifest(), sourceSlug: "obsidian", snapshotName: name, reusingStoredFiles: true)
-        }
-
-        #expect(temp.exists("disk/obsidian/\(name)/\(SnapshotManifest.unfinishedMarker)"))
-        #expect(!temp.exists("disk/obsidian/\(name)/\(SnapshotManifest.fileName)"))
-        #expect(try await destination.listSnapshots(sourceSlug: "obsidian").isEmpty)
+        #expect(vanished.map(\.relativePath) == ["d1/f1.txt"])
+        #expect(!temp.exists("copy/d1/f1.txt"))
+        #expect(copiedFiles().sorted() == ["d0/f0.txt", "d2/f2.txt", "d3/f3.txt", "d4/f4.txt"])
     }
 }

@@ -3,7 +3,6 @@ import Foundation
 public struct BackupEngine: Sendable {
     private let providers: any SourceProviderFactory
     private let stores: any DestinationStoreFactory
-    private let retention: RetentionPolicy
     private let naming: SnapshotNaming
     private let time: any TimeSource
     private let progress: ProgressHandler
@@ -12,14 +11,12 @@ public struct BackupEngine: Sendable {
     public init(
         providers: any SourceProviderFactory,
         stores: any DestinationStoreFactory,
-        retention: RetentionPolicy,
         naming: SnapshotNaming,
         time: any TimeSource,
         progress: @escaping ProgressHandler = { _ in }
     ) {
         self.providers = providers
         self.stores = stores
-        self.retention = retention
         self.naming = naming
         self.time = time
         self.progress = progress
@@ -32,13 +29,7 @@ public struct BackupEngine: Sendable {
     }
 
     private func perform(source: Source, destinations: [Destination], trigger: RunTrigger) async -> RunRecord {
-        var record = RunRecord(
-            sourceId: source.id,
-            sourceName: source.name,
-            trigger: trigger,
-            startedAt: time.now,
-            finishedAt: time.now
-        )
+        var record = RunRecord(sourceId: source.id, sourceName: source.name, trigger: trigger, startedAt: time.now, finishedAt: time.now)
         var reachable: [UUID: any DestinationStore] = [:]
         for destination in destinations {
             let store = stores.store(for: destination)
@@ -52,7 +43,6 @@ public struct BackupEngine: Sendable {
 
         let provider = providers.provider(for: source)
         let payload: Payload
-        let stats: PayloadStats
         progress(.collecting(sourceId: source.id))
         do {
             payload = try await provider.collect(at: record.startedAt) { [progress] text in
@@ -63,9 +53,10 @@ public struct BackupEngine: Sendable {
             record.finishedAt = time.now
             return record
         }
+        let stats: PayloadStats
         do {
             let entries = try walker.entries(of: payload)
-            try SnapshotManifest.checkTopLevelNames(of: entries)
+            try CopyFolder.checkTopLevelNames(of: entries)
             stats = walker.stats(of: entries)
             guard stats.fileCount > 0 else { throw SourceError.emptyResult }
         } catch {
@@ -78,33 +69,23 @@ public struct BackupEngine: Sendable {
         }
 
         let snapshotName = naming.name(for: payload.collectedAt)
-        let manifest = SnapshotManifest(
-            sourceId: source.id,
-            sourceName: source.name,
-            collectedAt: payload.collectedAt,
-            fileCount: stats.fileCount,
-            totalBytes: stats.totalBytes
-        )
         record.snapshotName = snapshotName
         record.collectedAt = payload.collectedAt
         record.fileCount = stats.fileCount
         record.totalBytes = stats.totalBytes
         record.details = payload.details
-        // A pickup delivers what its own steps have just gathered, even though it waits in `pending`.
-        record.deliversAnOlderCopy = trigger == .catchUp && payload.madeEarlier
+        record.deliversAnOlderCopy = payload.madeEarlier
 
-        var written: PayloadStats?
         for destination in destinations {
             let outcome: DeliveryOutcome
             if let store = reachable[destination.id] {
                 progress(.delivering(sourceId: source.id, destinationId: destination.id))
-                outcome = await deliver(payload, manifest: manifest, snapshotName: snapshotName, source: source, to: store, written: &written)
+                outcome = await deliver(payload, snapshotName: snapshotName, slug: source.slug, to: store)
             } else {
                 outcome = .unavailable
             }
             record.deliveries.append(Delivery(destinationId: destination.id, destinationName: destination.name, outcome: outcome))
         }
-        record.count(written)
         if let problem = release(payload, of: provider, delivered: record.payloadDelivery) {
             record.deliveries = record.deliveries.map { delivery in
                 var delivery = delivery
@@ -116,113 +97,18 @@ public struct BackupEngine: Sendable {
         return record
     }
 
-    /// Catch-up with an existing copy: the same snapshot under the same name is transferred from `origin` to `destinations`, the source is not gathered again.
-    public func copy(_ snapshot: Snapshot, of source: Source, from origin: Destination, to destinations: [Destination]) async -> RunRecord {
-        var record = RunRecord(
-            sourceId: source.id,
-            sourceName: source.name,
-            trigger: .catchUp,
-            startedAt: time.now,
-            finishedAt: time.now,
-            deliversAnOlderCopy: true
-        )
-        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("copy-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: scratch) }
+    /// A copy of this name already there (the same package delivered earlier) counts as delivered.
+    private func deliver(_ payload: Payload, snapshotName: String, slug: String, to store: any DestinationStore) async -> DeliveryOutcome {
         do {
-            let folder = try await stores.store(for: origin).materialize(snapshot, sourceSlug: source.slug, scratch: scratch)
-            let payload = Payload(root: folder, excludedAtTop: SnapshotManifest.serviceFileNames, collectedAt: snapshot.date)
-            let stats = walker.stats(of: try walker.entries(of: payload))
-            let manifest = SnapshotManifest(
-                sourceId: source.id,
-                sourceName: source.name,
-                collectedAt: snapshot.date,
-                fileCount: stats.fileCount,
-                totalBytes: stats.totalBytes
-            )
-            record.snapshotName = snapshot.name
-            record.collectedAt = snapshot.date
-            record.fileCount = stats.fileCount
-            record.totalBytes = stats.totalBytes
-            record.details = "Copied from “\(origin.name)”"
-            record.copiedFrom = origin.name
-            var written: PayloadStats?
-            for destination in destinations {
-                let store = stores.store(for: destination)
-                let outcome: DeliveryOutcome
-                if await store.isAvailable() {
-                    progress(.delivering(sourceId: source.id, destinationId: destination.id))
-                    outcome = await deliver(payload, manifest: manifest, snapshotName: snapshot.name, source: source, to: store, written: &written)
-                } else {
-                    outcome = .unavailable
-                }
-                record.deliveries.append(Delivery(destinationId: destination.id, destinationName: destination.name, outcome: outcome))
+            if try await !store.copies(of: slug).contains(where: { $0.name == snapshotName }) {
+                try await store.write(payload, sourceSlug: slug, snapshotName: snapshotName)
             }
-            record.count(written)
-        } catch {
-            let message = "Could not take the copy from “\(origin.name)”: \(error.localizedDescription)"
-            record.deliveries = destinations.map { Delivery(destinationId: $0.id, destinationName: $0.name, outcome: .failed(message: message)) }
-        }
-        record.finishedAt = time.now
-        progress(.finished(sourceId: source.id))
-        return record
-    }
-
-    /// `written`: what the first copy written in this run holds, once a destination that knows it has written one.
-    /// The source's unfinished attempts there are removed first, so their space is free for this copy. A failed cleanup is
-    /// told with the delivery and does not stop the write; unless only earlier deletions could not be finished, nothing is
-    /// pruned then.
-    private func deliver(
-        _ payload: Payload,
-        manifest: SnapshotManifest,
-        snapshotName: String,
-        source: Source,
-        to store: any DestinationStore,
-        written: inout PayloadStats?
-    ) async -> DeliveryOutcome {
-        var problems: [String] = []
-        var prunes = true
-        do {
-            try await store.removeIncomplete(sourceSlug: source.slug, sourceId: source.id)
-        } catch {
-            problems.append(error.localizedDescription)
-            if case DestinationError.unfinishedDeletions = error {} else { prunes = false }
-        }
-        do {
-            let existing = try await store.copies(of: source)
-            if !existing.contains(where: { $0.name == snapshotName }) {
-                let stats = try await store.write(
-                    payload,
-                    manifest: manifest,
-                    sourceSlug: source.slug,
-                    snapshotName: snapshotName,
-                    reusingStoredFiles: source.savesSpace
-                )
-                written = written ?? stats
-            }
+            return .delivered(pruned: 0, warning: nil)
         } catch {
             return .failed(message: error.localizedDescription)
         }
-        guard prunes else { return .delivered(pruned: 0, warning: cleanupWarning(problems)) }
-        let doomed: [Snapshot]
-        do {
-            let snapshots = try await store.copies(of: source)
-            doomed = retention.snapshotsToDelete(snapshots, rules: source.retention).filter { $0.name != snapshotName }
-        } catch {
-            return .delivered(pruned: 0, warning: cleanupWarning(problems + [error.localizedDescription]))
-        }
-        var pruned = 0
-        for snapshot in doomed {
-            do {
-                try await store.delete(snapshot, sourceSlug: source.slug)
-                pruned += 1
-            } catch {
-                if !problems.contains(error.localizedDescription) { problems.append(error.localizedDescription) }
-            }
-        }
-        return .delivered(pruned: pruned, warning: problems.isEmpty ? nil : cleanupWarning(problems))
     }
 
-    /// What went wrong while the provider cleared its work folder; nil when it did.
     private func release(_ payload: Payload, of provider: any SourceProvider, delivered: PayloadDelivery) -> String? {
         do {
             try provider.finish(payload, delivered: delivered)
@@ -231,20 +117,9 @@ public struct BackupEngine: Sendable {
             return "Could not clear the work folder: \(error.localizedDescription)"
         }
     }
-
-    private func cleanupWarning(_ problems: [String]) -> String {
-        "Could not clean up old copies: \(problems.joined(separator: " "))"
-    }
 }
 
 private extension RunRecord {
-    /// A copy holds what was actually written: files may vanish from a live source while it is copied.
-    mutating func count(_ written: PayloadStats?) {
-        guard let written else { return }
-        fileCount = written.fileCount
-        totalBytes = written.totalBytes
-    }
-
     var payloadDelivery: PayloadDelivery {
         if deliveries.allSatisfy(\.outcome.isDelivered) { return .everywhere }
         return deliveries.contains(where: \.outcome.isDelivered) ? .partly : .nowhere

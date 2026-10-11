@@ -26,65 +26,33 @@ final class FakeSourceProvider: SourceProvider, @unchecked Sendable {
 }
 
 final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
-    var available = true
+    var readinessValue: DestinationReadiness = .ready
     var snapshots: [Snapshot] = []
-    var owners: [String: UUID] = [:]
     var writeError: Error?
-    var deleteError: Error?
-    var undeletable: Set<String> = []
     var listError: Error?
-    var removeIncompleteError: Error?
-    var materialized: URL?
     private(set) var log: [String] = []
-    private(set) var reusedStoredFiles: [Bool] = []
-    private(set) var writtenManifests: [SnapshotManifest] = []
     private(set) var writtenPayloads: [Payload] = []
 
-    func isAvailable() async -> Bool { available }
+    func readiness() async -> DestinationReadiness { readinessValue }
 
-    func listSnapshots(sourceSlug: String) async throws -> [Snapshot] {
+    func copies(of slug: String) async throws -> [Snapshot] {
         if let listError { throw listError }
-        return snapshots
+        return snapshots.sorted { $0.date < $1.date }
     }
 
-    func owners(sourceSlug: String) async throws -> [String: UUID] {
-        owners
-    }
+    func unfinishedCopies(of slug: String) async throws -> [Snapshot] { [] }
 
-    func removeIncomplete(sourceSlug: String, sourceId: UUID) async throws {
-        if let removeIncompleteError { throw removeIncompleteError }
-        log.append("removeIncomplete")
-    }
-
-    /// What the destination says the copy holds.
-    var written: PayloadStats?
-
-    func write(_ payload: Payload, manifest: SnapshotManifest, sourceSlug: String, snapshotName: String, reusingStoredFiles: Bool) async throws -> PayloadStats? {
+    func write(_ payload: Payload, sourceSlug: String, snapshotName: String) async throws {
         if let writeError { throw writeError }
         log.append("write:\(snapshotName)")
-        reusedStoredFiles.append(reusingStoredFiles)
-        writtenManifests.append(manifest)
         writtenPayloads.append(payload)
-        snapshots.append(Snapshot(name: snapshotName, date: manifest.collectedAt))
-        owners[snapshotName] = manifest.sourceId
-        return written
+        snapshots.append(Snapshot(name: snapshotName, date: payload.collectedAt))
     }
 
     func usedBytes() async throws -> Int64 { 0 }
 
-    func canShareUnchangedFiles() async -> Bool? { true }
-
-    func materialize(_ snapshot: Snapshot, sourceSlug: String, scratch: URL) async throws -> URL {
-        guard let materialized else { throw DestinationError.unavailable }
-        log.append("materialize:\(snapshot.name)")
-        return materialized
-    }
-
-    func delete(_ snapshot: Snapshot, sourceSlug: String) async throws {
-        if let deleteError { throw deleteError }
-        if undeletable.contains(snapshot.name) { throw POSIXError(.EPERM) }
-        log.append("delete:\(snapshot.name)")
-        snapshots.removeAll { $0 == snapshot }
+    func url(of snapshot: Snapshot, sourceSlug: String) throws -> URL {
+        URL(fileURLWithPath: "/fake/\(sourceSlug)/\(snapshot.name)", isDirectory: true)
     }
 }
 

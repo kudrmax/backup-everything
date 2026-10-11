@@ -33,14 +33,14 @@ enum MenuLines {
         state: AppState,
         report: StatusReport,
         unavailable: Set<UUID>,
-        disks: [UUID: DiskCheck] = [:],
+        readiness: [UUID: DestinationReadiness] = [:],
         missingFolders: [UUID: MissingFolder] = [:],
         runs: [RunRecord] = [],
         now: Date = Date()
     ) -> [MenuLine] {
         StatusSnapshot(
             config: config, state: state, checked: report, running: [],
-            unavailable: unavailable, disks: disks, missingFolders: missingFolders, runs: runs, now: now
+            unavailable: unavailable, readiness: readiness, missingFolders: missingFolders, runs: runs, now: now
         ).menuLines
     }
 }

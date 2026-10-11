@@ -12,7 +12,7 @@ struct StatusSnapshot {
     let checked: StatusReport?
     let running: Set<UUID>
     var unavailable: Set<UUID> = []
-    var disks: [UUID: DiskCheck] = [:]
+    var readiness: [UUID: DestinationReadiness] = [:]
     var missingFolders: [UUID: MissingFolder] = [:]
     var runs: [RunRecord] = []
     var now = Date()
@@ -25,7 +25,7 @@ struct StatusSnapshot {
     }
 
     var gaps: CopyGaps {
-        CopyGaps(config: config, state: state, report: live, unavailable: unavailable, disks: disks, missingFolders: missingFolders, runs: runs, now: now)
+        CopyGaps(config: config, state: state, report: live, unavailable: unavailable, readiness: readiness, missingFolders: missingFolders, runs: runs, now: now)
     }
 
     func status(of source: Source, lastBackup: Date?) -> SourceStatus {
@@ -40,7 +40,7 @@ struct StatusSnapshot {
 
     func condition(of destination: Destination) -> DestinationCondition {
         DestinationCondition.of(
-            destination.id, report: live, unavailable: unavailable, disk: disks[destination.id], missingFolder: missingFolders[destination.id]
+            destination.id, report: live, unavailable: unavailable, readiness: readiness[destination.id], missingFolder: missingFolders[destination.id]
         )
     }
 
@@ -81,11 +81,7 @@ struct StatusSnapshot {
     /// What the icon of a destination in the row of a source shows. A green check only where the check proved a copy within
     /// the destination's rhythm; a source being backed up keeps what the check proved.
     func delivery(of source: Source, to destination: Destination) -> DeliveryState {
-        if state.hasDebt(sourceId: source.id, destinationId: destination.id) {
-            if case .failed? = lastOutcome(of: source.id, at: destination.id) { return .failed }
-            return .waiting
-        }
-        let hasCopy = state.deliveredCopyDate(sourceId: source.id, destinationId: destination.id) != nil
+        let hasCopy = state.newestCopyDate(sourceId: source.id, destinationId: destination.id) != nil
         guard let checked else { return .unconfirmed }
         guard checked.expected.contains(source.id) else { return hasCopy ? .unconfirmed : .none }
         let outdated = checked.items.contains { item in
@@ -93,6 +89,7 @@ struct StatusSnapshot {
             return sourceId == source.id && copies.destinationIds.contains(destination.id)
         }
         guard outdated else { return .delivered }
+        if case .failed? = lastOutcome(of: source.id, at: destination.id) { return .failed }
         return hasCopy ? .outdated : .none
     }
 

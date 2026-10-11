@@ -19,35 +19,31 @@ struct CopyFreshnessPresentationTests {
         .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: destinations.map(\.id), freshElsewhere: freshElsewhere, noCopyAnywhere: noCopy))
     }
 
-    /// The case found in the sandbox: both disks refused as not APFS, the copy went nowhere, yet the row was green.
-    @Test func sourceWhoseDisksWereBothRefusedSaysThereIsNoCopyAnywhere() {
+    /// Both folders are not set up for the backup account: the copy went nowhere, and the row must not be green.
+    @Test func sourceWhoseFoldersAreBothNotSetUpSaysThereIsNoCopyAnywhere() {
         let notes = source([ssd, nas])
         let config = Config(sources: [notes], destinations: [ssd, nas])
         var state = AppState()
         state.updateSource(notes.id) { $0.lastRun = now }
-        state.debts = [ssd, nas].map { Debt(sourceId: notes.id, destinationId: $0.id, since: now, elsewhere: false) }
         let report = StatusReport(
             items: [outdated(notes, [ssd, nas], freshElsewhere: false, noCopy: true)],
             fresh: [],
             expected: [notes.id]
         )
-        let disks: [UUID: DiskCheck] = [
-            ssd.id: .unsupportedFormat(name: "TEST-BE-SSD", format: "exFAT"),
-            nas.id: .unsupportedFormat(name: "TEST-BE-NAS", format: "exFAT"),
-        ]
-        let gaps = CopyGaps(config: config, state: state, report: report, unavailable: [ssd.id, nas.id], disks: disks, now: now)
+        let readiness: [UUID: DestinationReadiness] = [ssd.id: .volumeIgnoresOwners, nas.id: .notOwnedByBackupAccount(owner: "max")]
+        let gaps = CopyGaps(config: config, state: state, report: report, unavailable: [ssd.id, nas.id], readiness: readiness, now: now)
 
         let status = SourceStatus.of(notes, report: report, lastBackup: nil, gaps: gaps)
         #expect(status.severity == .attention)
-        #expect(status.note == "no copy anywhere · formatted as exFAT, needs APFS")
-        #expect(status.text == "No copy anywhere\n“TEST-BE-SSD”: formatted as exFAT, needs APFS\n“TEST-BE-NAS”: formatted as exFAT, needs APFS")
+        #expect(status.note == "no copy anywhere · not set up")
+        #expect(status.text == "No copy anywhere\n“TEST-BE-SSD”: not set up\n“TEST-BE-NAS”: not set up")
         #expect(SourceMark.of(stage: nil, isEnabled: true, status: status) == .severity(.attention))
-        #expect(StatusSnapshot(config: config, state: state, checked: report, running: [], unavailable: [ssd.id, nas.id], disks: disks, now: now)
+        #expect(StatusSnapshot(config: config, state: state, checked: report, running: [], unavailable: [ssd.id, nas.id], readiness: readiness, now: now)
             .headline(isWorking: false) == "Needs your action")
-        #expect(MenuLines.of(config: config, state: state, report: report, unavailable: [ssd.id, nas.id], disks: disks, now: now) == [
-            MenuLine(subject: .source(notes), severity: .attention, text: "no copy anywhere · formatted as exFAT, needs APFS", canPickUp: false),
-            MenuLine(subject: .destination(ssd), severity: .attention, text: "formatted as exFAT, needs APFS", canPickUp: false),
-            MenuLine(subject: .destination(nas), severity: .attention, text: "formatted as exFAT, needs APFS", canPickUp: false),
+        #expect(MenuLines.of(config: config, state: state, report: report, unavailable: [ssd.id, nas.id], readiness: readiness, now: now) == [
+            MenuLine(subject: .source(notes), severity: .attention, text: "no copy anywhere · not set up", canPickUp: false),
+            MenuLine(subject: .destination(ssd), severity: .attention, text: "not set up", canPickUp: false),
+            MenuLine(subject: .destination(nas), severity: .attention, text: "not set up", canPickUp: false),
         ])
     }
 
@@ -55,7 +51,7 @@ struct CopyFreshnessPresentationTests {
         let notes = source([ssd, nas])
         let config = Config(sources: [notes], destinations: [ssd, nas])
         var state = AppState()
-        state.recordDelivery(sourceId: notes.id, destinationId: nas.id, snapshotName: nil, collectedAt: now.addingTimeInterval(-3 * 86_400))
+        state.recordCopy(sourceId: notes.id, destinationId: nas.id, at: now.addingTimeInterval(-3 * 86_400))
         let report = StatusReport(items: [outdated(notes, [nas], freshElsewhere: true, noCopy: false)], expected: [notes.id])
         let gaps = CopyGaps(config: config, state: state, report: report, now: now)
 
@@ -68,9 +64,8 @@ struct CopyFreshnessPresentationTests {
         let notes = source([ssd, nas, hdd])
         let config = Config(sources: [notes], destinations: [ssd, nas, hdd])
         var state = AppState()
-        state.recordDelivery(sourceId: notes.id, destinationId: ssd.id, snapshotName: nil, collectedAt: now.addingTimeInterval(-2 * 86_400))
-        state.recordDelivery(sourceId: notes.id, destinationId: hdd.id, snapshotName: nil, collectedAt: now.addingTimeInterval(-40 * 86_400))
-        state.debts = [Debt(sourceId: notes.id, destinationId: hdd.id, since: now.addingTimeInterval(-39 * 86_400))]
+        state.recordCopy(sourceId: notes.id, destinationId: ssd.id, at: now.addingTimeInterval(-2 * 86_400))
+        state.recordCopy(sourceId: notes.id, destinationId: hdd.id, at: now.addingTimeInterval(-40 * 86_400))
         let report = StatusReport(
             items: [outdated(notes, [ssd, nas, hdd], freshElsewhere: false, noCopy: false), .connectDestination(destinationId: hdd.id)],
             expected: [notes.id]
@@ -82,16 +77,14 @@ struct CopyFreshnessPresentationTests {
         #expect(status.text == "No fresh copy anywhere\n“TEST-BE-SSD”: last copy 2 days ago\n“TEST-BE-NAS”: no copy yet\n“TEST-BE-HDD”: time to connect")
     }
 
-    @Test(arguments: [
-        (DiskCheck.otherDisk(DiskIdentity(uuid: "U", name: "TEST-BE-X")), "another disk named “TEST-BE-X” is connected"),
-        (.notConfirmed(connected: nil), "disk not confirmed"),
-        (.unidentified(name: "TEST-BE-X"), "can’t read the ID of disk “TEST-BE-X”"),
-        (.unsupportedFormat(name: "TEST-BE-X", format: "exFAT"), "formatted as exFAT, needs APFS"),
-    ])
-    func reasonComesFromWhatIsWrongWithTheDisk(check: DiskCheck, reason: String) {
+    @Test(arguments: [DestinationReadiness.notOwnedByBackupAccount(owner: "max"), .volumeIgnoresOwners, .accountMissing])
+    func folderThatIsNotSetUpIsTheReason(readiness: DestinationReadiness) {
         let notes = source([ssd])
-        let gaps = CopyGaps(config: Config(sources: [notes], destinations: [ssd]), state: AppState(), report: StatusReport(items: []), unavailable: [ssd.id], disks: [ssd.id: check])
-        #expect(gaps.gap(of: notes.id, at: ssd.id) == CopyGap(destinationName: "TEST-BE-SSD", reason: reason))
+        let gaps = CopyGaps(
+            config: Config(sources: [notes], destinations: [ssd]), state: AppState(), report: StatusReport(items: []),
+            unavailable: [ssd.id], readiness: [ssd.id: readiness]
+        )
+        #expect(gaps.gap(of: notes.id, at: ssd.id) == CopyGap(destinationName: "TEST-BE-SSD", reason: "not set up"))
     }
 
     @Test func reasonComesFromTheDestinationThenFromTheCopy() {
@@ -109,18 +102,15 @@ struct CopyFreshnessPresentationTests {
         #expect(reason(hdd, unavailable: [hdd.id]) == "waiting for connection")
         #expect(reason(ssd, report: StatusReport(items: [.destinationUnavailable(destinationId: ssd.id)]), unavailable: [ssd.id]) == "unavailable")
         #expect(reason(hdd, report: StatusReport(items: [.connectDestination(destinationId: hdd.id)]), unavailable: [hdd.id]) == "time to connect")
-        #expect(reason(ssd, missing: MissingFolder(path: "/Volumes/TEST-BE-SSD/Backups", disk: "TEST-BE-SSD")) == "folder not found")
+        #expect(reason(ssd, missing: MissingFolder(path: "/Volumes/TEST-BE-SSD/Backups")) == "folder not found")
 
-        state.debts = [Debt(sourceId: notes.id, destinationId: ssd.id, since: now)]
-        #expect(reason(ssd) == "waiting to be written")
         let failed = RunRecord(
             sourceId: notes.id, sourceName: "Notes", trigger: .scheduled, startedAt: now, finishedAt: now,
             deliveries: [Delivery(destinationId: ssd.id, destinationName: "TEST-BE-SSD", outcome: .failed(message: "Disk full: 2 GB needed"))]
         )
         #expect(reason(ssd, runs: [failed]) == "couldn’t write: Disk full")
 
-        state.debts = []
-        state.recordDelivery(sourceId: notes.id, destinationId: ssd.id, snapshotName: nil, collectedAt: now.addingTimeInterval(-7200))
+        state.recordCopy(sourceId: notes.id, destinationId: ssd.id, at: now.addingTimeInterval(-7200))
         #expect(reason(ssd) == "last copy 2 hours ago")
     }
 
@@ -159,15 +149,12 @@ struct CopyFreshnessPresentationTests {
         let notes = source([ssd, nas])
         var state = AppState()
         for destination in [ssd, nas] {
-            state.recordDelivery(sourceId: notes.id, destinationId: destination.id, snapshotName: nil, collectedAt: now)
+            state.recordCopy(sourceId: notes.id, destinationId: destination.id, at: now)
         }
         let report = StatusReport(items: [outdated(notes, [nas], freshElsewhere: true, noCopy: false)], expected: [notes.id])
         let snapshot = StatusSnapshot(config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [])
         #expect(snapshot.delivery(of: notes, to: nas) == .outdated)
         #expect(snapshot.delivery(of: notes, to: ssd) == .delivered)
         #expect(DeliveryState.outdated.mark == "exclamationmark.circle.fill")
-        state.debts = [Debt(sourceId: notes.id, destinationId: nas.id, since: now)]
-        #expect(StatusSnapshot(config: Config(sources: [notes], destinations: [ssd, nas]), state: state, checked: report, running: [])
-            .delivery(of: notes, to: nas) == .waiting)
     }
 }

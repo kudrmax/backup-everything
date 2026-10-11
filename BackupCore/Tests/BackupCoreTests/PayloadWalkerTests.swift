@@ -125,7 +125,7 @@ struct PayloadWalkerTests {
         try temp.file("copy/_snapshot.json")
         try temp.file("copy/_UNFINISHED")
         try temp.file("copy/site/_snapshot.json")
-        let payload = Payload(root: temp.path("copy"), excludedAtTop: SnapshotManifest.serviceFileNames, collectedAt: date)
+        let payload = Payload(root: temp.path("copy"), excludedAtTop: ["_snapshot.json", "_unfinished"], collectedAt: date)
         #expect(try walker.entries(of: payload).map(\.relativePath) == ["site", "site/_snapshot.json"])
     }
 

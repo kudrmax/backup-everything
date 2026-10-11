@@ -6,16 +6,8 @@ enum DestinationDetails {
     static func text(of destination: Destination, model: AppModel) -> String {
         let condition = model.condition(of: destination)
         var lines = [condition.explanation(destinationName: destination.name) ?? (condition.isConnected ? "Available" : "Not connected now")]
-        let waiting = model.waitingSources(for: destination)
-        if let caughtUp = model.lastCaughtUp(destination) {
-            lines.append("Got everything: \(Texts.relative(caughtUp))")
-        }
-        lines.append(waiting.isEmpty ? "Nothing waiting for delivery" : "Waiting for delivery: \(waiting.map(\.name).joined(separator: ", "))")
-        let unique = waiting.filter { !model.isCoveredElsewhere($0, for: destination) }
-        if !unique.isEmpty {
-            lines.append("Nowhere else: \(unique.map(\.name).joined(separator: ", ")) — connect the disk")
-        } else if let deadline = model.connectDeadline(of: destination), deadline > Date() {
-            lines.append("Copies are on other disks — reminder \(Texts.until(deadline))")
+        if case .days = destination.expectedEvery, let deadline = model.connectDeadline(of: destination), deadline > Date() {
+            lines.append("Reminder to connect \(Texts.until(deadline))")
         }
         return lines.joined(separator: "\n")
     }

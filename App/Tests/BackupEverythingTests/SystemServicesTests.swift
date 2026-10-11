@@ -55,10 +55,13 @@ struct NotifierTests {
         let notifier = Notifier(isAvailable: true, center: center)
         notifier.post([
             .runFailed(sourceId: source, sourceName: "GitHub", message: "gh: not logged in"),
-            .destinationCaughtUp(destinationId: disk, destinationName: "HDD"),
+            .connectDestination(destinationId: disk, destinationName: "HDD", onlyCopyOf: []),
         ])
-        #expect(center.posted.map(\.title) == ["Backup failed", "Safe to disconnect the disk"])
-        #expect(center.posted.map(\.body) == ["GitHub: gh: not logged in", "“HDD” has received all pending backups."])
+        #expect(center.posted.map(\.title) == ["Backup failed", "Connect “HDD”"])
+        #expect(center.posted.map(\.body) == [
+            "GitHub: gh: not logged in",
+            "The disk hasn’t been connected for a while. Copies are on other disks, but this one needs updating too.",
+        ])
     }
 
     @Test func withoutAnAppBundleNothingIsAskedOrShown() async {
@@ -83,15 +86,13 @@ struct NotifierTests {
             .deviceCanBeUnplugged(sourceId: source, sourceName: "PocketBook"),
             .manualExportDue(sourceId: source, sourceName: "Google"),
             .connectDestination(destinationId: disk, destinationName: "HDD", onlyCopyOf: ["Notes"]),
-            .copiesMissing(sourceId: source, sourceName: "Notes", destinationName: "HDD"),
         ].map(NoticeText.of)
-        #expect(texts.map(\.title) == ["Time to connect the device", "Safe to disconnect", "Time to export", "Connect “HDD”", "Copy missing"])
+        #expect(texts.map(\.title) == ["Time to connect the device", "Safe to disconnect", "Time to export", "Connect “HDD”"])
         #expect(texts.map(\.body) == [
             "Connect “PocketBook” with a cable and the backup starts on its own.",
             "The backup of “PocketBook” is done, you can disconnect the device.",
             "Google: open Backup Everything for instructions.",
             "The backup of “Notes” exists nowhere else. It will be written as soon as you connect the disk.",
-            "The latest copy of “Notes” was not found on “HDD”. Making a new one.",
         ])
     }
 }
@@ -220,8 +221,9 @@ struct AppServicesTests {
         let model = AppModel(
             dataDirectory: temp.url.appendingPathComponent("data"),
             workDirectory: temp.url.appendingPathComponent("work"),
-            rclone: RcloneLocator(candidates: []),
-            defaults: defaults.defaults
+            defaults: defaults.defaults,
+            access: AlwaysReadyAccess(),
+            receiver: nil
         )
         let driver = RecordingDriver()
         let notifier = RecordingNotifier()

@@ -28,7 +28,7 @@ struct CopyCollisionTests {
     }
 
     private func collision(_ error: any Error) -> String? {
-        guard case let .collisionInCopy(path) = error as? DestinationError else { return nil }
+        guard case let .collisionInCopy(path) = error as? CopyError else { return nil }
         return path
     }
 
@@ -37,7 +37,7 @@ struct CopyCollisionTests {
         try temp.file("vault/x.txt", "from the source")
         try temp.file("out/x.txt", "from an earlier step")
 
-        #expect(throws: DestinationError.collisionInCopy(temp.path("out/x.txt").path)) {
+        #expect(throws: CopyError.collisionInCopy(temp.path("out/x.txt").path)) {
             try copy(temp.path("vault"), into: temp.path("out"))
         }
         #expect(content("out/x.txt") == "from an earlier step")
@@ -50,7 +50,7 @@ struct CopyCollisionTests {
         try temp.directory("out")
         try FileManager.default.createSymbolicLink(atPath: temp.path("out/docs").path, withDestinationPath: temp.path("user/docs").path)
 
-        #expect(throws: DestinationError.collisionInCopy(temp.path("out/docs").path)) {
+        #expect(throws: CopyError.collisionInCopy(temp.path("out/docs").path)) {
             try copy(temp.path("vault"), into: temp.path("out"))
         }
         #expect(content("user/docs/n.txt") == "the person's own")
@@ -62,7 +62,7 @@ struct CopyCollisionTests {
         try temp.file("vault/docs/n.txt", "from the source")
         try temp.file("out/docs/m.txt", "from an earlier step")
 
-        #expect(throws: DestinationError.collisionInCopy(temp.path("out/docs").path)) {
+        #expect(throws: CopyError.collisionInCopy(temp.path("out/docs").path)) {
             try copy(temp.path("vault"), into: temp.path("out"))
         }
         #expect(temp.names(in: "out/docs") == ["m.txt"])
@@ -77,7 +77,7 @@ struct CopyCollisionTests {
         try temp.directory("out")
         var planted: [String] = []
 
-        let error = #expect(throws: DestinationError.self) {
+        let error = #expect(throws: CopyError.self) {
             try copy(temp.path("vault"), into: temp.path("out")) { _ in
                 for name in names where !FileManager.default.fileExists(atPath: docs + "/" + name) {
                     symlink(secret.path, docs + "/" + name)
@@ -116,7 +116,7 @@ struct CopyCollisionTests {
 
         for (tree, folder) in [("top", ""), ("deep", "/sub"), ("folders", "")] {
             let target = try temp.directory("copy-\(tree)")
-            let error = #expect(throws: DestinationError.self) { try copy(disk.root.appendingPathComponent(tree), into: target) }
+            let error = #expect(throws: CopyError.self) { try copy(disk.root.appendingPathComponent(tree), into: target) }
             let path = try #require(error.flatMap(collision))
             #expect((path as NSString).deletingLastPathComponent == target.path + folder)
         }
@@ -139,12 +139,12 @@ struct CopyCollisionTests {
         let listing = try listing(pair)
         try temp.file("copy/a.txt", "same")
 
-        let error = #expect(throws: DestinationError.self) { try WrittenCopy(listing: listing, written: Set(listing.entries.map(\.relativePath))).check(in: temp.path("copy").path) }
+        let error = #expect(throws: CopyError.self) { try WrittenCopy(listing: listing, written: Set(listing.entries.map(\.relativePath))).check(in: temp.path("copy").path) }
         #expect(error.flatMap(collision).map { ($0 as NSString).deletingLastPathComponent } == temp.path("copy").path)
     }
 
     @Test func collisionIsToldInPlainWords() {
-        #expect(DestinationError.collisionInCopy("/d/a.md").localizedDescription
-            == "“/d/a.md” already exists in the copy, so nothing was written over it: two originals have names the destination does not tell apart (such as names that differ only in letter case), or something was already there. The copy was left unfinished so as not to pass for a complete one.")
+        #expect(CopyError.collisionInCopy("/d/a.md").localizedDescription
+            == "“/d/a.md” already exists in the copy, so nothing was written over it: two originals have names the disk does not tell apart (such as names that differ only in letter case), or something was already there. The copy was stopped so as not to pass for a complete one.")
     }
 }

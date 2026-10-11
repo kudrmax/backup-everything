@@ -54,3 +54,13 @@ public struct CopyFolder: Sendable {
             .sorted { $0.1.date < $1.1.date }
     }
 }
+
+extension CopyFolder {
+    /// A source item named like the completion marker at the top of a copy would mark the copy complete before it is.
+    public static func checkTopLevelNames(of entries: [PayloadEntry]) throws {
+        let reserved = GlobPattern(completionMarker)
+        if let clash = entries.first(where: { !$0.relativePath.contains("/") && reserved.matches($0.relativePath) }) {
+            throw SourceError.reservedName(clash.relativePath)
+        }
+    }
+}

@@ -121,7 +121,7 @@ struct PayloadCopier {
         /// True when the item vanished and copying goes on without it. Something already at its target stops the copy.
         private func goesOnWithout(_ entry: PayloadEntry, at target: String?, error: POSIXError) -> Bool {
             if error.code == .EEXIST, let target {
-                fail(DestinationError.collisionInCopy(Self.withoutTrailingSlashes(target)))
+                fail(CopyError.collisionInCopy(Self.withoutTrailingSlashes(target)))
                 return false
             }
             let loss = error.code == .ENOENT

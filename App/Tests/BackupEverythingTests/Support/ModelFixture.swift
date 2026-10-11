@@ -21,7 +21,8 @@ actor Gate {
     }
 }
 
-/// Stands in for the shell: prints a progress line, waits for the gate, leaves a file in the output folder.
+/// Stands in for the shell: prints a progress line, waits for the gate, leaves a file in the output folder. Copies are
+/// written by the real rsync.
 struct GatedCommandRunner: ProcessRunner {
     let gate: Gate
     var progressLine = "3 of 5"
@@ -34,6 +35,9 @@ struct GatedCommandRunner: ProcessRunner {
         timeout: TimeInterval?,
         onOutput: (@Sendable (String) -> Void)?
     ) async throws -> ProcessResult {
+        if executable == RsyncTransfer.homebrewRsync {
+            return try await SystemProcessRunner().run(executable: executable, arguments: arguments, environment: environment, timeout: timeout, onOutput: onOutput)
+        }
         onOutput?(progressLine)
         await gate.wait()
         if let output = environment["BACKUP_OUTPUT_DIR"] {
@@ -56,7 +60,7 @@ final class ModelFixture {
 
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
-    init(runner: any ProcessRunner = SystemProcessRunner(), rclone: RcloneLocator = RcloneLocator(candidates: []), disks: any DiskLocating = SystemDisks(), prepare: Bool = true) throws {
+    init(runner: any ProcessRunner = SystemProcessRunner(), prepare: Bool = true) throws {
         temp = try TemporaryFolder()
         store = Store(dataDirectory: temp.url.appendingPathComponent("data", isDirectory: true))
         let trash = temp.url.appendingPathComponent("Trash", isDirectory: true)
@@ -64,10 +68,10 @@ final class ModelFixture {
             dataDirectory: store.dataDirectory,
             workDirectory: temp.url.appendingPathComponent("work", isDirectory: true),
             runner: runner,
-            rclone: rclone,
             defaults: defaults.defaults,
             finder: finder,
-            disks: disks,
+            access: AlwaysReadyAccess(),
+            receiver: nil,
             trash: { [trash] url in
                 try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
                 try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)"))
@@ -85,6 +89,12 @@ final class ModelFixture {
         let path = temp.url.appendingPathComponent("disks/\(name)", isDirectory: true)
         if connected { try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true) }
         return Destination(name: name, kind: .localFolder(path: path.path), expectedEvery: days.map { .days($0) } ?? .always)
+    }
+
+    /// A finished copy of the source in the folder of the destination, as rsync leaves it.
+    func copy(of source: Source, on destination: Destination, at date: Date = Date()) throws {
+        let folder = URL(fileURLWithPath: destination.path).appendingPathComponent(source.slug).appendingPathComponent(SnapshotNaming().name(for: date))
+        try temp.file(".complete", in: folder, contents: "")
     }
 
     func folderSource(_ name: String = "Notes", to destinations: [Destination], schedule: Schedule = .daily) throws -> Source {

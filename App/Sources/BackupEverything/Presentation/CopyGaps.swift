@@ -39,7 +39,7 @@ struct CopyGaps {
     let state: AppState
     let report: StatusReport
     var unavailable: Set<UUID> = []
-    var disks: [UUID: DiskCheck] = [:]
+    var readiness: [UUID: DestinationReadiness] = [:]
     var missingFolders: [UUID: MissingFolder] = [:]
     var runs: [RunRecord] = []
     var now = Date()
@@ -62,19 +62,17 @@ struct CopyGaps {
             destination.id,
             report: report,
             unavailable: unavailable,
-            disk: disks[destination.id],
+            readiness: readiness[destination.id],
             missingFolder: missingFolders[destination.id]
         )
         if let problem = condition.problem { return problem }
-        let owed = state.hasDebt(sourceId: sourceId, destinationId: destination.id)
-        if owed, case let .failed(message)? = lastOutcome(of: sourceId, at: destination.id) {
+        if case let .failed(message)? = lastOutcome(of: sourceId, at: destination.id) {
             return "couldn’t write: \(Texts.errorHeadline(message))"
         }
         if condition == .offline {
             return destination.expectedEvery == .always ? "unavailable" : "waiting for connection"
         }
-        if owed { return "waiting to be written" }
-        guard let copiedAt = state.deliveredCopyDate(sourceId: sourceId, destinationId: destination.id) else { return "no copy yet" }
+        guard let copiedAt = state.newestCopyDate(sourceId: sourceId, destinationId: destination.id) else { return "no copy yet" }
         return "last copy \(Texts.relative(copiedAt, to: now))"
     }
 

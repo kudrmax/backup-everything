@@ -190,7 +190,6 @@ struct SourceDraft {
     var instructions: String
     var icon: String?
     var enabled: Bool
-    var savesSpace: Bool
     var steps: [StepDraft]
 
     init(_ source: Source) {
@@ -203,7 +202,6 @@ struct SourceDraft {
         instructions = source.instructions
         icon = source.icon
         enabled = source.enabled
-        savesSpace = source.savesSpace
         steps = source.steps.map(StepDraft.init)
     }
 
@@ -259,7 +257,6 @@ struct SourceDraft {
         source.instructions = instructions
         source.icon = icon
         source.enabled = enabled
-        source.savesSpace = savesSpace
         source.steps = steps.map { $0.build() }
         return source
     }
@@ -269,48 +266,18 @@ struct SourceDraft {
     }
 }
 
-enum DestinationTypeChoice: String, CaseIterable, Identifiable {
-    case local
-    case rclone
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .local: "Folder or disk"
-        case .rclone: "Cloud (rclone)"
-        }
-    }
-}
-
 struct DestinationDraft {
     private var base: Destination
 
     var name: String
-    var typeChoice: DestinationTypeChoice
-    /// Another folder may be on another disk: the disk read for the old one says nothing about it.
-    var path = "" {
-        didSet { if path != oldValue { disk = nil } }
-    }
-    var disk: DiskIdentity?
-    var remote = ""
-    var remotePath = "backups"
+    var path = ""
     var isPeriodic = false
     var days = 30
 
     init(_ destination: Destination) {
         base = destination
         name = destination.name
-        switch destination.kind {
-        case let .localFolder(path):
-            typeChoice = .local
-            self.path = path
-            disk = destination.disk
-        case let .rclone(remote, path):
-            typeChoice = .rclone
-            self.remote = remote
-            remotePath = path
-        }
+        path = destination.path
         if case let .days(days) = destination.expectedEvery {
             isPeriodic = true
             self.days = days
@@ -321,30 +288,17 @@ struct DestinationDraft {
 
     var problem: String? {
         if trimmed(name).isEmpty { return "Enter a name." }
-        switch typeChoice {
-        case .local where trimmed(path).isEmpty: return "Choose a folder."
-        case .rclone where trimmed(remote).isEmpty: return "Choose a connected cloud."
-        default: return nil
-        }
+        if trimmed(path).isEmpty { return "Choose a folder." }
+        return nil
     }
 
     var hasChanges: Bool { build() != base }
 
-    /// The saved destination got its disk confirmed meanwhile: the draft takes it too, unless its folder was changed.
-    mutating func diskConfirmed(_ confirmed: DiskIdentity?) {
-        if case let .localFolder(savedPath) = base.kind, savedPath == path { disk = confirmed }
-        base.disk = confirmed
-    }
-
     func build() -> Destination {
         var destination = base
         destination.name = trimmed(name)
-        destination.kind = switch typeChoice {
-        case .local: .localFolder(path: trimmed(path))
-        case .rclone: .rclone(remote: trimmed(remote), path: trimmed(remotePath))
-        }
+        destination.kind = .localFolder(path: trimmed(path))
         destination.expectedEvery = isPeriodic ? .days(max(1, days)) : .always
-        destination.disk = typeChoice == .local ? disk : nil
         return destination
     }
 

@@ -7,7 +7,6 @@ enum SourceStatus: Equatable {
     /// Long overdue; with the reason when copies are missing or stale, so the red mark does not hide the cause.
     case overdue(CopyShortfall?)
     case noDestinations
-    case warning(String)
     case filesFound(count: Int, bytes: Int64, downloading: Bool)
     case exportDue
     case deviceDue
@@ -37,7 +36,6 @@ enum SourceStatus: Equatable {
                 if let shortfall { found.append(.outdated(shortfall)) }
             case let .severelyOverdue(id) where id == source.id: found.append(.overdue(shortfall))
             case let .noDestinations(id) where id == source.id: found.append(.noDestinations)
-            case let .deliveryWarning(id, message) where id == source.id: found.append(.warning(message))
             case let .filesAwaitingPickup(id, count, bytes, downloading) where id == source.id:
                 found.append(.filesFound(count: count, bytes: bytes, downloading: downloading))
             case let .manualExportDue(id) where id == source.id: found.append(.exportDue)
@@ -55,7 +53,7 @@ enum SourceStatus: Equatable {
     var severity: OverallStatus {
         switch self {
         case .failed, .overdue: .error
-        case .noDestinations, .warning, .filesFound, .exportDue, .deviceDue, .outdated: .attention
+        case .noDestinations, .filesFound, .exportDue, .deviceDue, .outdated: .attention
         case .waiting, .waitingForDevice, .disabled, .neverRun, .unconfirmed, .ok: .ok
         }
     }
@@ -66,7 +64,6 @@ enum SourceStatus: Equatable {
         case let .failed(message): "Error: \(message)"
         case let .overdue(shortfall): (["Backup is long overdue"] + (shortfall.map { [$0.text] } ?? [])).joined(separator: "\n")
         case .noDestinations: "No destination chosen"
-        case let .warning(message): "Delivered, but: \(message)"
         case let .filesFound(count, bytes, downloading):
             "Files found: \(count), \(Texts.bytes(bytes))" + (downloading ? ". Downloading" : "")
         case .exportDue: "Time to export"
@@ -98,7 +95,6 @@ enum SourceStatus: Equatable {
         case let .failed(message): Texts.errorHeadline(message)
         case let .overdue(shortfall): shortfall.map { "\($0.note) · no backup for a long time" } ?? "no backup for a long time"
         case .noDestinations: "no destination chosen"
-        case let .warning(message): Texts.errorHeadline(message)
         case let .filesFound(count, bytes, downloading):
             "\(Texts.files(count)) · \(Texts.bytes(bytes))" + (downloading ? " · downloading" : "")
         case .exportDue: "time to export"
@@ -115,7 +111,6 @@ enum SourceStatus: Equatable {
         case .overdue: 1
         case .noDestinations: 2
         case .filesFound: 3
-        case .warning: 4
         case .exportDue, .deviceDue: 5
         case .outdated: 6
         case .waiting, .waitingForDevice: 7

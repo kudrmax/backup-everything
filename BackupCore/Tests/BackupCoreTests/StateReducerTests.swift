@@ -4,7 +4,6 @@ import Testing
 
 struct StateReducerTests {
     private let reducer = StateReducer()
-    private let config = Config()
     private let sourceId = UUID()
     private let disk = UUID()
     private let cloud = UUID()
@@ -23,380 +22,61 @@ struct StateReducerTests {
         )
     }
 
-    @Test func missedDiskRemembersWhetherTheBackupReachedAnotherDisk() {
-        var covered = AppState()
-        reducer.apply(record([(disk, .unavailable), (cloud, .delivered(pruned: 0, warning: nil))]), to: &covered, config: config)
-        #expect(covered.debts.map(\.elsewhere) == [true])
-
-        var alone = AppState()
-        reducer.apply(record([(disk, .unavailable)]), to: &alone, config: config)
-        #expect(alone.debts.map(\.elsewhere) == [false])
-        reducer.apply(record([(disk, .unavailable), (cloud, .delivered(pruned: 0, warning: nil))]), to: &alone, config: config)
-        #expect(alone.debts.map(\.elsewhere) == [false])
+    @Test func collectFailureSchedulesARetryInAnHour() {
+        var state = AppState()
+        reducer.apply(record([], collectError: "auth"), to: &state)
+        #expect(state.sourceState(sourceId) == SourceState(lastRun: started, lastError: "auth", retryAfter: finished.addingTimeInterval(3600)))
     }
 
-    @Test func successAdvancesScheduleAndMarksDestinationsCaughtUp() {
+    @Test func failedWriteSchedulesARetryToo() {
         var state = AppState()
-        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil)), (cloud, .delivered(pruned: 1, warning: nil))]), to: &state, config: config)
-        #expect(state.sourceState(sourceId) == SourceState(lastRun: started, lastSuccess: started))
-        #expect(state.debts.isEmpty)
-        #expect(state.destinationState(disk).lastCaughtUp == finished)
-    }
-
-    @Test func unavailableAndFailedDestinationsBecomeDebts() {
-        var state = AppState()
-        reducer.apply(record([(disk, .unavailable), (cloud, .failed(message: "quota"))]), to: &state, config: config)
-        #expect(state.debts == [
-            Debt(sourceId: sourceId, destinationId: disk, since: started, elsewhere: false),
-            Debt(sourceId: sourceId, destinationId: cloud, since: started, lastAttempt: finished, elsewhere: false),
-        ])
-        #expect(state.sourceState(sourceId).lastRun == started)
-        #expect(state.sourceState(sourceId).lastError == "quota")
-        #expect(state.destinationState(disk).lastCaughtUp == nil)
-    }
-
-    @Test func repeatedMissKeepsOriginalDebtDate() {
-        var state = AppState()
-        let earlier = Fixtures.date("2026-09-20 10:00:00")
-        state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: earlier)]
-        reducer.apply(record([(disk, .unavailable)]), to: &state, config: config)
-        #expect(state.debts == [Debt(sourceId: sourceId, destinationId: disk, since: earlier, elsewhere: false)])
-    }
-
-    @Test func catchUpClearsDebtAndErrorWithoutMovingSchedule() {
-        var state = AppState()
-        let lastRun = Fixtures.date("2026-09-27 10:00:00")
-        state.updateSource(sourceId) { $0.lastRun = lastRun; $0.lastError = "quota" }
-        state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: lastRun)]
-        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp), to: &state, config: config)
-        #expect(state.debts.isEmpty)
-        #expect(state.sourceState(sourceId) == SourceState(lastRun: lastRun, lastSuccess: started))
-        #expect(state.destinationState(disk).lastCaughtUp == finished)
-    }
-
-    /// A catch-up delivers a copy made before the source broke: the source stays red and its hourly retry stays.
-    @Test func catchUpKeepsTheErrorOfACollectionThatKeepsFailing() {
-        var state = AppState()
-        let retryAfter = started.addingTimeInterval(3600)
-        state.updateSource(sourceId) { $0.lastError = "path missing"; $0.retryAfter = retryAfter }
-        state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: started)]
-        var olderCopy = record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
-        olderCopy.deliversAnOlderCopy = true
-        reducer.apply(olderCopy, to: &state, config: config)
-        #expect(state.debts.isEmpty)
-        #expect(state.sourceState(sourceId) == SourceState(lastSuccess: started, lastError: "path missing", retryAfter: retryAfter))
-    }
-
-    /// The name of a copy made in a zone east of the current one reads as a later moment than the catch-up itself.
-    /// The copy is still old: the source stays red, and its last success is not put in the future.
-    @Test func olderCopyWhoseNameReadsAsTheFutureKeepsTheCollectError() {
-        var state = AppState()
-        reducer.apply(record([], collectError: "boom"), to: &state, config: config)
-        var olderCopy = record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
-        olderCopy.collectedAt = finished.addingTimeInterval(3600)
-        olderCopy.copiedFrom = "Cloud"
-        olderCopy.deliversAnOlderCopy = true
-
-        reducer.apply(olderCopy, to: &state, config: config)
-
-        #expect(state.sourceState(sourceId).lastError == "boom")
+        reducer.apply(record([(disk, .failed(message: "I/O error")), (cloud, .delivered(pruned: 0, warning: nil))]), to: &state)
+        #expect(state.sourceState(sourceId).lastError == "I/O error")
         #expect(state.sourceState(sourceId).retryAfter == finished.addingTimeInterval(3600))
-        #expect(state.sourceState(sourceId).lastSuccess == finished)
-    }
-
-    /// A disabled source pays nothing, so its debt must not keep the disk from counting as caught up: otherwise the deadline
-    /// to connect it is counted from a long-gone date and asks for the disk right away.
-    @Test func debtOfADisabledSourceDoesNotHoldBackTheCatchUpOfItsDestination() {
-        let paused = Fixtures.source(name: "Paused")
-        var disabled = paused
-        disabled.enabled = false
-        let config = Config(sources: [disabled])
-        var state = AppState()
-        state.updateDestination(disk) { $0.lastCaughtUp = Fixtures.date("2026-08-01 00:00:00") }
-        state.debts = [Debt(sourceId: paused.id, destinationId: disk, since: Fixtures.date("2026-08-20 00:00:00"))]
-
-        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))]), to: &state, config: config)
-        #expect(state.destinationState(disk).lastCaughtUp == finished)
-        #expect(state.debts.map(\.sourceId) == [paused.id])
-
-        var nextDay = record([(disk, .delivered(pruned: 0, warning: nil))])
-        nextDay.finishedAt = finished.addingTimeInterval(86_400)
-        reducer.apply(nextDay, to: &state, config: Config(sources: [paused]))
-        #expect(state.destinationState(disk).lastCaughtUp == finished)
-    }
-
-    @Test func catchUpThatGatheredTheSourceAgainClearsItsError() {
-        var state = AppState()
-        state.updateSource(sourceId) { $0.lastError = "path missing"; $0.retryAfter = started.addingTimeInterval(3600) }
-        var gathered = record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
-        gathered.collectedAt = started
-        reducer.apply(gathered, to: &state, config: config)
-        #expect(state.sourceState(sourceId) == SourceState(lastSuccess: started))
-    }
-
-    @Test func scheduledRunClearsTheErrorOfAFailedCollection() {
-        var state = AppState()
-        state.updateSource(sourceId) { $0.lastError = "path missing"; $0.retryAfter = started }
-        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))]), to: &state, config: config)
-        #expect(state.sourceState(sourceId) == SourceState(lastRun: started, lastSuccess: started))
-    }
-
-    @Test func destinationIsNotCaughtUpWhileOtherSourcesAreOwed() {
-        var state = AppState()
-        state.debts = [Debt(sourceId: UUID(), destinationId: disk, since: started)]
-        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))]), to: &state, config: config)
-        #expect(state.destinationState(disk).lastCaughtUp == nil)
-    }
-
-    @Test func collectFailureSchedulesRetryAndKeepsSchedule() {
-        var state = AppState()
-        reducer.apply(record([], collectError: "auth required"), to: &state, config: config)
-        #expect(state.sourceState(sourceId) == SourceState(lastError: "auth required", retryAfter: finished.addingTimeInterval(3600)))
-    }
-
-    @Test func dropsStateOfRemovedSourcesAndDestinations() {
-        let keptDestination = Destination(name: "Cloud", kind: .localFolder(path: "/c"))
-        let removedFromSource = Destination(name: "HDD", kind: .localFolder(path: "/h"))
-        let source = Fixtures.source(destinations: [keptDestination])
-        let config = Config(sources: [source], destinations: [keptDestination, removedFromSource])
-        var state = AppState()
-        state.debts = [
-            Debt(sourceId: source.id, destinationId: keptDestination.id, since: started),
-            Debt(sourceId: source.id, destinationId: removedFromSource.id, since: started),
-            Debt(sourceId: UUID(), destinationId: keptDestination.id, since: started),
-            Debt(sourceId: source.id, destinationId: UUID(), since: started),
-        ]
-        state.updateSource(UUID()) { $0.lastRun = started }
-        state.updateSource(source.id) { $0.lastRun = started }
-        let kept = AppState.deliveryKey(sourceId: source.id, destinationId: keptDestination.id)
-        state.deliveryWarnings = [kept: "old", AppState.deliveryKey(sourceId: source.id, destinationId: removedFromSource.id): "old"]
-        state.recordDelivery(sourceId: source.id, destinationId: keptDestination.id, snapshotName: "a", collectedAt: started)
-        state.recordDelivery(sourceId: source.id, destinationId: removedFromSource.id, snapshotName: "a", collectedAt: started)
-
-        reducer.dropOrphans(config: config, state: &state)
-        #expect(state.deliveredAt == [kept: started])
-        #expect(state.debts == [Debt(sourceId: source.id, destinationId: keptDestination.id, since: started)])
-        #expect(Array(state.sources.keys) == [source.id.uuidString])
-        #expect(state.deliveryWarnings == [kept: "old"])
-    }
-
-    /// Facts about copies belong to the place they are in. Another folder, remote or disk is another place: what was proven
-    /// at the old one is forgotten, with the time of the last check, so the new place is checked and caught up. The name,
-    /// the rhythm and the name the disk had when read are not the place.
-    @Test func factsOfADestinationAreForgottenWhenItsPlaceChanges() {
-        let disk = Destination(
-            name: "HDD", kind: .localFolder(path: "/tmp/TEST-BE-HDD/Backups"), disk: DiskIdentity(uuid: "A", name: "TEST-BE-HDD")
-        )
-        let cloud = Destination(name: "Cloud", kind: .rclone(remote: "drive", path: "Backups"))
-        let source = Fixtures.source(destinations: [disk, cloud])
-        let other = Fixtures.source(name: "Other", destinations: [disk])
-        let created = Fixtures.date("2026-09-01 00:00:00")
-        var config = Config(sources: [source, other], destinations: [disk, cloud])
-        let key = { (source: Source, destination: Destination) in AppState.deliveryKey(sourceId: source.id, destinationId: destination.id) }
-
-        var adopted = AppState()
-        for (owner, place) in [(source, disk), (source, cloud), (other, disk)] {
-            adopted.recordDelivery(sourceId: owner.id, destinationId: place.id, snapshotName: "2026-09-28_100000", collectedAt: started)
-            adopted.deliveryWarnings[key(owner, place)] = "Could not clean up old copies: busy"
-        }
-        for place in [disk, cloud] {
-            adopted.updateDestination(place.id) {
-                $0.lastCaughtUp = finished
-                $0.lastVerified = finished
-            }
-        }
-        reducer.reconcile(config: config, state: &adopted, now: started, unverifiable: [])
-        #expect(adopted.deliveredAt?.count == 3)
-        #expect(adopted.expectedSince == [key(source, disk): created, key(source, cloud): created, key(other, disk): created])
-
-        var kept = adopted
-        var renamed = config
-        renamed.destinations[0].name = "Disk"
-        renamed.destinations[0].expectedEvery = .days(7)
-        renamed.destinations[0].disk = DiskIdentity(uuid: "A", name: "Renamed disk")
-        reducer.reconcile(config: renamed, state: &kept, now: finished, unverifiable: [])
-        #expect(kept == adopted)
-
-        let moves: [(inout Config) -> Void] = [
-            { $0.destinations[0].kind = .localFolder(path: "/tmp/TEST-BE-HDD/Other") },
-            { $0.destinations[0].disk = DiskIdentity(uuid: "B", name: "TEST-BE-HDD") },
-            { $0.destinations[0].disk = nil },
-        ]
-        for move in moves {
-            var moved = config
-            move(&moved)
-            var state = adopted
-            reducer.reconcile(config: moved, state: &state, now: finished, unverifiable: [])
-            #expect(state.deliveredAt == [key(source, cloud): started])
-            #expect(state.lastDelivered == [key(source, cloud): "2026-09-28_100000"])
-            #expect(state.deliveryWarnings.keys.sorted() == [key(source, cloud)])
-            #expect(state.destinationState(disk.id).lastCaughtUp == nil)
-            #expect(state.destinationState(disk.id).lastVerified == nil)
-            #expect(state.destinationState(cloud.id) == adopted.destinationState(cloud.id))
-            #expect(state.expectedSince == [key(source, disk): finished, key(source, cloud): created, key(other, disk): finished])
-
-            var again = state
-            reducer.reconcile(config: moved, state: &again, now: finished.addingTimeInterval(60), unverifiable: [])
-            #expect(again == state)
-        }
-
-        config.destinations[1].kind = .rclone(remote: "drive2", path: "Backups")
-        var recloud = adopted
-        reducer.reconcile(config: config, state: &recloud, now: finished, unverifiable: [])
-        #expect(recloud.deliveredAt?.keys.sorted() == [key(source, disk), key(other, disk)].sorted())
-        #expect(recloud.destinationState(cloud.id).lastVerified == nil)
-    }
-
-    /// A place where copies cannot be proven holds no facts: those an older version left there are forgotten as at a move,
-    /// even at the first reconciliation, while its debts stay. Nothing changes once nothing is known there.
-    @Test func unverifiablePlaceHoldsNoFacts() {
-        let disk = Destination(name: "HDD", kind: .localFolder(path: "/tmp/TEST-BE-HDD/Backups"), expectedEvery: .days(14))
-        let cloud = Destination(name: "Cloud", kind: .rclone(remote: "drive", path: "Backups"))
-        let source = Fixtures.source(destinations: [disk, cloud])
-        let config = Config(sources: [source], destinations: [disk, cloud])
-        let key = { (place: Destination) in AppState.deliveryKey(sourceId: source.id, destinationId: place.id) }
-        var state = AppState()
-        for place in [disk, cloud] {
-            state.recordDelivery(sourceId: source.id, destinationId: place.id, snapshotName: "2026-09-28_100000", collectedAt: started)
-            state.updateDestination(place.id) { $0.lastCaughtUp = started }
-        }
-        state.deliveryWarnings[key(disk)] = "Could not clean up old copies: busy"
-        state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: started)]
-        state.expectedSince = nil
-
-        reducer.reconcile(config: config, state: &state, now: finished, unverifiable: [disk.id])
-        #expect(!state.knowsCopies(at: disk.id))
-        #expect(state.deliveredAt == [key(cloud): started])
-        #expect(state.lastDelivered == [key(cloud): "2026-09-28_100000"])
-        #expect(state.deliveryWarnings.isEmpty)
-        #expect(state.debts == [Debt(sourceId: source.id, destinationId: disk.id, since: started)])
-        #expect(state.expectedSince == [key(disk): finished, key(cloud): source.createdAt])
-
-        var again = state
-        reducer.reconcile(config: config, state: &again, now: finished.addingTimeInterval(60), unverifiable: [disk.id])
-        #expect(again == state)
-
-        var confirmed = config
-        confirmed.destinations[0].disk = DiskIdentity(uuid: "A", name: "TEST-BE-HDD")
-        let later = finished.addingTimeInterval(120)
-        reducer.reconcile(config: confirmed, state: &again, now: later, unverifiable: [])
-        #expect(again.expectedSince == [key(disk): later, key(cloud): source.createdAt])
-    }
-
-    /// A pair added later is expected to hold a copy from the moment it was added, not from the source's creation.
-    @Test func pairAddedLaterIsExpectedFromThatMoment() {
-        let first = Destination(name: "First", kind: .localFolder(path: "/a"))
-        let second = Destination(name: "Second", kind: .localFolder(path: "/b"))
-        var source = Fixtures.source(destinations: [first])
-        var state = AppState()
-        reducer.reconcile(config: Config(sources: [source], destinations: [first, second]), state: &state, now: started, unverifiable: [])
-        source.destinationIds.append(second.id)
-        reducer.reconcile(config: Config(sources: [source], destinations: [first, second]), state: &state, now: finished, unverifiable: [])
-        #expect(state.expectedSince == [
-            AppState.deliveryKey(sourceId: source.id, destinationId: first.id): source.createdAt,
-            AppState.deliveryKey(sourceId: source.id, destinationId: second.id): finished,
-        ])
-    }
-
-    @Test func collectFailurePostponesRetryOfTheSourceDebts() {
-        var state = AppState()
-        state.debts = [Debt(sourceId: sourceId, destinationId: disk, since: started)]
-        reducer.apply(record([], trigger: .catchUp, collectError: "auth required"), to: &state, config: config)
-        #expect(state.debts == [Debt(sourceId: sourceId, destinationId: disk, since: started, lastAttempt: finished)])
-    }
-
-    /// A cleanup that failed after delivery stays visible until a later delivery to that destination goes without it.
-    @Test func remembersWhatWentWrongAfterEachDelivery() {
-        var state = AppState()
-        reducer.apply(record([(disk, .delivered(pruned: 0, warning: "Could not clean up old copies: busy")), (cloud, .delivered(pruned: 0, warning: nil))]), to: &state, config: config)
-        reducer.apply(record([(disk, .unavailable), (cloud, .failed(message: "quota"))]), to: &state, config: config)
-        #expect(state.deliveryWarnings == [AppState.deliveryKey(sourceId: sourceId, destinationId: disk): "Could not clean up old copies: busy"])
-
-        reducer.apply(record([(disk, .delivered(pruned: 1, warning: nil))]), to: &state, config: config)
-        #expect(state.deliveryWarnings.isEmpty)
-    }
-
-    @Test func remembersWhichCopyReachedEachDestination() {
-        var state = AppState()
-        var delivered = record([(disk, .delivered(pruned: 0, warning: nil)), (cloud, .unavailable)])
-        delivered.snapshotName = "2026-09-28_100000"
-        reducer.apply(delivered, to: &state, config: config)
-        #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: disk) == "2026-09-28_100000")
-        #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: cloud) == nil)
-    }
-
-    /// The status is built on when each delivered copy was collected, not on when the run happened (5.5).
-    @Test func remembersWhenTheCopyOnEachDestinationWasCollected() {
-        var state = AppState()
-        var delivered = record([(disk, .delivered(pruned: 0, warning: nil)), (cloud, .unavailable)])
-        delivered.collectedAt = started.addingTimeInterval(60)
-        reducer.apply(delivered, to: &state, config: config)
-        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: disk) == started.addingTimeInterval(60))
-        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: cloud) == nil)
-
-        var olderCopy = record([(cloud, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
-        olderCopy.collectedAt = started.addingTimeInterval(-86_400)
-        reducer.apply(olderCopy, to: &state, config: config)
-        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: cloud) == started.addingTimeInterval(-86_400))
-
-        var futureName = record([(disk, .delivered(pruned: 0, warning: nil))])
-        futureName.collectedAt = finished.addingTimeInterval(7200)
-        reducer.apply(futureName, to: &state, config: config)
-        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: disk) == finished)
-    }
-
-    /// A copy found missing no longer counts: neither its name nor its date stays.
-    @Test func forgottenDeliveryLeavesNoDate() {
-        var state = AppState()
-        state.recordDelivery(sourceId: sourceId, destinationId: disk, snapshotName: "2026-09-28_100000", collectedAt: started)
-        state.forgetDelivery(sourceId: sourceId, destinationId: disk)
-        #expect(state.lastDeliveredSnapshot(sourceId: sourceId, destinationId: disk) == nil)
-        #expect(state.deliveredCopyDate(sourceId: sourceId, destinationId: disk) == nil)
-    }
-
-    @Test func lastSuccessFollowsTheFreshestDeliveredCopyIncludingCatchUps() {
-        var state = AppState()
-        var scheduled = record([(disk, .delivered(pruned: 0, warning: nil))])
-        scheduled.collectedAt = started
-        reducer.apply(scheduled, to: &state, config: config)
         #expect(state.sourceState(sourceId).lastSuccess == started)
+    }
 
-        let later = started.addingTimeInterval(3600)
-        var catchUp = record([(cloud, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
-        catchUp.collectedAt = later
-        catchUp.startedAt = later
-        catchUp.finishedAt = later.addingTimeInterval(60)
-        reducer.apply(catchUp, to: &state, config: config)
-        #expect(state.sourceState(sourceId).lastSuccess == later)
-        #expect(state.sourceState(sourceId).lastRun == started)
-
-        var stalePackage = record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp)
-        stalePackage.collectedAt = started.addingTimeInterval(-86_400)
-        reducer.apply(stalePackage, to: &state, config: config)
-        #expect(state.sourceState(sourceId).lastSuccess == later)
+    @Test func successfulDeliveryClearsTheErrorAndSetsLastSuccess() {
+        var state = AppState()
+        reducer.apply(record([], collectError: "auth"), to: &state)
+        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil)), (cloud, .unavailable)]), to: &state)
+        #expect(state.sourceState(sourceId) == SourceState(lastRun: started, lastSuccess: started))
     }
 
     @Test func deferredOrFailedRunsDoNotCountAsSuccess() {
         var state = AppState()
-        reducer.apply(record([(disk, .unavailable), (cloud, .failed(message: "quota"))]), to: &state, config: config)
-        reducer.apply(record([], collectError: "auth"), to: &state, config: config)
+        reducer.apply(record([(disk, .unavailable)]), to: &state)
+        reducer.apply(record([], collectError: "auth"), to: &state)
         #expect(state.sourceState(sourceId).lastSuccess == nil)
     }
 
-    @Test func unpluggedDiskDoesNotPostponeTheRetryOfAFailedWrite() {
+    /// A copy collected earlier than the last success does not move it back.
+    @Test func lastSuccessNeverMovesBack() {
         var state = AppState()
-        reducer.apply(record([(disk, .failed(message: "I/O error"))]), to: &state, config: config)
-        #expect(state.debts.map(\.lastAttempt) == [finished])
+        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))]), to: &state)
+        var older = record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .pickup)
+        older.collectedAt = started.addingTimeInterval(-86_400)
+        reducer.apply(older, to: &state)
+        #expect(state.sourceState(sourceId).lastSuccess == started)
+    }
 
-        var later = record([(disk, .unavailable)])
-        later.finishedAt = finished.addingTimeInterval(7200)
-        reducer.apply(later, to: &state, config: config)
-        #expect(state.debts.map(\.lastAttempt) == [finished])
+    @Test func dropOrphansForgetsSourcesAndCachedPairsTheSettingsNoLongerKnow() {
+        let hdd = Fixtures.localDestination("HDD", at: URL(fileURLWithPath: "/unused/hdd"))
+        let ssd = Fixtures.localDestination("SSD", at: URL(fileURLWithPath: "/unused/ssd"))
+        let kept = Fixtures.source(destinations: [hdd])
+        let removed = UUID()
+        let config = Config(sources: [kept], destinations: [hdd, ssd])
+        var state = AppState()
+        state.updateSource(kept.id) { $0.lastRun = started }
+        state.updateSource(removed) { $0.lastRun = started }
+        let copy = [Fixtures.snapshot("2026-09-28 10:00:00")]
+        state.recordCopies(sourceId: kept.id, destinationId: hdd.id, copy, seenAt: finished)
+        state.recordCopies(sourceId: kept.id, destinationId: ssd.id, copy, seenAt: finished)
+        state.recordCopies(sourceId: removed, destinationId: hdd.id, copy, seenAt: finished)
 
-        var retried = record([(disk, .failed(message: "I/O error"))])
-        retried.finishedAt = finished.addingTimeInterval(10_800)
-        reducer.apply(retried, to: &state, config: config)
-        #expect(state.debts.map(\.lastAttempt) == [retried.finishedAt])
-        #expect(state.debts.count == 1)
+        reducer.dropOrphans(config: config, state: &state)
+
+        #expect(Set(state.sources.keys) == [kept.id.uuidString])
+        #expect(Set(state.copyCache.keys) == [AppState.deliveryKey(sourceId: kept.id, destinationId: hdd.id)])
     }
 }

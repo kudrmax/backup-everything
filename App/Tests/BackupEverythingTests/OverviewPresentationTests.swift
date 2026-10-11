@@ -6,7 +6,7 @@ import Testing
 struct OverviewPresentationTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
     private let disk = Destination(name: "HDD", kind: .localFolder(path: "/Volumes/HDD"))
-    private let cloud = Destination(name: "Cloud", kind: .rclone(remote: "gdrive", path: "backups"))
+    private let cloud = Destination(name: "Cloud", kind: .localFolder(path: "/Users/max/Cloud"))
 
     private func source(_ steps: [SourceStep], enabled: Bool = true) -> Source {
         Source(name: "Source", slug: "source", steps: steps, schedule: .daily, enabled: enabled, createdAt: now)
@@ -87,12 +87,12 @@ struct OverviewPresentationTests {
 
     @Test func copyPlaceExplainsWhyItCannotBeOpened() {
         let open = CopyPlace(destination: disk, folder: URL(fileURLWithPath: "/Volumes/HDD/source/x"), unavailableReason: nil)
-        let closed = CopyPlace(destination: cloud, folder: nil, unavailableReason: "The copy is in the cloud and can’t be opened in Finder")
+        let closed = CopyPlace(destination: cloud, folder: nil, unavailableReason: "No copies yet")
         #expect(open.tip == "Show copy in Finder")
         #expect(open.menuTitle == "HDD")
         #expect(open.id == disk.id)
-        #expect(closed.tip == "Open copy: the copy is in the cloud and can’t be opened in Finder")
-        #expect(closed.menuTitle == "Cloud — the copy is in the cloud and can’t be opened in Finder")
+        #expect(closed.tip == "Open copy: no copies yet")
+        #expect(closed.menuTitle == "Cloud — no copies yet")
     }
 
     @Test func badgeTipSaysWhatHappenedToTheCopy() {
@@ -126,11 +126,8 @@ struct OverviewPresentationTests {
     @Test func connectedFolderOpensInFinderAndEverythingElseOpensSettings() {
         #expect(DestinationLink.finderFolder(of: disk, isConnected: true)?.path == "/Volumes/HDD")
         #expect(DestinationLink.finderFolder(of: disk, isConnected: false) == nil)
-        #expect(DestinationLink.finderFolder(of: cloud, isConnected: true) == nil)
-        #expect(DestinationLink.folder(of: cloud) == nil)
         #expect(DestinationLink.actionTip(for: disk, isConnected: true) == "Click to show in Finder")
         #expect(DestinationLink.actionTip(for: disk, isConnected: false) == "Click to open settings")
-        #expect(DestinationLink.actionTip(for: cloud, isConnected: true) == "Click to open settings")
     }
 
     @Test func destinationAttentionJoinsTheProblemAndWhatWaits() {
@@ -223,28 +220,16 @@ struct OverviewPresentationTests {
 
 @MainActor
 struct DestinationDetailsTests {
-    @Test func tipSaysWhetherTheDiskIsNeededAndWhatWaits() async throws {
-        let disks = UnpluggedDisks()
-        let fixture = try ModelFixture(disks: disks)
-        let hdd = try fixture.unpluggedDisk("HDD", every: 30, on: disks)
+    @Test func tipSaysWhetherTheDiskIsConnectedAndWhenItIsNeeded() async throws {
+        let fixture = try ModelFixture()
+        let hdd = fixture.unpluggedDisk("HDD", every: 30)
         let ssd = try fixture.disk("SSD")
         let notes = fixture.source("Notes", steps: [.folder("~/Notes")], to: [hdd, ssd])
-        let photos = fixture.source("Photos", steps: [.folder("~/Photos")], to: [hdd])
-        var state = AppState.backedUp(notes, photos)
-        state.debts = [Debt(sourceId: notes.id, destinationId: hdd.id, since: Date(), elsewhere: true)]
-        let caughtUp = Date().addingTimeInterval(-3 * 86_400)
-        state.updateDestination(ssd.id) { $0.lastCaughtUp = caughtUp }
-        try await fixture.use(Config(sources: [notes, photos], destinations: [hdd, ssd]), state: state)
+        try await fixture.use(Config(sources: [notes], destinations: [hdd, ssd]), state: .backedUp(notes))
         let model = fixture.model
         #expect(await eventually { model.unavailableDestinations == [hdd.id] })
 
-        let hddText = DestinationDetails.text(of: hdd, model: model)
-        #expect(hddText.hasPrefix("Not connected now\nWaiting for delivery: Notes\nCopies are on other disks — reminder in "))
-        #expect(DestinationDetails.text(of: ssd, model: model) == "Available\nGot everything: \(Texts.relative(caughtUp))\nNothing waiting for delivery")
-
-        state.debts.append(Debt(sourceId: photos.id, destinationId: hdd.id, since: Date(), elsewhere: false))
-        try await fixture.use(Config(sources: [notes, photos], destinations: [hdd, ssd]), state: state)
-        #expect(DestinationDetails.text(of: hdd, model: model)
-            == "Not connected now\nWaiting for delivery: Notes, Photos\nNowhere else: Photos — connect the disk")
+        #expect(DestinationDetails.text(of: hdd, model: model).hasPrefix("Not connected now\nReminder to connect in "))
+        #expect(DestinationDetails.text(of: ssd, model: model) == "Available")
     }
 }

@@ -324,7 +324,7 @@ struct SourceRow: View {
 
     @ViewBuilder
     private var copyAction: some View {
-        let places = SourceLinks.copies(of: source, config: model.config, state: model.state, disks: model.diskChecks)
+        let places = SourceLinks.copies(of: source, config: model.config, state: model.state)
         if places.count == 1, let place = places.first {
             action("Open copy", symbol: "archivebox") {
                 Task { await model.openCopy(place) }
@@ -418,10 +418,7 @@ struct DestinationBadge: View {
             state: state,
             last: model.lastDelivery(of: source, to: destination)
         ) {
-            ConnectReminder.waitingLine(
-                elsewhere: model.isCoveredElsewhere(source, for: destination),
-                otherDestinations: model.otherCopies(of: source, besides: destination).map(\.name)
-            )
+            ConnectReminder.waitingLine(elsewhere: false, otherDestinations: [])
         }
     }
 }
@@ -470,7 +467,7 @@ struct DestinationStrip: View {
         switch condition {
         case .available: AnyShapeStyle(.secondary)
         case .offline: AnyShapeStyle(.tertiary)
-        case .needsConnection, .unreachable, .otherDisk, .diskNotConfirmed, .diskUnidentified, .unsupportedFormat, .folderMissing: AnyShapeStyle(.orange)
+        case .needsConnection, .unreachable, .notReady, .folderMissing: AnyShapeStyle(.orange)
         }
     }
 }

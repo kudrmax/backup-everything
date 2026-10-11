@@ -54,7 +54,9 @@ struct BootstrapTests {
             dataDirectory: temp.path("data"),
             workDirectory: temp.path("work"),
             timeZone: Fixtures.utc,
-            time: time
+            time: time,
+            receiver: nil,
+            access: AlwaysReadyAccess()
         )
         let result = try await coordinator.tick()
 

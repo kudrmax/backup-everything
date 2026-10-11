@@ -36,41 +36,16 @@ struct BackupCoordinatorTests {
         runner: any ProcessRunner,
         quit: any QuitSignal
     ) -> BackupCoordinator {
-        let inbox = ManualExportInbox(pendingRoot: temp.path("work/pending"), naming: Fixtures.naming) { url in
-            try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)"))
-        }
-        let chains = StepChainRunner(
-            chainsRoot: temp.path("work/chains"),
-            inbox: inbox,
+        CoreAssembly.makeCoordinator(
+            dataDirectory: store.dataDirectory,
+            workDirectory: temp.path("work"),
+            timeZone: Fixtures.utc,
             runner: runner,
             time: time,
-            trash: { url in try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)")) },
-            progress: { [events] event in events.set(events.get() + [event]) }
-        )
-        let stores = DefaultDestinationStoreFactory(runner: runner, rclone: RcloneLocator(candidates: []), naming: Fixtures.naming)
-        let engine = BackupEngine(
-            providers: DefaultSourceProviderFactory(
-                runner: runner,
-                stagingRoot: temp.path("work/staging"),
-                inbox: inbox,
-                quit: quit,
-                trash: { url in try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)")) }
-            ),
-            stores: stores,
-            retention: RetentionPolicy(timeZone: Fixtures.utc),
-            naming: Fixtures.naming,
-            time: time,
-            progress: { [events] event in events.set(events.get() + [event]) }
-        )
-        return BackupCoordinator(
-            store: store,
-            engine: engine,
-            inbox: inbox,
-            chains: chains,
-            stores: stores,
-            time: time,
-            calendar: Fixtures.calendar,
+            receiver: nil,
+            access: AlwaysReadyAccess(),
             quit: quit,
+            trash: { url in try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)")) },
             progress: { [events] event in events.set(events.get() + [event]) }
         )
     }
@@ -119,33 +94,6 @@ struct BackupCoordinatorTests {
         #expect(temp.names(in: "cloud/obsidian").count == 1)
     }
 
-    @Test func unpluggedDiskIsCaughtUpWithOneSnapshotWhenItReturns() async throws {
-        defer { temp.remove() }
-        try store.saveConfig(Config(sources: [vault([cloud, disk])], destinations: [cloud, disk]))
-
-        for _ in 0..<3 {
-            _ = try await coordinator.tick()
-            time.advance(86_400)
-        }
-        #expect(temp.names(in: "cloud/obsidian").count == 3)
-        #expect(!temp.exists("hdd"))
-        #expect(try store.loadState().debts.count == 1)
-        let source = try #require(try store.loadConfig().sources.first)
-        let waiting = try await coordinator.statusReport()
-        #expect(waiting.items == [
-            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: true, noCopyAnywhere: false)),
-        ])
-        #expect(waiting.overall == .attention)
-
-        time.advance(-3600)
-        try temp.directory("hdd")
-        let result = try await coordinator.tick()
-        #expect(result.runs.map(\.trigger) == [.catchUp])
-        #expect(result.notices == [.destinationCaughtUp(destinationId: disk.id, destinationName: "HDD")])
-        #expect(temp.names(in: "hdd/obsidian").count == 1)
-        #expect(try store.loadState().debts.isEmpty)
-    }
-
     @Test func overdueDiskTriggersDailyConnectReminder() async throws {
         defer { temp.remove() }
         let source = vault([disk])
@@ -154,25 +102,12 @@ struct BackupCoordinatorTests {
         let reminder = Notice.connectDestination(destinationId: disk.id, destinationName: "HDD", onlyCopyOf: ["Obsidian"])
         #expect(try await coordinator.tick().notices == [reminder])
         #expect(store.loadRuns().isEmpty)
-        #expect(try await coordinator.statusReport().items == [
-            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: false, noCopyAnywhere: true)),
-            .connectDestination(destinationId: disk.id),
-        ])
+        #expect(try await coordinator.statusReport().items == [.connectDestination(destinationId: disk.id)])
 
         time.advance(3600)
         #expect(try await coordinator.tick().notices.isEmpty)
         time.advance(23 * 3600)
         #expect(try await coordinator.tick().notices == [reminder])
-    }
-
-    @Test func diskThatMissedOnlyBackedUpCopiesIsRemindedAfterItsPeriod() async throws {
-        defer { temp.remove() }
-        try store.saveConfig(Config(sources: [vault([cloud, disk])], destinations: [cloud, disk]))
-        #expect(try await coordinator.tick().notices.isEmpty)
-        time.advance(29 * 86_400)
-        #expect(try await coordinator.tick().notices.isEmpty)
-        time.advance(2 * 86_400)
-        #expect(try await coordinator.tick().notices == [.connectDestination(destinationId: disk.id, destinationName: "HDD", onlyCopyOf: [])])
     }
 
     @Test func failedRunIsReportedAndRetriedAfterAnHour() async throws {
@@ -206,7 +141,7 @@ struct BackupCoordinatorTests {
         try temp.file("Downloads/takeout-1.zip", "zip", modified: start.addingTimeInterval(-60))
         let result = try await coordinator.tick()
         #expect(result.runs.map(\.trigger) == [.pickup])
-        #expect(temp.names(in: "cloud/photos/2026-09-28_100000") == ["_snapshot.json", "takeout-1.zip"])
+        #expect(temp.names(in: "cloud/photos/2026-09-28_100000") == [".complete", "takeout-1.zip"])
         #expect(temp.names(in: "Downloads").isEmpty)
         #expect(temp.names(in: "trash") == ["takeout-1.zip"])
         #expect(try await coordinator.statusReport().overall == .ok)
@@ -226,7 +161,7 @@ struct BackupCoordinatorTests {
 
         let result = try await coordinator.confirmPickup(sourceId: source.id)
         #expect(result.runs.map(\.trigger) == [.pickup])
-        #expect(temp.names(in: "cloud/photos/2026-09-28_100000") == ["_snapshot.json", "takeout-1.zip", "takeout-2.zip"])
+        #expect(temp.names(in: "cloud/photos/2026-09-28_100000") == [".complete", "takeout-1.zip", "takeout-2.zip"])
         #expect(try await coordinator.statusReport().overall == .ok)
     }
 
@@ -260,7 +195,7 @@ struct BackupCoordinatorTests {
         #expect(!temp.exists("work/pending/\(source.id.uuidString)"))
     }
 
-    @Test func runNowIgnoresScheduleAndSameDayCopiesCollapseToNewest() async throws {
+    @Test func runNowIgnoresTheScheduleAndKeepsEveryCopy() async throws {
         defer { temp.remove() }
         let source = vault([cloud])
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
@@ -269,7 +204,7 @@ struct BackupCoordinatorTests {
         #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.manual])
         time.advance(60)
         #expect(try await coordinator.runAllNow().runs.count == 1)
-        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100200"])
+        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000", "2026-09-28_100100", "2026-09-28_100200"])
         #expect(store.loadRuns().count == 3)
     }
 
@@ -277,21 +212,6 @@ struct BackupCoordinatorTests {
         defer { temp.remove() }
         try temp.file("data/config.json", "{ broken")
         await #expect(throws: StoreError.corrupted(file: "config.json")) { try await coordinator.tick() }
-    }
-
-    @Test func failingCatchUpIsRetriedOncePerHour() async throws {
-        defer { temp.remove() }
-        let source = Fixtures.source(steps: [.folder(temp.path("moved").path, excludes: [])], destinations: [disk], createdAt: created)
-        try store.saveConfig(Config(sources: [source], destinations: [disk]))
-        _ = try await coordinator.tick()
-        try temp.directory("hdd")
-
-        time.advance(60)
-        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
-        time.advance(60)
-        #expect(try await coordinator.tick() == TickResult())
-        time.advance(3600)
-        #expect(try await coordinator.tick().runs.count == 1)
     }
 
     @Test func brokenPickupIsReportedAndDoesNotBlockOtherBackups() async throws {
@@ -411,7 +331,7 @@ struct BackupCoordinatorTests {
         _ = try await all.value
     }
 
-    @Test func deletedCopiesAreNoticedAndRestored() async throws {
+    @Test func copyRemovedByHandIsMadeAgainAtTheNextCheck() async throws {
         defer { temp.remove() }
         let source = vault([cloud])
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
@@ -420,47 +340,17 @@ struct BackupCoordinatorTests {
 
         time.advance(600)
         let result = try await coordinator.tick()
-        #expect(result.notices == [.copiesMissing(sourceId: source.id, sourceName: "Obsidian", destinationName: "Cloud")])
-        #expect(result.runs.map(\.trigger) == [.catchUp])
+        #expect(result.notices.isEmpty)
+        #expect(result.runs.map(\.trigger) == [.scheduled])
         #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_101000"])
         #expect(try store.loadState().sourceState(source.id).lastSuccess == start.addingTimeInterval(600))
-        #expect(try store.loadState().deliveredCopyDate(sourceId: source.id, destinationId: cloud.id) == start.addingTimeInterval(600))
+        #expect(try store.loadState().newestCopyDate(sourceId: source.id, destinationId: cloud.id) == start.addingTimeInterval(600))
 
         time.advance(600)
         #expect(try await coordinator.tick() == TickResult())
     }
 
-    @Test func deletingOnlyTheLatestCopyIsNoticedToo() async throws {
-        defer { temp.remove() }
-        let source = vault([cloud])
-        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
-        _ = try await coordinator.tick()
-        time.advance(86_400)
-        _ = try await coordinator.tick()
-        try FileManager.default.removeItem(at: temp.path("cloud/obsidian/2026-09-29_100000"))
-
-        time.advance(600)
-        let result = try await coordinator.tick()
-        #expect(result.notices == [.copiesMissing(sourceId: source.id, sourceName: "Obsidian", destinationName: "Cloud")])
-        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000", "2026-09-29_101000"])
-    }
-
-    @Test func copiesMadeBeforeTrackingAreVerifiedThroughHistory() async throws {
-        defer { temp.remove() }
-        let source = vault([cloud])
-        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
-        _ = try await coordinator.tick()
-        var legacy = try store.loadState()
-        legacy.lastDelivered = [:]
-        try store.saveState(legacy)
-        try FileManager.default.removeItem(at: temp.path("cloud/obsidian"))
-
-        time.advance(600)
-        let result = try await coordinator.tick()
-        #expect(result.notices == [.copiesMissing(sourceId: source.id, sourceName: "Obsidian", destinationName: "Cloud")])
-    }
-
-    @Test func newlyAttachedDestinationGetsItsCopyRightAway() async throws {
+    @Test func newlyAttachedDestinationGetsAFreshCopyRightAway() async throws {
         defer { temp.remove() }
         var source = vault([cloud])
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
@@ -476,71 +366,11 @@ struct BackupCoordinatorTests {
         time.advance(600)
         let result = try await coordinator.tick()
         #expect(result.notices.isEmpty)
-        #expect(result.runs.map(\.trigger) == [.catchUp])
-        #expect(temp.names(in: "second/obsidian") == ["2026-09-28_100000"])
-        #expect(try String(contentsOf: temp.path("second/obsidian/2026-09-28_100000/a.md"), encoding: .utf8) == "alpha")
+        #expect(result.runs.map(\.trigger) == [.scheduled])
+        #expect(result.runs.first?.deliveries.map(\.destinationId) == [second.id])
+        #expect(temp.names(in: "second/obsidian") == ["2026-09-28_101000"])
+        #expect(try String(contentsOf: temp.path("second/obsidian/2026-09-28_101000/a.md"), encoding: .utf8) == "changed after the backup")
         #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000"])
-        #expect(try store.loadState().sourceState(source.id).lastRun == start)
-    }
-
-    @Test func diskThatMissedBackupsGetsTheNewestCopyFromAnotherDiskInsteadOfCollectingAgain() async throws {
-        defer { temp.remove() }
-        try store.saveConfig(Config(sources: [vault([cloud, disk])], destinations: [cloud, disk]))
-        _ = try await coordinator.tick()
-        time.advance(86_400)
-        try temp.file("vault/a.md", "second day")
-        _ = try await coordinator.tick()
-        try temp.file("vault/a.md", "changed later")
-
-        try temp.directory("hdd")
-        time.advance(600)
-        let result = try await coordinator.tick()
-        #expect(result.runs.map(\.trigger) == [.catchUp])
-        #expect(result.runs.first?.details == "Copied from “Cloud”")
-        #expect(result.runs.first?.copiedFrom == "Cloud")
-        #expect(temp.names(in: "hdd/obsidian") == ["2026-09-29_100000"])
-        #expect(try String(contentsOf: temp.path("hdd/obsidian/2026-09-29_100000/a.md"), encoding: .utf8) == "second day")
-        #expect(try store.loadState().debts.isEmpty)
-    }
-
-    @Test func deviceSourceGivenANewDiskLaterGetsItsCopyWithoutTheDevice() async throws {
-        defer { temp.remove() }
-        var source = pocketBook([cloud])
-        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
-        let book = try temp.file("PB/Books/book.epub", "epub")
-        #expect(try await coordinator.tick().runs.count == 1)
-        try FileManager.default.removeItem(at: book.deletingLastPathComponent().deletingLastPathComponent())
-
-        try temp.directory("hdd")
-        source.destinationIds.append(disk.id)
-        try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
-        time.advance(600)
-        let result = try await coordinator.tick()
-        #expect(result.runs.map(\.trigger) == [.catchUp])
-        #expect(temp.names(in: "hdd/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub"])
-        #expect(try store.loadState().debts.isEmpty)
-    }
-
-    @Test func deviceSourceWithNoCopyAnywhereKeepsOwingTheDiskUntilItsNextBackup() async throws {
-        defer { temp.remove() }
-        var source = pocketBook([cloud])
-        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
-        let book = try temp.file("PB/Books/book.epub", "epub")
-        #expect(try await coordinator.tick().runs.count == 1)
-        try FileManager.default.removeItem(at: book.deletingLastPathComponent().deletingLastPathComponent())
-        try FileManager.default.removeItem(at: temp.path("cloud/pocketbook"))
-
-        try temp.directory("hdd")
-        source.destinationIds.append(disk.id)
-        try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
-        time.advance(600)
-        #expect(try await coordinator.tick().runs.isEmpty)
-        #expect(Set(try store.loadState().debts.map(\.destinationId)) == [cloud.id, disk.id])
-
-        try temp.file("PB/Books/book.epub", "epub")
-        #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.pickup])
-        #expect(try store.loadState().debts.isEmpty)
-        #expect(temp.names(in: "hdd/pocketbook").count == 1)
     }
 
     private func claude(_ destinations: [Destination], command: String = #"cp "$BACKUP_INPUT_DIR"/manifest-a.json "$BACKUP_OUTPUT_DIR/archive.zip""#) -> Source {
@@ -568,7 +398,7 @@ struct BackupCoordinatorTests {
 
         #expect(result.runs.map(\.trigger) == [.pickup])
         #expect(result.runs.first?.firstFailure == nil)
-        #expect(temp.names(in: "cloud/claude/2026-09-28_100000") == ["_snapshot.json", "archive.zip"])
+        #expect(temp.names(in: "cloud/claude/2026-09-28_100000") == [".complete", "archive.zip"])
         #expect(temp.names(in: "Downloads").isEmpty)
         #expect(temp.names(in: "trash").sorted() == ["archive.zip", "manifest-a.json"])
         let state = try store.loadState().sourceState(source.id)
@@ -637,7 +467,7 @@ struct BackupCoordinatorTests {
         #expect(try store.loadState().sourceState(source.id).chain == nil)
     }
 
-    @Test func finishedChainCatchesUpAnUnpluggedDiskFromPending() async throws {
+    @Test func finishedChainDeliversItsPackageToAnUnpluggedDiskFromPending() async throws {
         defer { temp.remove() }
         let source = claude([cloud, disk])
         try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
@@ -645,15 +475,14 @@ struct BackupCoordinatorTests {
 
         _ = try await coordinator.tick()
         #expect(temp.names(in: "cloud/claude") == ["2026-09-28_100000"])
-        #expect(try store.loadState().debts.map(\.destinationId) == [disk.id])
         #expect(temp.names(in: "work/pending/\(source.id.uuidString)") == ["2026-09-28_100000"])
 
         time.advance(86_400)
         try temp.directory("hdd")
         let caughtUp = try await coordinator.tick()
-        #expect(caughtUp.runs.map(\.trigger) == [.catchUp])
+        #expect(caughtUp.runs.map(\.trigger) == [.pickup])
         #expect(temp.names(in: "hdd/claude") == ["2026-09-28_100000"])
-        #expect(try store.loadState().debts.isEmpty)
+        #expect(temp.names(in: "cloud/claude") == ["2026-09-28_100000"])
         #expect(!temp.exists("work/pending/\(source.id.uuidString)"))
     }
 
@@ -691,7 +520,7 @@ struct BackupCoordinatorTests {
         #expect(try await coordinator.tick().notices.isEmpty)
     }
 
-    @Test func finishedChainOwesItsPackageUntilItIsDelivered() async throws {
+    @Test func finishedChainKeepsItsPackageUntilItIsDelivered() async throws {
         defer { temp.remove() }
         let source = claude([cloud], command: #"mkdir "$BACKUP_OUTPUT_DIR/empty""#)
         try store.saveConfig(Config(sources: [source], destinations: [cloud]))
@@ -700,7 +529,6 @@ struct BackupCoordinatorTests {
         let result = try await coordinator.tick()
 
         #expect(result.runs.first?.collectError == SourceError.emptyResult.localizedDescription)
-        #expect(try store.loadState().debts.map(\.destinationId) == [cloud.id])
         #expect(temp.names(in: "work/pending/\(source.id.uuidString)") == ["2026-09-28_100000"])
     }
 
@@ -800,7 +628,7 @@ struct BackupCoordinatorTests {
         #expect(temp.names(in: "Downloads") == ["manifest-a.json"])
 
         #expect(try await coordinator.runNow(sourceId: source.id).runs.map(\.trigger) == [.pickup])
-        #expect(temp.names(in: "cloud/claude/2026-09-28_100000") == ["_snapshot.json", "archive.zip"])
+        #expect(temp.names(in: "cloud/claude/2026-09-28_100000") == [".complete", "archive.zip"])
         #expect(try store.loadState().sourceState(source.id).armedAt == nil)
     }
 
@@ -851,7 +679,7 @@ struct BackupCoordinatorTests {
         let plugged = try await coordinator.tick()
         #expect(plugged.runs.map(\.trigger) == [.pickup])
         #expect(events.get().contains(.canUnplug(sourceId: source.id, sourceName: "PocketBook")))
-        #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub"])
+        #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == [".complete", "book.epub"])
         #expect(try await coordinator.statusReport().overall == .ok)
     }
 
@@ -880,13 +708,12 @@ struct BackupCoordinatorTests {
         try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
         let book = try temp.file("PB/Books/book.epub", "epub")
         #expect(try await coordinator.tick().runs.count == 1)
-        #expect(try store.loadState().debts.map(\.destinationId) == [disk.id])
 
         try FileManager.default.removeItem(at: book.deletingLastPathComponent().deletingLastPathComponent())
         try temp.directory("hdd")
         time.advance(3600)
-        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
-        #expect(temp.names(in: "hdd/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub"])
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
+        #expect(temp.names(in: "hdd/pocketbook/2026-09-28_100000") == [".complete", "book.epub"])
         #expect(try await coordinator.statusReport().overall == .ok)
     }
 
@@ -912,7 +739,7 @@ struct BackupCoordinatorTests {
         let result = try await coordinator.tick()
         #expect(result.runs.map(\.trigger) == [.pickup])
         #expect(events.get().contains(.canUnplug(sourceId: source.id, sourceName: "PocketBook")))
-        #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == ["_snapshot.json", "book.epub", "notes.csv"])
+        #expect(temp.names(in: "cloud/pocketbook/2026-09-28_100000") == [".complete", "book.epub", "notes.csv"])
         #expect(temp.names(in: "trash").isEmpty)
     }
 
@@ -952,7 +779,7 @@ struct BackupCoordinatorTests {
 
         #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
         #expect(temp.names(in: "Downloads") == ["Passwords.csv"])
-        #expect(temp.names(in: "cloud/passwords/2026-09-28_100000") == ["Passwords.csv", "_snapshot.json"])
+        #expect(temp.names(in: "cloud/passwords/2026-09-28_100000") == [".complete", "Passwords.csv"])
         #expect(temp.names(in: "trash").isEmpty)
 
         time.advance(40 * 86_400)
@@ -1045,7 +872,7 @@ struct BackupCoordinatorTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path)
         time.advance(3600)
         #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
-        #expect(temp.names(in: "cloud/double/2026-09-28_110000") == ["_snapshot.json", "a.epub", "b.epub", "part-1.csv"])
+        #expect(temp.names(in: "cloud/double/2026-09-28_110000") == [".complete", "a.epub", "b.epub", "part-1.csv"])
     }
 
     @Test func unplugNoticeGoesOutBeforeDelivery() async throws {
@@ -1129,7 +956,47 @@ struct BackupCoordinatorTests {
 
         #expect(result.notices.isEmpty)
         #expect(result.runs.isEmpty)
-        #expect(try store.loadState().debts.isEmpty)
+    }
+
+    @Test func diskPluggedInLaterGetsItsOwnFreshCopy() async throws {
+        defer { temp.remove() }
+        try store.saveConfig(Config(sources: [vault([cloud, disk])], destinations: [cloud, disk]))
+        _ = try await coordinator.tick()
+        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000"])
+        #expect(!temp.exists("hdd"))
+        time.advance(3 * 86_400)
+        try temp.directory("hdd")
+        let result = try await coordinator.tick()
+        #expect(result.runs.count == 1)
+        #expect(temp.names(in: "hdd/obsidian") == ["2026-10-01_100000"])
+        #expect(temp.names(in: "cloud/obsidian") == ["2026-09-28_100000", "2026-10-01_100000"])
+    }
+
+    @Test func unpluggedDiskKeepsItsCacheAndRemindsAfterItsInterval() async throws {
+        defer { temp.remove() }
+        try temp.directory("hdd")
+        try store.saveConfig(Config(sources: [vault([disk])], destinations: [disk]))
+        _ = try await coordinator.tick()
+        try FileManager.default.moveItem(at: temp.path("hdd"), to: temp.path("hdd-unplugged"))
+        time.advance(10 * 86_400)
+        let early = try await coordinator.currentStatus()
+        #expect(early.state.newestCopyDate(sourceId: early.config.sources[0].id, destinationId: disk.id) == start)
+        #expect(!early.report.items.contains(.connectDestination(destinationId: disk.id)))
+        time.advance(21 * 86_400)
+        let late = try await coordinator.tick()
+        #expect(late.notices.contains { if case .connectDestination = $0 { true } else { false } })
+    }
+
+    @Test func nothingIsEverDeletedFromADestination() async throws {
+        defer { temp.remove() }
+        var source = vault([cloud])
+        source.retention = RetentionRules(daily: 1, weekly: 0, monthly: 0, yearly: 0)
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        for _ in 0..<3 {
+            _ = try await coordinator.tick()
+            time.advance(86_400)
+        }
+        #expect(temp.names(in: "cloud/obsidian").count == 3)
     }
 
     // MARK: Quitting the app
@@ -1189,12 +1056,13 @@ struct BackupCoordinatorTests {
     }
 
     /// The app began to quit while the package was being delivered: the delivery is not recorded, so the package stays
-    /// in pending for the debts that stay open, and the next launch delivers it again.
-    @Test func packageDeliveredWhileQuittingStaysForItsOpenDebts() async throws {
+    /// in pending, and the next launch delivers it again.
+    @Test func packageDeliveredWhileQuittingStaysInPending() async throws {
         defer { temp.remove() }
         let quit = FakeQuit()
         let runner = FakeProcessRunner { call in
-            try Data("zip".utf8).write(to: URL(fileURLWithPath: call.environment["BACKUP_OUTPUT_DIR"]!).appendingPathComponent("archive.zip"))
+            guard let output = call.environment["BACKUP_OUTPUT_DIR"] else { return ProcessResult(exitCode: 0) }
+            try Data("zip".utf8).write(to: URL(fileURLWithPath: output).appendingPathComponent("archive.zip"))
             quit.begin()
             return ProcessResult(exitCode: 0)
         }
@@ -1208,7 +1076,7 @@ struct BackupCoordinatorTests {
         #expect(result.runs.isEmpty)
         #expect(temp.names(in: "work/pending/\(source.id.uuidString)").count == 1)
         #expect(temp.names(in: "trash") == ["manifest-a.json"])
-        #expect(try store.loadState().debts.map(\.destinationId) == [cloud.id])
+        #expect(store.loadRuns().isEmpty)
     }
 }
 

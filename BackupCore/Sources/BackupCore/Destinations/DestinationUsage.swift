@@ -1,28 +1,32 @@
 import Darwin
 import Foundation
 
-/// How much disk space a folder really takes, as the file system reports it: data shared by APFS clones is counted once.
+/// How much disk space a folder really takes, as the file system reports it: data shared by APFS clones and hard links is counted once.
 public struct DestinationUsage {
     public init() {}
 
     public func bytes(under root: URL) throws -> Int64 {
-        guard (try? DirectoryNames.decodable(in: root.path)) != nil else { throw DestinationError.unavailable }
+        guard (try? DirectoryNames.decodable(in: root.path)) != nil else { throw DestinationError.notReady(.folderMissing) }
         var total: Int64 = 0
         var countedClones: Set<UInt64> = []
-        add(root.path, to: &total, countedClones: &countedClones)
+        var countedLinks: Set<String> = []
+        add(root.path, to: &total, countedClones: &countedClones, countedLinks: &countedLinks)
         return total
     }
 
     /// Folders that cannot be read and names that are not valid UTF-8 are skipped: the size is an estimate for showing.
-    private func add(_ directory: String, to total: inout Int64, countedClones: inout Set<UInt64>) {
+    private func add(_ directory: String, to total: inout Int64, countedClones: inout Set<UInt64>, countedLinks: inout Set<String>) {
         for name in (try? DirectoryNames.decodable(in: directory)) ?? [] {
             let path = directory + "/" + name
             var info = stat()
             guard lstat(path, &info) == 0 else { continue }
             switch info.st_mode & S_IFMT {
             case S_IFDIR:
-                add(path, to: &total, countedClones: &countedClones)
+                add(path, to: &total, countedClones: &countedClones, countedLinks: &countedLinks)
             case S_IFREG:
+                if info.st_nlink > 1 {
+                    guard countedLinks.insert("\(info.st_dev):\(info.st_ino)").inserted else { continue }
+                }
                 guard let space = FileSpace(path: path) else { continue }
                 if let clone = space.clone {
                     total += clone.privateBytes

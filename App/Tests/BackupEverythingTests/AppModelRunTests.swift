@@ -34,8 +34,8 @@ struct AppModelRunTests {
         #expect(model.nextDue(of: notes).map { $0 > Date() } == true)
     }
 
-    /// A run that delivered its copy nowhere is no backup: the row, the headline and the menu must not say all is well.
-    @Test func runThatReachedNoDestinationIsNotAllGood() async throws {
+    /// A source whose only destination can’t be reached gets no backup: the headline and the menu must not say all is well.
+    @Test func sourceWhoseOnlyDestinationIsUnreachableIsNotAllGood() async throws {
         let fixture = try ModelFixture()
         let disk = try fixture.disk(connected: false)
         var notes = try fixture.folderSource(to: [disk])
@@ -46,18 +46,12 @@ struct AppModelRunTests {
         await fixture.settle()
 
         let model = fixture.model
-        #expect(model.state.sourceState(notes.id).lastRun != nil)
         #expect(model.lastBackup(of: notes) == nil)
-        guard case let .outdated(shortfall) = model.status(of: notes) else {
-            Issue.record("expected no fresh copy, got \(model.status(of: notes))")
-            return
-        }
-        #expect(shortfall.noCopyAnywhere)
-        #expect(model.status(of: notes).severity == .attention)
+        #expect(await eventually { model.unavailableDestinations == [disk.id] })
         #expect(model.headline == "Needs your action")
         #expect(model.headlineSymbol == StatusStyle.symbol(.attention))
         #expect(!model.isAllGood)
-        #expect(model.menuLines.map(\.name).contains("Notes"))
+        #expect(model.menuLines.map(\.name).contains(disk.name))
     }
 
     @Test func nothingLooksFineBeforeTheFirstCheck() async throws {
@@ -65,21 +59,6 @@ struct AppModelRunTests {
         #expect(!fixture.model.hasReport)
         #expect(fixture.model.headline == "Checking…")
         #expect(!fixture.model.isAllGood)
-    }
-
-    @Test func copiesOfAnotherSourceInTheSameFolderAreNotShown() async throws {
-        let fixture = try ModelFixture()
-        let disk = try fixture.disk()
-        let notes = try fixture.folderSource(to: [disk])
-        try await fixture.use(Config(sources: [notes], destinations: [disk]))
-        await fixture.model.runNow(notes)
-
-        var namesake = try fixture.folderSource("Notes again", to: [disk])
-        namesake.slug = notes.slug
-        try await fixture.use(Config(sources: [namesake], destinations: [disk]))
-
-        #expect(await fixture.model.snapshots(of: namesake, in: disk).isEmpty)
-        #expect(await fixture.model.copies(in: disk)?[namesake.id]?.isEmpty ?? true)
     }
 
     @Test func copyCanBeListedOpenedAndMeasured() async throws {
@@ -105,14 +84,6 @@ struct AppModelRunTests {
         #expect(previews.first?.kept == [snapshot])
         #expect(previews.first?.doomed == [])
         #expect(previews.first?.id == disk.id)
-    }
-
-    @Test func cloudCopiesHaveNoFolderToOpen() throws {
-        let fixture = try ModelFixture()
-        let cloud = Destination(name: "Cloud", kind: .rclone(remote: "gdrive", path: "backups"))
-        let source = fixture.source("Notes", steps: [.folder("~/Notes")], to: [cloud])
-        let snapshot = Snapshot(name: "2026-10-02_10-00-00", date: Date())
-        #expect(fixture.model.localURL(of: snapshot, source: source, in: cloud) == nil)
     }
 
     @Test func runningBackupIsShownWithItsProgress() async throws {
@@ -202,6 +173,7 @@ struct AppModelRunTests {
         let disk = try fixture.disk()
         let downloads = try fixture.temp.folder("Downloads")
         let google = fixture.source("Google", steps: [.file("takeout-*.zip", in: downloads.path)], to: [disk], schedule: .monthly)
+        try fixture.copy(of: google, on: disk)
         try await fixture.use(Config(sources: [google], destinations: [disk]), state: .backedUp(google))
         let model = fixture.model
 
@@ -275,21 +247,6 @@ struct AppModelRunTests {
         let wake = try #require(await fixture.model.nextWake())
         #expect(wake > Date())
     }
-
-    @Test func rcloneRemotesAreListedWithoutTheTrailingColon() async throws {
-        let runner = FakeProcessRunner(result: ProcessResult(exitCode: 0, stdout: "gdrive:\nwork:\nplain\n"))
-        let fixture = try ModelFixture(runner: runner, rclone: RcloneLocator(candidates: ["/bin/sh"]))
-        #expect(fixture.model.isRcloneInstalled)
-        #expect(await fixture.model.rcloneRemotes() == ["gdrive", "work", "plain"])
-    }
-
-    @Test func rcloneErrorOrAbsenceGivesNoRemotes() async throws {
-        let failing = try ModelFixture(runner: FakeProcessRunner(result: ProcessResult(exitCode: 1, stderr: "config broken")), rclone: RcloneLocator(candidates: ["/bin/sh"]))
-        #expect(await failing.model.rcloneRemotes().isEmpty)
-        let missing = try ModelFixture(rclone: RcloneLocator(candidates: []))
-        #expect(!missing.model.isRcloneInstalled)
-        #expect(await missing.model.rcloneRemotes().isEmpty)
-    }
 }
 
 extension AppState {
@@ -302,7 +259,7 @@ extension AppState {
                 $0.lastSuccess = Date()
             }
             for destinationId in source.destinationIds {
-                state.recordDelivery(sourceId: source.id, destinationId: destinationId, snapshotName: nil, collectedAt: Date())
+                state.recordCopies(sourceId: source.id, destinationId: destinationId, [Snapshot(name: SnapshotNaming().name(for: Date()), date: Date())], seenAt: Date())
             }
         }
         return state

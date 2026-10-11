@@ -1,7 +1,7 @@
 import Foundation
 
 /// A result gathered with manual steps: it stays in pending until it is delivered to every destination. A delivery that
-/// ends while the app is quitting is not recorded, so its debts stay open: the package stays for the next launch to deliver.
+/// ends while the app is quitting is not recorded: the package stays for the next launch to deliver.
 public struct PendingSource: SourceProvider {
     private let sourceId: UUID
     private let trashAfterDelivery: Bool

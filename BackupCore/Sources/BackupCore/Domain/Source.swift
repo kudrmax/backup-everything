@@ -12,8 +12,6 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
     public var instructions: String
     public var icon: String?
     public var enabled: Bool
-    /// Unchanged files of a new copy are clones of earlier copies where the destination allows it.
-    public var savesSpace: Bool
     public var createdAt: Date
 
     public init(
@@ -28,7 +26,6 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         instructions: String = "",
         icon: String? = nil,
         enabled: Bool = true,
-        savesSpace: Bool = true,
         createdAt: Date
     ) {
         self.id = id
@@ -42,12 +39,11 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         self.instructions = instructions
         self.icon = icon
         self.enabled = enabled
-        self.savesSpace = savesSpace
         self.createdAt = createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, slug, steps, schedule, retention, destinationIds, description, instructions, icon, enabled, savesSpace, createdAt
+        case id, name, slug, steps, schedule, retention, destinationIds, description, instructions, icon, enabled, createdAt
         case kind
     }
 
@@ -63,7 +59,6 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         instructions = try container.decode(String.self, forKey: .instructions)
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
         enabled = try container.decode(Bool.self, forKey: .enabled)
-        savesSpace = try container.decodeIfPresent(Bool.self, forKey: .savesSpace) ?? true
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         if let steps = try container.decodeIfPresent([SourceStep].self, forKey: .steps) {
             self.steps = steps
@@ -86,7 +81,6 @@ public struct Source: Codable, Sendable, Equatable, Identifiable {
         try container.encode(instructions, forKey: .instructions)
         try container.encodeIfPresent(icon, forKey: .icon)
         try container.encode(enabled, forKey: .enabled)
-        try container.encode(savesSpace, forKey: .savesSpace)
         try container.encode(createdAt, forKey: .createdAt)
     }
 

@@ -28,8 +28,6 @@ public struct OutdatedCopies: Sendable, Equatable {
 public enum AttentionItem: Sendable, Equatable {
     case runFailed(sourceId: UUID, message: String)
     case copiesOutdated(sourceId: UUID, OutdatedCopies)
-    /// The copy was delivered, but something after it went wrong and stays so: old copies were not cleaned up.
-    case deliveryWarning(sourceId: UUID, message: String)
     case severelyOverdue(sourceId: UUID)
     case manualExportDue(sourceId: UUID)
     case filesAwaitingPickup(sourceId: UUID, fileCount: Int, totalBytes: Int64, downloadInProgress: Bool)
@@ -81,7 +79,7 @@ public struct StatusReport: Sendable, Equatable {
 extension AttentionItem {
     public var sourceId: UUID? {
         switch self {
-        case let .runFailed(sourceId, _), let .copiesOutdated(sourceId, _), let .deliveryWarning(sourceId, _),
+        case let .runFailed(sourceId, _), let .copiesOutdated(sourceId, _),
              let .severelyOverdue(sourceId), let .manualExportDue(sourceId), let .waitingForFile(sourceId),
              let .deviceDue(sourceId), let .waitingForDevice(sourceId), let .filesAwaitingPickup(sourceId, _, _, _),
              let .noDestinations(sourceId):
@@ -107,7 +105,6 @@ public struct StatusReporter: Sendable {
         inboxScans: [UUID: InboxScan],
         missingDevices: Set<UUID> = []
     ) -> StatusReport {
-        let state = state.pausingDisabledSources(of: config)
         var items: [AttentionItem] = []
         var fresh: Set<UUID> = []
         var expected: Set<UUID> = []
@@ -118,12 +115,13 @@ public struct StatusReporter: Sendable {
                 items.append(.noDestinations(sourceId: source.id))
                 continue
             }
-            let copies = destinations.map { state.deliveredCopyDate(sourceId: source.id, destinationId: $0.id) }
+            let newest = { (id: UUID) in state.newestCopyDate(sourceId: source.id, destinationId: id) }
+            let copies = destinations.map { newest($0.id) }
             let newestCopy = copies.compactMap { $0 }.max()
             if sourceState.lastRun != nil || newestCopy != nil {
                 expected.insert(source.id)
                 let outdated = zip(destinations, copies)
-                    .filter { !planner.isCopyFresh(source, on: $0, copiedAt: $1, state: state, now: now) }
+                    .filter { !planner.isCopyFresh(source, on: $0, copiedAt: $1, now: now) }
                     .map(\.0.id)
                 if outdated.isEmpty {
                     fresh.insert(source.id)
@@ -140,38 +138,27 @@ public struct StatusReporter: Sendable {
             if let message = (heldBack == nil ? sourceState.chain?.failure : nil) ?? sourceState.lastError {
                 items.append(.runFailed(sourceId: source.id, message: message))
             }
-            let warnings = state.deliveryWarnings(of: source)
-            if !warnings.isEmpty {
-                items.append(.deliveryWarning(sourceId: source.id, message: warnings.joined(separator: " ")))
-            }
-            if planner.isSeverelyOverdue(source, on: destinations, state: state, now: now) {
+            if planner.isSeverelyOverdue(source, on: destinations, newest: newest, hasRun: sourceState.lastRun != nil, now: now) {
                 items.append(.severelyOverdue(sourceId: source.id))
             }
             guard source.needsHuman else { continue }
             if let heldBack {
-                items.append(.filesAwaitingPickup(
-                    sourceId: source.id,
-                    fileCount: heldBack.files.count,
-                    totalBytes: heldBack.totalBytes,
-                    downloadInProgress: true
-                ))
+                items.append(.filesAwaitingPickup(sourceId: source.id, fileCount: heldBack.files.count, totalBytes: heldBack.totalBytes, downloadInProgress: true))
                 continue
             }
-            items.append(contentsOf: humanStepItems(
-                source,
-                state: sourceState,
-                scan: scan,
-                deviceMissing: missingDevices.contains(source.id),
-                now: now
-            ))
+            items.append(contentsOf: humanStepItems(source, state: sourceState, scan: scan, deviceMissing: missingDevices.contains(source.id), now: now))
         }
         for destination in config.destinations where unavailableDestinations.contains(destination.id) {
-            guard !state.debts(forDestination: destination.id).isEmpty else { continue }
+            let users = config.sources.filter { $0.enabled && $0.destinationIds.contains(destination.id) }
+            guard !users.isEmpty else { continue }
             switch destination.expectedEvery {
             case .always:
                 items.append(.destinationUnavailable(destinationId: destination.id))
             case .days:
-                if let deadline = planner.connectDeadline(for: destination, state: state), deadline <= now {
+                let deadlines = users.map { source in
+                    planner.connectDeadline(for: destination, newestCopy: state.newestCopyDate(sourceId: source.id, destinationId: destination.id)) ?? now
+                }
+                if let earliest = deadlines.min(), earliest <= now {
                     items.append(.connectDestination(destinationId: destination.id))
                 }
             }

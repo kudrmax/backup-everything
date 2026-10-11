@@ -25,15 +25,13 @@ final class AppModel {
     private(set) var problem: String?
     private(set) var activity = ActivityTracker()
     private(set) var unavailableDestinations: Set<UUID> = []
-    /// Folders on external disks: whether the disk connected there is the confirmed one.
-    private(set) var diskChecks: [UUID: DiskCheck] = [:]
+    /// Whether each destination folder is set up for the backup account.
+    private(set) var readiness: [UUID: DestinationReadiness] = [:]
     /// Folders that are not there although their disk is.
     private(set) var missingFolders: [UUID: MissingFolder] = [:]
     /// How much space the copies take in each destination; measured in the background while no backups run.
     /// For a disconnected disk, the size from the last time it was connected.
     private(set) var destinationUsage: [UUID: Int64]
-    /// Whether copies in each destination can share unchanged files, as of the last time it was connected.
-    private(set) var destinationSharing: [UUID: Bool]
     private(set) var waitingPackages: [UUID: Int64] = [:]
     private(set) var freeSpace: Int64?
     @ObservationIgnored private var lastSpaceCheck = Date.distantPast
@@ -54,10 +52,7 @@ final class AppModel {
     @ObservationIgnored private var iconCache: [String: NSImage] = [:]
     @ObservationIgnored private let workDirectory: URL
     @ObservationIgnored private let coordinator: BackupCoordinator
-    @ObservationIgnored private let stores: DefaultDestinationStoreFactory
-    @ObservationIgnored private let runner: any ProcessRunner
-    @ObservationIgnored private let rclone: RcloneLocator
-    @ObservationIgnored private let disks: any DiskLocating
+    @ObservationIgnored private let stores: any DestinationStoreFactory
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let finder: any FileRevealing
     @ObservationIgnored private let trash: ManualExportInbox.Trash
@@ -71,21 +66,18 @@ final class AppModel {
         dataDirectory: URL,
         workDirectory: URL,
         runner: any ProcessRunner = SystemProcessRunner(),
-        rclone: RcloneLocator = RcloneLocator(),
         defaults: UserDefaults = .standard,
         finder: any FileRevealing = WorkspaceFinder(),
-        disks: any DiskLocating = SystemDisks(),
+        access: any DestinationAccess = SystemDestinationAccess(),
+        receiver: ReceiverCommand? = .standard,
+        rsync: URL = RsyncTransfer.homebrewRsync,
         trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     ) {
         store = Store(dataDirectory: dataDirectory)
-        self.runner = runner
-        self.rclone = rclone
-        self.disks = disks
         self.defaults = defaults
         self.finder = finder
         self.trash = trash
         destinationUsage = Self.rememberedUsage(in: defaults)
-        destinationSharing = Self.rememberedSharing(in: defaults)
         icons = IconStore(directory: store.iconsDirectory)
         self.workDirectory = workDirectory
         let (events, feed) = AsyncStream.makeStream(of: ActivityEvent.self)
@@ -95,12 +87,17 @@ final class AppModel {
             dataDirectory: dataDirectory,
             workDirectory: workDirectory,
             runner: runner,
-            rclone: rclone,
-            disks: disks,
+            rsync: rsync,
+            receiver: receiver,
+            access: access,
             trash: trash,
             progress: { feed.yield(.progress($0)) }
         )
-        stores = DefaultDestinationStoreFactory(runner: runner, rclone: rclone, naming: SnapshotNaming(), disks: disks)
+        stores = DefaultDestinationStoreFactory(
+            naming: SnapshotNaming(),
+            access: access,
+            transfer: RsyncTransfer(rsync: rsync, receiver: receiver, runner: runner, scratch: CoreAssembly.scratchDirectory(in: workDirectory))
+        )
         var calendar = Calendar(identifier: .iso8601)
         calendar.timeZone = .current
         planner = SchedulePlanner(calendar: calendar)
@@ -115,7 +112,7 @@ final class AppModel {
             checked: latestReport,
             running: activity.active,
             unavailable: unavailableDestinations,
-            disks: diskChecks,
+            readiness: readiness,
             missingFolders: missingFolders,
             runs: runs
         )
@@ -137,7 +134,6 @@ final class AppModel {
     /// “All good” is said only when the check proved a fresh copy of every source that should have one and nothing is shown.
     var isAllGood: Bool { snapshot.isAllGood }
     var isFirstLaunch: Bool { config.destinations.isEmpty }
-    var isRcloneInstalled: Bool { rclone.find() != nil }
 
     func prepare() {
         do {
@@ -282,35 +278,6 @@ final class AppModel {
         await edit { self.editor.save(destination, in: &$0) }?.destination(destination.id)
     }
 
-    /// Remembers the disk connected at the destination’s folder as its disk. The destination as written, or nil if there
-    /// is no disk to confirm or the settings could not be written.
-    @discardableResult
-    func confirmConnectedDisk(for destination: Destination) async -> Destination? {
-        var confirmed = config.destination(destination.id) ?? destination
-        let check = await stores.store(for: confirmed).diskCheck()
-        if case let .unidentified(name) = check { problem = DiskTexts.unreadable(name) }
-        guard let disk = check.connectedDisk else { return nil }
-        confirmed.disk = disk
-        return await save(confirmed)
-    }
-
-    func diskLocation(ofFolder path: String) -> DiskLocation {
-        disks.location(of: AppPaths.expand(path))
-    }
-
-    /// The disk connected at the folder, to be taken as the destination’s disk; nil when there is none or its ID could not be read.
-    func readConnectedDisk(atFolder path: String) -> DiskIdentity? {
-        switch diskLocation(ofFolder: path) {
-        case let .connected(disk):
-            return disk
-        case let .unidentified(name):
-            problem = DiskTexts.unreadable(name)
-            return nil
-        case .systemDisk, .notConnected:
-            return nil
-        }
-    }
-
     @discardableResult
     func delete(_ destination: Destination) async -> Bool {
         await edit { self.editor.removeDestination(destination.id, from: &$0) } != nil
@@ -328,9 +295,9 @@ final class AppModel {
         snapshot.status(of: source, lastBackup: lastBackup(of: source))
     }
 
-    /// When the newest copy of the source that is still known to be on one of its destinations was collected.
+    /// When the newest copy of the source seen on one of its destinations was collected.
     func lastBackup(of source: Source) -> Date? {
-        source.destinationIds.compactMap { state.deliveredCopyDate(sourceId: source.id, destinationId: $0) }.max()
+        source.destinationIds.compactMap { state.newestCopyDate(sourceId: source.id, destinationId: $0) }.max()
     }
 
     func delivery(of source: Source, to destination: Destination) -> DeliveryState {
@@ -396,45 +363,20 @@ final class AppModel {
         return nil
     }
 
-    private var activeState: AppState {
-        state.pausingDisabledSources(of: config)
-    }
-
     func lastSize(of source: Source) -> Int64? {
         runs.first { $0.sourceId == source.id && $0.totalBytes != nil }?.totalBytes
     }
 
-    func isWaiting(_ source: Source, for destination: Destination) -> Bool {
-        state.debts.contains { $0.sourceId == source.id && $0.destinationId == destination.id }
-    }
-
-    /// The missed backup exists on another disk of the source.
-    func isCoveredElsewhere(_ source: Source, for destination: Destination) -> Bool {
-        state.debts.first { $0.sourceId == source.id && $0.destinationId == destination.id }?.elsewhere ?? true
-    }
-
-    /// Other disks of the source that hold its copy.
-    func otherCopies(of source: Source, besides destination: Destination) -> [Destination] {
-        config.destinations(of: source).filter { other in
-            other.id != destination.id && state.lastDeliveredSnapshot(sourceId: source.id, destinationId: other.id) != nil
-        }
-    }
-
-    /// When a “from time to time” disk will be asked to connect; `nil` means nothing is owed to it.
+    /// When a “from time to time” disk will be asked to connect: its interval after the oldest of the newest copies on it.
     func connectDeadline(of destination: Destination) -> Date? {
-        planner.connectDeadline(for: destination, state: activeState)
-    }
-
-    func waitingSources(for destination: Destination) -> [Source] {
-        state.debts(forDestination: destination.id).compactMap { config.source($0.sourceId) }
+        config.sources
+            .filter { $0.enabled && $0.destinationIds.contains(destination.id) }
+            .compactMap { planner.connectDeadline(for: destination, newestCopy: state.newestCopyDate(sourceId: $0.id, destinationId: destination.id)) }
+            .min()
     }
 
     func condition(of destination: Destination) -> DestinationCondition {
         snapshot.condition(of: destination)
-    }
-
-    func lastCaughtUp(_ destination: Destination) -> Date? {
-        state.destinationState(destination.id).lastCaughtUp
     }
 
     func isAvailable(_ destination: Destination) async -> Bool {
@@ -446,7 +388,7 @@ final class AppModel {
     }
 
     func snapshots(of source: Source, in destination: Destination) async -> [Snapshot] {
-        let snapshots = (try? await stores.store(for: destination).copies(of: source)) ?? []
+        let snapshots = (try? await stores.store(for: destination).copies(of: source.slug)) ?? []
         return snapshots.sorted { $0.date > $1.date }
     }
 
@@ -494,26 +436,13 @@ final class AppModel {
         }
     }
 
-    /// The disk is checked again right before opening: a folder of the same path on another disk is not the copy.
     func openCopy(_ place: CopyPlace) async {
         guard let folder = place.folder else { return }
-        if let reason = DiskTexts.copyUnavailable(await stores.store(for: place.destination).diskCheck()) {
-            problem = "Can’t open the copy in “\(place.destination.name)”: \(reason.prefix(1).lowercased() + reason.dropFirst())."
-            return
-        }
         reveal(folder)
     }
 
     func localURL(of snapshot: Snapshot, source: Source, in destination: Destination) -> URL? {
-        guard case let .localFolder(path) = destination.kind else { return nil }
-        return AppPaths.expand(path).appendingPathComponent(source.slug).appendingPathComponent(snapshot.name)
-    }
-
-    func rcloneRemotes() async -> [String] {
-        guard let executable = rclone.find(),
-              let result = try? await runner.run(executable: executable, arguments: ["listremotes"], environment: [:], timeout: 15),
-              result.exitCode == 0 else { return [] }
-        return result.stdout.split(separator: "\n").map { $0.hasSuffix(":") ? String($0.dropLast()) : String($0) }
+        try? stores.store(for: destination).url(of: snapshot, sourceSlug: source.slug)
     }
 
     // MARK: Private
@@ -553,15 +482,11 @@ final class AppModel {
         let work = workDirectory
         Task {
             var usage = destinationUsage.filter { id, _ in destinations.contains { $0.id == id } }
-            var sharing = destinationSharing.filter { id, _ in destinations.contains { $0.id == id } }
             for destination in destinations {
                 let store = stores.store(for: destination)
-                if let canShare = await store.canShareUnchangedFiles() { sharing[destination.id] = canShare }
                 guard await store.isAvailable(), let bytes = try? await store.usedBytes() else { continue }
                 usage[destination.id] = bytes
             }
-            destinationSharing = sharing
-            defaults.set(Dictionary(uniqueKeysWithValues: sharing.map { ($0.key.uuidString, $0.value) }), forKey: Self.sharingKey)
             let measured = await Task.detached { () -> ([UUID: Int64], Int64?) in
                 var waiting: [UUID: Int64] = [:]
                 let names = (try? FileManager.default.contentsOfDirectory(atPath: pending.path)) ?? []
@@ -580,13 +505,6 @@ final class AppModel {
     }
 
     private static let usageKey = "destinationUsage"
-    private static let sharingKey = "destinationSharing"
-
-    private static func rememberedSharing(in defaults: UserDefaults) -> [UUID: Bool] {
-        let stored = defaults.dictionary(forKey: sharingKey) as? [String: Bool] ?? [:]
-        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
-    }
-
     private static func rememberedUsage(in defaults: UserDefaults) -> [UUID: Int64] {
         let stored = defaults.dictionary(forKey: usageKey) as? [String: Int64] ?? [:]
         return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
@@ -596,16 +514,15 @@ final class AppModel {
         let destinations = config.destinations
         Task {
             var unavailable: Set<UUID> = []
-            var checks: [UUID: DiskCheck] = [:]
+            var found: [UUID: DestinationReadiness] = [:]
             var missing: [UUID: MissingFolder] = [:]
             for destination in destinations {
-                let store = stores.store(for: destination)
-                let check = await store.diskCheck()
-                checks[destination.id] = check
-                missing[destination.id] = Self.missingFolder(of: destination, check: check)
-                if !(await store.isAvailable()) { unavailable.insert(destination.id) }
+                let destinationReadiness = await stores.store(for: destination).readiness()
+                found[destination.id] = destinationReadiness
+                missing[destination.id] = Self.missingFolder(of: destination, readiness: destinationReadiness)
+                if destinationReadiness != .ready { unavailable.insert(destination.id) }
             }
-            diskChecks = checks
+            readiness = found
             missingFolders = missing
             let connected = Set(destinations.map(\.id)).subtracting(unavailable)
             let justConnected = !connected.subtracting(lastConnected).isEmpty
@@ -615,10 +532,14 @@ final class AppModel {
         }
     }
 
-    private static func missingFolder(of destination: Destination, check: DiskCheck) -> MissingFolder? {
-        guard check.allowsAccess, case let .localFolder(path) = destination.kind,
-              !FileManager.default.fileExists(atPath: AppPaths.expand(path).path) else { return nil }
-        return MissingFolder(path: path, disk: check == .confirmed ? destination.disk?.name : nil)
+    /// A folder on a disk that is not connected is not missing: the whole disk is.
+    private static func missingFolder(of destination: Destination, readiness: DestinationReadiness) -> MissingFolder? {
+        guard readiness == .folderMissing else { return nil }
+        let components = AppPaths.expand(destination.path).standardizedFileURL.pathComponents
+        if components.count > 2, components[1] == "Volumes", !FileManager.default.fileExists(atPath: "/Volumes/" + components[2]) {
+            return nil
+        }
+        return MissingFolder(path: destination.path)
     }
 
     private func handle(_ event: ActivityEvent) {

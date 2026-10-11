@@ -101,9 +101,7 @@ struct DraftTests {
 
     @Test func destinationDraftRoundTrips() {
         let disk = Destination(name: "HDD", kind: .localFolder(path: "/Volumes/HDD/Backups"), expectedEvery: .days(30))
-        let cloud = Destination(name: "Cloud", kind: .rclone(remote: "gdrive", path: "backups"))
         #expect(DestinationDraft(disk).build() == disk)
-        #expect(DestinationDraft(cloud).build() == cloud)
     }
 
     @Test func destinationDraftExplainsWhatIsMissing() {
@@ -111,9 +109,7 @@ struct DraftTests {
         #expect(draft.problem == "Enter a name.")
         draft.name = "HDD"
         #expect(draft.problem == "Choose a folder.")
-        draft.typeChoice = .rclone
-        #expect(draft.problem == "Choose a connected cloud.")
-        draft.remote = "gdrive"
+        draft.path = "/Volumes/HDD/Backups"
         #expect(draft.problem == nil)
         draft.isPeriodic = true
         draft.days = 0

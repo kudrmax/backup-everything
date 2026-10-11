@@ -105,7 +105,7 @@ struct DomainTests {
 
     @Test func configRoundTripsThroughJSON() throws {
         let disk = Destination(name: "HDD", kind: .localFolder(path: "/Volumes/HDD/Backups"), expectedEvery: .days(30))
-        let cloud = Destination(name: "Cloud", kind: .rclone(remote: "gdrive", path: "backups"))
+        let cloud = Destination(name: "Cloud", kind: .localFolder(path: "/Users/max/Cloud/Backups"))
         let config = Config(
             sources: [
                 Fixtures.source(name: "Obsidian", steps: [.folder("~/Obsidian", excludes: [".trash"])], destinations: [disk, cloud]),
@@ -120,6 +120,31 @@ struct DomainTests {
         )
         let data = try JSONCoding.encoder().encode(config)
         #expect(try JSONCoding.decoder().decode(Config.self, from: data) == config)
+    }
+
+    @Test func destinationOfAnEarlierVersionDropsItsDisk() throws {
+        let id = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let json = #"{"id":"\#(id.uuidString)","name":"HDD","kind":{"localFolder":{"path":"/Volumes/HDD/Backups"}},"expectedEvery":{"days":{"_0":30}},"disk":{"uuid":"ABC","name":"HDD"}}"#
+        let destination = try JSONCoding.decoder().decode(Destination.self, from: Data(json.utf8))
+        #expect(destination == Destination(id: id, name: "HDD", kind: .localFolder(path: "/Volumes/HDD/Backups"), expectedEvery: .days(30)))
+        #expect(destination.path == "/Volumes/HDD/Backups")
+        let written = String(decoding: try JSONCoding.encoder(pretty: false).encode(destination), as: UTF8.self)
+        #expect(!written.contains("disk"))
+        #expect(written.contains(#""kind":{"localFolder":{"path":"/Volumes/HDD/Backups"}}"#))
+    }
+
+    @Test func cloudDestinationIsRefusedWithAReason() {
+        let json = #"{"id":"00000000-0000-0000-0000-000000000003","name":"Drive","kind":{"rclone":{"remote":"gdrive","path":"backups"}},"expectedEvery":{"always":{}}}"#
+        #expect(throws: DecodingError.self) { try JSONCoding.decoder().decode(Destination.self, from: Data(json.utf8)) }
+    }
+
+    @Test func sourceOfAnEarlierVersionIgnoresSavesSpace() throws {
+        let source = Fixtures.source(name: "Obsidian")
+        var json = try JSONSerialization.jsonObject(with: JSONCoding.encoder().encode(source)) as! [String: Any]
+        #expect(json["savesSpace"] == nil)
+        json["savesSpace"] = false
+        let data = try JSONSerialization.data(withJSONObject: json)
+        #expect(try JSONCoding.decoder().decode(Source.self, from: data) == source)
     }
 
     @Test func stepsHaveReadableJSONShape() throws {
@@ -137,7 +162,7 @@ struct DomainTests {
             .command("echo hi", timeoutSeconds: 60),
             .folder("/Volumes/PB/Books", excludes: [".cache"]),
         ])
-        source.savesSpace = false
+        source.enabled = false
         #expect(try JSONCoding.decoder().decode(Source.self, from: JSONCoding.encoder().encode(source)) == source)
     }
 
@@ -151,7 +176,6 @@ struct DomainTests {
         let folder = try legacy(#"{"folder":{"path":"~/Obsidian","excludes":[".trash"]}}"#)
         #expect(folder.steps.map(\.kind) == [.folder(path: "~/Obsidian", excludes: [".trash"])])
         #expect(folder.instructions == "how to export")
-        #expect(folder.savesSpace)
 
         let command = try legacy(#"{"command":{"command":"gh repo list","timeoutSeconds":600}}"#)
         #expect(command.steps.map(\.kind) == [.command(command: "gh repo list", timeoutSeconds: 600)])

@@ -7,8 +7,6 @@ public enum Notice: Sendable, Equatable {
     /// `onlyCopyOf` — sources whose missed backup exists nowhere else.
     case connectDestination(destinationId: UUID, destinationName: String, onlyCopyOf: [String])
     case runFailed(sourceId: UUID, sourceName: String, message: String)
-    case destinationCaughtUp(destinationId: UUID, destinationName: String)
-    case copiesMissing(sourceId: UUID, sourceName: String, destinationName: String)
 }
 
 public struct TickResult: Sendable, Equatable {

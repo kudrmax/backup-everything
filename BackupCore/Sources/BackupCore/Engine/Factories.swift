@@ -44,24 +44,20 @@ public struct DefaultSourceProviderFactory: SourceProviderFactory {
 }
 
 public struct DefaultDestinationStoreFactory: DestinationStoreFactory {
-    private let runner: any ProcessRunner
-    private let rclone: RcloneLocator
     private let naming: SnapshotNaming
-    private let disks: any DiskLocating
+    private let access: any DestinationAccess
+    private let transfer: RsyncTransfer
 
-    public init(runner: any ProcessRunner, rclone: RcloneLocator, naming: SnapshotNaming, disks: any DiskLocating = SystemDisks()) {
-        self.runner = runner
-        self.rclone = rclone
+    public init(naming: SnapshotNaming, access: any DestinationAccess, transfer: RsyncTransfer) {
         self.naming = naming
-        self.disks = disks
+        self.access = access
+        self.transfer = transfer
     }
 
     public func store(for destination: Destination) -> any DestinationStore {
         switch destination.kind {
         case let .localFolder(path):
-            LocalFolderDestination(root: Paths.url(path), naming: naming, expectedDisk: destination.disk, disks: disks)
-        case let .rclone(remote, path):
-            RcloneDestination(executable: rclone.find(), remote: remote, path: path, runner: runner, naming: naming)
+            LocalFolderDestination(root: Paths.url(path), naming: naming, access: access, transfer: transfer)
         }
     }
 }

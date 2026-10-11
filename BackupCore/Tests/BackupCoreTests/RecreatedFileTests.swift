@@ -10,7 +10,6 @@ struct RecreatedFileTests {
     private let temp: TempDirectory
     private let date = Fixtures.date("2026-09-28 14:30:00")
     private let name = "2026-09-28_143000"
-    private let sourceId = UUID()
 
     init() throws {
         temp = try TempDirectory()
@@ -18,10 +17,6 @@ struct RecreatedFileTests {
 
     private func listing() throws -> PayloadListing {
         try PayloadWalker().listing(of: Payload(root: temp.path("vault"), collectedAt: date))
-    }
-
-    private func manifest() -> SnapshotManifest {
-        SnapshotManifest(sourceId: sourceId, sourceName: "Anki", collectedAt: date, fileCount: 0, totalBytes: 0)
     }
 
     private func content(_ relative: String) -> String? {
@@ -37,14 +32,14 @@ struct RecreatedFileTests {
         let listing = try listing()
         try FileManager.default.removeItem(at: temp.path("vault/c.md-journal"))
         try FileManager.default.removeItem(at: temp.path("vault/sub/lock"))
-        let writer = SnapshotWriter(cloning: APFSCloning(), beforeReadingBack: { [temp] in
-            _ = try? temp.file("vault/c.md-journal", "a new journal")
-            _ = try? temp.file("vault/sub/lock", "lock")
-        })
+        let copy = try temp.directory("copy")
+        let written = try PayloadCopier().copy(listing, into: copy.path)
+        try temp.file("vault/c.md-journal", "a new journal")
+        try temp.file("vault/sub/lock", "lock")
 
-        let written = try writer.write(listing, into: try temp.directory("copy"), sharingWith: nil)
+        let vanished = try written.check(in: copy.path)
 
-        #expect(written.files.map(\.path) == ["a.md", "sub/b.md"])
+        #expect(Set(vanished.map(\.relativePath)) == ["c.md-journal", "sub/lock"])
         #expect(temp.names(in: "copy") == ["a.md", "sub"])
         #expect(temp.names(in: "copy/sub") == ["b.md"])
     }
@@ -76,16 +71,14 @@ struct RecreatedFileTests {
         defer { temp.remove() }
         try temp.file("vault/same-size", "alpha")
         try temp.file("vault/other-size", "beta")
-        let writer = SnapshotWriter(cloning: APFSCloning(), beforeReadingBack: { [temp] in
-            try? FileManager.default.removeItem(at: temp.path("vault/same-size"))
-            try? FileManager.default.removeItem(at: temp.path("vault/other-size"))
-            _ = try? temp.file("vault/same-size", "omega")
-            _ = try? temp.file("vault/other-size", "a longer one")
-        })
+        let copy = try temp.directory("copy")
+        let written = try PayloadCopier().copy(try listing(), into: copy.path)
+        try FileManager.default.removeItem(at: temp.path("vault/same-size"))
+        try FileManager.default.removeItem(at: temp.path("vault/other-size"))
+        try temp.file("vault/same-size", "omega")
+        try temp.file("vault/other-size", "a longer one")
 
-        let written = try writer.write(try listing(), into: try temp.directory("copy"), sharingWith: nil)
-
-        #expect(written.files.map(\.path) == ["other-size", "same-size"])
+        #expect(try written.check(in: copy.path).isEmpty)
         #expect(content("copy/same-size") == "alpha")
         #expect(content("copy/other-size") == "beta")
     }
@@ -122,59 +115,28 @@ struct RecreatedFileTests {
         try FileManager.default.removeItem(at: temp.path("vault/a.md"))
         try temp.file("vault/a.md", "alpha")
 
-        #expect(throws: DestinationError.missingFromCopy(copy.path + "/a.md")) { try written.check(in: copy.path) }
-    }
-
-    /// The file goes once the source is listed, before anything is copied, and is back before the copy is checked.
-    @Test func destinationFinishesTheCopyWithoutAFileRecreatedDuringIt() async throws {
-        defer { temp.remove() }
-        for index in 0..<5 { try temp.file("vault/d\(index)/f\(index).txt", "file \(index)") }
-        let journal = temp.path("vault/d1/f1.txt")
-        var destination = LocalFolderDestination(root: try temp.directory("disk"), naming: Fixtures.naming)
-        destination.afterWritingItem = { path in
-            if path.hasSuffix("/" + SnapshotManifest.unfinishedMarker) { try? FileManager.default.removeItem(at: journal) }
-            if path.hasSuffix("/d4/f4.txt") { try? Data("file 1".utf8).write(to: journal) }
-        }
-
-        let written = try await destination.write(
-            Payload(root: temp.path("vault"), collectedAt: date),
-            manifest: manifest(),
-            sourceSlug: "anki",
-            snapshotName: name,
-            reusingStoredFiles: true
-        )
-
-        #expect(written == PayloadStats(fileCount: 4, totalBytes: 24))
-        #expect(temp.exists("vault/d1/f1.txt"))
-        #expect(!temp.exists("disk/anki/\(name)/d1/f1.txt"))
-        #expect(try await destination.listSnapshots(sourceSlug: "anki").map(\.name) == [name])
+        #expect(throws: CopyError.missingFromCopy(copy.path + "/a.md")) { try written.check(in: copy.path) }
     }
 
     /// A real live folder: files keep vanishing and coming back under the same names while copies are written — created
-    /// anew (journals, lock files) or moved away and back (the same file returns, grown), at random sizes. Every copy is finished.
+    /// anew (journals, lock files) or moved away and back (the same file returns, grown), at random sizes. Every copy passes its check.
     @Test(arguments: [Churn.Style.recreate, .moveAway])
     func copiesOfAFolderThatKeepsRecreatingItsFilesAreFinished(_ style: Churn.Style) async throws {
         defer { temp.remove() }
         for index in 0..<200 { try temp.file("vault/notes/n\(index).md", String(repeating: "n", count: index * 37)) }
         for index in 0..<10 { try temp.file("vault/live/tmp-\(index).tmp", "x") }
-        let destination = LocalFolderDestination(root: try temp.directory("disk"), naming: Fixtures.naming)
         let churn = Churn(style, folder: temp.path("vault/live"), aside: try temp.directory("aside"))
         churn.start()
         defer { churn.stop() }
 
         for attempt in 0..<12 {
-            try await destination.write(
-                Payload(root: temp.path("vault"), collectedAt: date),
-                manifest: manifest(),
-                sourceSlug: "anki",
-                snapshotName: String(format: "2026-09-28_1430%02d", attempt),
-                reusingStoredFiles: attempt.isMultiple(of: 2)
-            )
+            let copy = try temp.directory("copies/\(attempt)")
+            try PayloadCopier().copy(try listing(), into: copy.path).check(in: copy.path)
         }
 
         churn.stop()
         #expect(churn.cycles > 100)
-        #expect(try await destination.listSnapshots(sourceSlug: "anki").count == 12)
+        #expect(temp.names(in: "copies").count == 12)
     }
 }
 

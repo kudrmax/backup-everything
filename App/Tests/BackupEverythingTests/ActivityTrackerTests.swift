@@ -42,26 +42,27 @@ struct ActivityTrackerTests {
         #expect(Texts.stage(.delivering(destinationId: disk), destinationName: "HDD") == "copying to “HDD”…")
     }
 
-    /// A destination that is owed a copy shows the debt whatever the check said: red when the last write failed.
-    @Test func deliveryStateShowsADebtBeforeTheCheck() {
+    /// A destination without a fresh copy shows red when the last write there failed.
+    @Test func deliveryStateShowsAFailedWriteOfAMissingCopy() {
         let disk = Destination(name: "HDD", kind: .localFolder(path: "/h"))
         let source = Source(name: "Notes", slug: "notes", steps: [], schedule: .daily, destinationIds: [disk.id], createdAt: Date())
-        func state(debt: Bool, last outcome: DeliveryOutcome?) -> DeliveryState {
+        func state(fresh: Bool, hasCopy: Bool = false, last outcome: DeliveryOutcome?) -> DeliveryState {
             var state = AppState()
-            if debt { state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: Date())] }
+            if hasCopy { state.recordCopies(sourceId: source.id, destinationId: disk.id, [Snapshot(name: "c", date: Date())], seenAt: Date()) }
             let runs = outcome.map {
                 [RunRecord(sourceId: source.id, sourceName: "Notes", trigger: .scheduled, startedAt: Date(), finishedAt: Date(),
                            deliveries: [Delivery(destinationId: disk.id, destinationName: "HDD", outcome: $0)])]
             } ?? []
-            let report = StatusReport(items: [], fresh: [source.id], expected: [source.id])
+            let outdated = AttentionItem.copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: false, noCopyAnywhere: !hasCopy))
+            let report = StatusReport(items: fresh ? [] : [outdated], fresh: fresh ? [source.id] : [], expected: [source.id])
             return StatusSnapshot(config: Config(sources: [source], destinations: [disk]), state: state, checked: report, running: [], runs: runs)
                 .delivery(of: source, to: disk)
         }
-        #expect(state(debt: true, last: nil) == .waiting)
-        #expect(state(debt: true, last: .delivered(pruned: 0, warning: nil)) == .waiting)
-        #expect(state(debt: true, last: .unavailable) == .waiting)
-        #expect(state(debt: true, last: .failed(message: "quota")) == .failed)
-        #expect(state(debt: false, last: .delivered(pruned: 0, warning: nil)) == .delivered)
+        #expect(state(fresh: false, last: nil) == .none)
+        #expect(state(fresh: false, hasCopy: true, last: .unavailable) == .outdated)
+        #expect(state(fresh: false, last: .failed(message: "quota")) == .failed)
+        #expect(state(fresh: false, hasCopy: true, last: .failed(message: "quota")) == .failed)
+        #expect(state(fresh: true, hasCopy: true, last: .delivered(pruned: 0, warning: nil)) == .delivered)
     }
 
     @Test func remembersWhenTheRunStartedAndWhatTheSourceReports() {

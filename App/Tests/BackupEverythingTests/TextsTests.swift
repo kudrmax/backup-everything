@@ -71,8 +71,8 @@ struct TextsTests {
             .manualExportDue(sourceId: UUID()),
         ])
         #expect(SourceStatus.of(obsidian, report: report, lastBackup: now) == .failed("quota"))
-        let warned = StatusReport(items: [.manualExportDue(sourceId: obsidian.id), .deliveryWarning(sourceId: obsidian.id, message: "left")])
-        #expect(SourceStatus.of(obsidian, report: warned, lastBackup: now) == .warning("left"))
+        let due = StatusReport(items: [.manualExportDue(sourceId: obsidian.id)])
+        #expect(SourceStatus.of(obsidian, report: due, lastBackup: now) == .exportDue)
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: [], fresh: [obsidian.id], expected: [obsidian.id]), lastBackup: now) == .ok)
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: []), lastBackup: now) == .unconfirmed)
         #expect(SourceStatus.of(obsidian, report: StatusReport(items: [], expected: [obsidian.id]), lastBackup: nil) == .unconfirmed)

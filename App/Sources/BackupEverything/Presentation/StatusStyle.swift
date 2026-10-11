@@ -40,7 +40,6 @@ enum StatusStyle {
     static func symbol(for kind: DestinationKind) -> String {
         switch kind {
         case .localFolder: "externaldrive"
-        case .rclone: "cloud"
         }
     }
 }

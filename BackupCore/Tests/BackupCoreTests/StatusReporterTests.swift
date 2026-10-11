@@ -28,7 +28,7 @@ struct StatusReporterTests {
         var state = AppState()
         state.updateSource(source.id) { $0.lastRun = now.addingTimeInterval(-3600) }
         for destinationId in source.destinationIds {
-            state.recordDelivery(sourceId: source.id, destinationId: destinationId, snapshotName: nil, collectedAt: now.addingTimeInterval(-3600))
+            state.recordCopy(sourceId: source.id, destinationId: destinationId, at: now.addingTimeInterval(-3600))
         }
         return state
     }
@@ -58,27 +58,12 @@ struct StatusReporterTests {
         #expect(result.overall == .error)
     }
 
-    /// A copy that was delivered but left old copies behind needs a look, not a retry: it is not an error.
-    @Test func warningAfterDeliveryNeedsAttention() {
-        let source = Fixtures.source(destinations: [cloud, disk])
-        var state = fresh(source)
-        let warning = "Could not clean up old copies: busy"
-        state.deliveryWarnings = [
-            AppState.deliveryKey(sourceId: source.id, destinationId: cloud.id): warning,
-            AppState.deliveryKey(sourceId: source.id, destinationId: disk.id): warning,
-            AppState.deliveryKey(sourceId: source.id, destinationId: UUID()): "removed destination",
-        ]
-        let result = report([source], state)
-        #expect(result.items == [.deliveryWarning(sourceId: source.id, message: warning)])
-        #expect(result.overall == .attention)
-    }
-
     /// Overdue counts from the newest delivered copy: a recent run that delivered nothing does not help.
     @Test func longOverdueSourceIsError() {
         let source = Fixtures.source(destinations: [cloud])
         var state = AppState()
         state.updateSource(source.id) { $0.lastRun = now.addingTimeInterval(-3600) }
-        state.recordDelivery(sourceId: source.id, destinationId: cloud.id, snapshotName: nil, collectedAt: Fixtures.date("2026-09-20 10:00:00"))
+        state.recordCopy(sourceId: source.id, destinationId: cloud.id, at: Fixtures.date("2026-09-20 10:00:00"))
         #expect(report([source], state).items == [
             .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [cloud.id], freshElsewhere: false, noCopyAnywhere: false)),
             .severelyOverdue(sourceId: source.id),
@@ -101,7 +86,7 @@ struct StatusReporterTests {
     private func exportedLastMonth(_ source: Source) -> AppState {
         var state = AppState()
         state.updateSource(source.id) { $0.lastRun = Fixtures.date("2026-08-20 10:00:00") }
-        state.recordDelivery(sourceId: source.id, destinationId: cloud.id, snapshotName: nil, collectedAt: Fixtures.date("2026-08-20 10:00:00"))
+        state.recordCopy(sourceId: source.id, destinationId: cloud.id, at: Fixtures.date("2026-08-20 10:00:00"))
         return state
     }
 
@@ -138,76 +123,80 @@ struct StatusReporterTests {
         #expect(report([source], fresh(source), scans: [source.id: scan]).items.isEmpty)
     }
 
-    @Test func alwaysOnDestinationWithDebtIsReportedWhenUnreachable() {
+    @Test func alwaysOnDestinationIsReportedWhenUnreachable() {
         let source = Fixtures.source(destinations: [cloud])
-        var state = fresh(source)
-        state.debts = [Debt(sourceId: source.id, destinationId: cloud.id, since: now)]
+        let state = fresh(source)
         #expect(report([source], state, unavailable: [cloud.id]).items == [.destinationUnavailable(destinationId: cloud.id)])
         #expect(report([source], state).items.isEmpty)
     }
 
+    @Test func alwaysOnDestinationNoEnabledSourceUsesIsNotMentioned() {
+        var source = Fixtures.source(destinations: [cloud])
+        source.enabled = false
+        #expect(report([source], fresh(source), unavailable: [cloud.id]).items.isEmpty)
+    }
+
+    private func copiedToDisk(_ source: Source, at date: Date) -> AppState {
+        var state = AppState()
+        state.updateSource(source.id) { $0.lastRun = now.addingTimeInterval(-3600) }
+        state.recordCopy(sourceId: source.id, destinationId: disk.id, at: date)
+        return state
+    }
+
     @Test func periodicDiskIsQuietUntilItsDeadline() {
         let source = Fixtures.source(destinations: [disk])
-        var state = fresh(source)
-        state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: Fixtures.date("2026-09-10 10:00:00"))]
-        state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-09-09 10:00:00") }
-        #expect(report([source], state, unavailable: [disk.id]).overall == .ok)
-
-        state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-08-29 10:00:00") }
-        #expect(report([source], state, unavailable: [disk.id]).items == [
+        #expect(report([source], copiedToDisk(source, at: Fixtures.date("2026-09-09 10:00:00")), unavailable: [disk.id]).overall == .ok)
+        #expect(report([source], copiedToDisk(source, at: Fixtures.date("2026-08-29 10:00:00")), unavailable: [disk.id]).items == [
             .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: false, noCopyAnywhere: false)),
             .connectDestination(destinationId: disk.id),
         ])
     }
 
-    @Test func debtOfADisabledSourceAsksForNoDisk() {
+    @Test func diskUnpluggedForLongerThanItsIntervalIsAskedFor() {
+        let fortnightly = Destination(name: "HDD", kind: .localFolder(path: "/h"), expectedEvery: .days(14))
+        let source = Fixtures.source(destinations: [fortnightly])
+        func items(copiedDaysAgo days: Double) -> [AttentionItem] {
+            var state = AppState()
+            state.updateSource(source.id) { $0.lastRun = now.addingTimeInterval(-3600) }
+            state.recordCopy(sourceId: source.id, destinationId: fortnightly.id, at: now.addingTimeInterval(-days * 86_400))
+            return reporter.report(
+                config: Config(sources: [source], destinations: [fortnightly]), state: state, now: now,
+                unavailableDestinations: [fortnightly.id], inboxScans: [:]
+            ).items
+        }
+        #expect(items(copiedDaysAgo: 20).contains(.connectDestination(destinationId: fortnightly.id)))
+        #expect(!items(copiedDaysAgo: 5).contains(.connectDestination(destinationId: fortnightly.id)))
+    }
+
+    @Test func disabledSourceAsksForNoDisk() {
         var source = Fixtures.source(destinations: [disk, cloud])
         source.enabled = false
-        var state = fresh(source)
-        state.debts = [
-            Debt(sourceId: source.id, destinationId: disk.id, since: now, elsewhere: false),
-            Debt(sourceId: source.id, destinationId: cloud.id, since: now),
-        ]
+        let state = fresh(source)
         #expect(report([source], state, unavailable: [disk.id, cloud.id]).items.isEmpty)
 
         let planner = SchedulePlanner(calendar: Fixtures.calendar)
         let config = Config(sources: [source], destinations: [cloud, disk])
         #expect(planner.nextWake(config: config, state: state, now: now, needsAttention: false) == nil)
-        #expect(state.pausingDisabledSources(of: config).debts.isEmpty)
-        #expect(state.pausingDisabledSources(of: Config(destinations: [cloud, disk])).debts == state.debts)
     }
 
-    @Test func periodicDiskIsAskedForAtOnceWhenAMissedBackupExistsNowhereElse() {
+    @Test func periodicDiskWithoutAnyCopyIsAskedForAtOnce() {
         let source = Fixtures.source(destinations: [disk])
-        var state = fresh(source)
-        state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: now, elsewhere: false)]
-        state.updateDestination(disk.id) { $0.lastCaughtUp = now }
+        var state = AppState()
+        state.updateSource(source.id) { $0.lastRun = now.addingTimeInterval(-3600) }
         #expect(report([source], state, unavailable: [disk.id]).items == [
-            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: false, noCopyAnywhere: false)),
+            .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: [disk.id], freshElsewhere: false, noCopyAnywhere: true)),
             .connectDestination(destinationId: disk.id),
         ])
     }
 
-    /// The disk got yesterday's backup and was unplugged; a long-standing debt of a disabled source must not make it overdue.
-    @Test func diskCaughtUpYesterdayIsNotAskedForBecauseOfADisabledSource() {
+    /// The disk got yesterday's backup and was unplugged; an old copy of a disabled source must not make it overdue.
+    @Test func diskCopiedYesterdayIsNotAskedForBecauseOfADisabledSource() {
         let active = Fixtures.source(name: "Active", destinations: [disk])
         var paused = Fixtures.source(name: "Paused", destinations: [disk])
         paused.enabled = false
         let config = Config(sources: [active, paused], destinations: [disk])
-        var state = fresh(active)
-        state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-08-01 00:00:00") }
-        state.debts = [Debt(sourceId: paused.id, destinationId: disk.id, since: Fixtures.date("2026-08-20 00:00:00"))]
-        let reducer = StateReducer()
-        func run(_ day: String, _ outcome: DeliveryOutcome) -> RunRecord {
-            RunRecord(
-                sourceId: active.id, sourceName: active.name, trigger: .scheduled,
-                startedAt: Fixtures.date(day), finishedAt: Fixtures.date(day),
-                deliveries: [Delivery(destinationId: disk.id, destinationName: disk.name, outcome: outcome)]
-            )
-        }
-        reducer.apply(run("2026-09-26 10:00:00", .delivered(pruned: 0, warning: nil)), to: &state, config: config)
-        reducer.apply(run("2026-09-27 10:00:00", .unavailable), to: &state, config: config)
-        state.debts = state.debts.map { var debt = $0; debt.elsewhere = true; return debt }
+        var state = copiedToDisk(active, at: Fixtures.date("2026-09-27 10:00:00"))
+        state.recordCopy(sourceId: paused.id, destinationId: disk.id, at: Fixtures.date("2026-08-01 00:00:00"))
 
         let items = reporter.report(config: config, state: state, now: now, unavailableDestinations: [disk.id], inboxScans: [:]).items
         #expect(!items.contains(.connectDestination(destinationId: disk.id)))
@@ -274,9 +263,9 @@ struct StatusReporterTests {
         #expect(items(.empty) == [.runFailed(sourceId: source.id, message: "links expired")])
     }
 
-    @Test func unpluggedDestinationThatOwesNothingIsNotMentioned() {
+    @Test func unpluggedDiskWithAFreshCopyIsNotMentioned() {
         let source = Fixtures.source(destinations: [cloud, disk])
-        #expect(report([source], fresh(source), unavailable: [cloud.id, disk.id]).items.isEmpty)
+        #expect(report([source], fresh(source), unavailable: [disk.id]).items.isEmpty)
     }
 
     @Test func chainBusyWithAnAutomaticStepAsksNothingOfThePerson() {
@@ -330,7 +319,7 @@ struct StatusReporterTests {
         var overall: OverallStatus
     }
 
-    /// The status of a source is built from the copies it delivered, never from the absence of known problems (5.5).
+    /// The status of a source is built from the copies found on its destinations, never from the absence of known problems (5.5).
     @Test(arguments: FreshnessCase.allCases)
     func sourceStatusFollowsDeliveredCopies(_ scenario: FreshnessCase) {
         let nas = Destination(name: "NAS", kind: .localFolder(path: "/n"))
@@ -341,7 +330,7 @@ struct StatusReporterTests {
         let ranAnHourAgo = now.addingTimeInterval(-3600)
         func ran(at date: Date = ranAnHourAgo) { state.updateSource(source.id) { $0.lastRun = date } }
         func copy(to destination: Destination, at date: Date) {
-            state.recordDelivery(sourceId: source.id, destinationId: destination.id, snapshotName: nil, collectedAt: date)
+            state.recordCopy(sourceId: source.id, destinationId: destination.id, at: date)
         }
         func outdated(_ destinations: [Destination], freshElsewhere: Bool, noCopy: Bool) -> AttentionItem {
             .copiesOutdated(sourceId: source.id, OutdatedCopies(destinationIds: destinations.map(\.id), freshElsewhere: freshElsewhere, noCopyAnywhere: noCopy))
@@ -360,7 +349,6 @@ struct StatusReporterTests {
             expectation = Expectation(items: { _ in [outdated([nas], freshElsewhere: true, noCopy: false)] }, isFresh: false, overall: .attention)
         case .bothDestinationsRefused:
             ran()
-            state.debts = [cloud, nas].map { Debt(sourceId: source.id, destinationId: $0.id, since: ranAnHourAgo, elsewhere: false) }
             unavailable = [cloud.id, nas.id]
             expectation = Expectation(
                 items: { _ in [
@@ -376,8 +364,6 @@ struct StatusReporterTests {
             ran()
             copy(to: cloud, at: ranAnHourAgo)
             copy(to: disk, at: Fixtures.date("2026-09-18 10:00:00"))
-            state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-09-18 10:00:00") }
-            state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: Fixtures.date("2026-09-19 10:00:00"))]
             unavailable = [disk.id]
             expectation = Expectation(items: { _ in [] }, isFresh: true, overall: .ok)
         case .diskEvery30DaysPastItsDeadline:
@@ -385,8 +371,6 @@ struct StatusReporterTests {
             ran()
             copy(to: cloud, at: ranAnHourAgo)
             copy(to: disk, at: Fixtures.date("2026-08-28 10:00:00"))
-            state.updateDestination(disk.id) { $0.lastCaughtUp = Fixtures.date("2026-08-28 10:00:00") }
-            state.debts = [Debt(sourceId: source.id, destinationId: disk.id, since: Fixtures.date("2026-08-29 10:00:00"))]
             unavailable = [disk.id]
             expectation = Expectation(
                 items: { _ in [outdated([disk], freshElsewhere: true, noCopy: false), .connectDestination(destinationId: disk.id)] },
