@@ -6,12 +6,13 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "BackupCore", targets: ["BackupCore"]),
+        .executable(name: "backup-receiver", targets: ["backup-receiver"]),
     ],
     targets: [
         .target(name: "BackupCore"),
-        .testTarget(
-            name: "BackupCoreTests",
-            dependencies: ["BackupCore"]
-        ),
+        .target(name: "ReceiverGate"),
+        .executableTarget(name: "backup-receiver", dependencies: ["ReceiverGate"]),
+        .testTarget(name: "BackupCoreTests", dependencies: ["BackupCore"]),
+        .testTarget(name: "ReceiverGateTests", dependencies: ["ReceiverGate"]),
     ]
 )
