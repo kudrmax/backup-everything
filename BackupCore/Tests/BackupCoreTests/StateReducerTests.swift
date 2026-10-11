@@ -60,6 +60,17 @@ struct StateReducerTests {
         #expect(state.sourceState(sourceId).lastSuccess == started)
     }
 
+    /// Delivering a package from pending later is not a run of the source: its schedule stays where it was.
+    @Test func lateDeliveryOfAPendingPackageLeavesTheLastRun() {
+        var state = AppState()
+        let earlier = Fixtures.date("2026-09-20 10:00:00")
+        state.updateSource(sourceId) { $0.lastRun = earlier }
+        reducer.apply(record([(disk, .failed(message: "I/O error"))], trigger: .catchUp), to: &state)
+        #expect(state.sourceState(sourceId) == SourceState(lastRun: earlier, lastError: "I/O error", retryAfter: finished.addingTimeInterval(3600)))
+        reducer.apply(record([(disk, .delivered(pruned: 0, warning: nil))], trigger: .catchUp), to: &state)
+        #expect(state.sourceState(sourceId) == SourceState(lastRun: earlier, lastSuccess: started))
+    }
+
     @Test func dropOrphansForgetsSourcesAndCachedPairsTheSettingsNoLongerKnow() {
         let hdd = Fixtures.localDestination("HDD", at: URL(fileURLWithPath: "/unused/hdd"))
         let ssd = Fixtures.localDestination("SSD", at: URL(fileURLWithPath: "/unused/ssd"))

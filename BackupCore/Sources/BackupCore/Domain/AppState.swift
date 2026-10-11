@@ -158,9 +158,4 @@ public struct AppState: Codable, Sendable, Equatable {
             seenAt: seenAt
         )
     }
-
-    public mutating func forgetCopies(destinationId: UUID) {
-        let suffix = "|" + destinationId.uuidString
-        copyCache = copyCache.filter { !$0.key.hasSuffix(suffix) }
-    }
 }

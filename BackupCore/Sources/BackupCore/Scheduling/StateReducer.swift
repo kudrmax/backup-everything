@@ -4,10 +4,11 @@ public struct StateReducer: Sendable {
     public init() {}
 
     /// What a run says about its source: when it ran, when it last succeeded, what failed and when to try again.
-    /// Nothing about copies: those are read from the destinations.
+    /// Nothing about copies: those are read from the destinations. Delivering a package from pending later is not a run of
+    /// the source, so it leaves the last run, and with it the schedule, where it was.
     public func apply(_ record: RunRecord, to state: inout AppState) {
         state.updateSource(record.sourceId) {
-            $0.lastRun = record.startedAt
+            if record.trigger != .catchUp { $0.lastRun = record.startedAt }
             if let failure = record.firstFailure {
                 $0.lastError = failure
                 $0.retryAfter = record.finishedAt.addingTimeInterval(SchedulePlanner.retryInterval)

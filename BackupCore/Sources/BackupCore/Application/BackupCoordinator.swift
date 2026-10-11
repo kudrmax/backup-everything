@@ -69,12 +69,16 @@ public actor BackupCoordinator {
     public func statusReport() async throws -> StatusReport { try await currentStatus().report }
 
     /// The settings, the state with the copy cache refreshed from every reachable destination, and the status from both.
+    /// Not queued behind backups: the refreshed cache is laid over the state as saved once the destinations are listed,
+    /// so whatever a backup saved meanwhile stays.
     public func currentStatus() async throws -> CurrentStatus {
         let config = try store.loadConfig()
-        var state = try loadState(for: config)
-        let unavailable = await refreshCache(config: config, state: &state)
-        try store.saveState(state)
-        return CurrentStatus(config: config, state: state, report: await report(config: config, state: state, unavailable: unavailable, now: time.now))
+        var refreshed = try loadState(for: config)
+        let unavailable = await refreshCache(config: config, state: &refreshed)
+        var latest = try loadState(for: config)
+        latest.copyCache.merge(refreshed.copyCache) { _, new in new }
+        try store.saveState(latest)
+        return CurrentStatus(config: config, state: latest, report: await report(config: config, state: latest, unavailable: unavailable, now: time.now))
     }
 
     public func nextWake() async throws -> Date? {
@@ -111,7 +115,7 @@ public actor BackupCoordinator {
         var work: [Source] = []
         for source in config.sources where source.enabled {
             let targets = source.needsHuman
-                ? await pendingTargets(of: source, config: config, state: state)
+                ? await pendingTargets(of: source, config: config, state: state, now: now)
                 : await targets(of: source, config: config, state: state, now: now)
             if !targets.isEmpty { work.append(source) }
         }
@@ -119,8 +123,8 @@ public actor BackupCoordinator {
     }
 
     /// Reachable destinations that do not hold the package a source with a manual step keeps in pending until it is everywhere.
-    private func pendingTargets(of source: Source, config: Config, state: AppState) async -> [Destination] {
-        guard let package = inbox.pendingPackage(for: source.id) else { return [] }
+    private func pendingTargets(of source: Source, config: Config, state: AppState, now: Date) async -> [Destination] {
+        guard planner.mayRetry(state.sourceState(source.id), now: now), let package = inbox.pendingPackage(for: source.id) else { return [] }
         let name = package.directory.lastPathComponent
         var reachable: [Destination] = []
         for destination in config.destinations(of: source) {
@@ -156,14 +160,14 @@ public actor BackupCoordinator {
         }
         var pending: [Source] = []
         for source in config.sources where source.enabled && source.needsHuman {
-            if await !pendingTargets(of: source, config: config, state: state).isEmpty { pending.append(source) }
+            if await !pendingTargets(of: source, config: config, state: state, now: time.now).isEmpty { pending.append(source) }
         }
         announce((planned.map(\.0) + pending).filter { !announced.contains($0.id) })
         for (source, targets) in planned {
             try await execute(source, targets, .scheduled, state: &state, runs: &runs)
         }
         for source in pending {
-            try await execute(source, config.destinations(of: source), .pickup, state: &state, runs: &runs)
+            try await execute(source, config.destinations(of: source), .catchUp, state: &state, runs: &runs)
         }
         for source in config.sources where source.enabled && source.needsHuman {
             try await advanceChain(source, config: config, mode: .tick, state: &state, runs: &runs, notices: &notices)

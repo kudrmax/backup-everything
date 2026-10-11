@@ -34,7 +34,8 @@ struct BackupCoordinatorTests {
         time: FakeTimeSource,
         events: LockedBox<[RunProgress]>,
         runner: any ProcessRunner,
-        quit: any QuitSignal
+        quit: any QuitSignal,
+        access: any DestinationAccess = AlwaysReadyAccess()
     ) -> BackupCoordinator {
         CoreAssembly.makeCoordinator(
             dataDirectory: store.dataDirectory,
@@ -43,7 +44,7 @@ struct BackupCoordinatorTests {
             runner: runner,
             time: time,
             receiver: nil,
-            access: AlwaysReadyAccess(),
+            access: access,
             quit: quit,
             trash: { url in try FileManager.default.moveItem(at: url, to: temp.path("trash/\(url.lastPathComponent)")) },
             progress: { [events] event in events.set(events.get() + [event]) }
@@ -189,7 +190,8 @@ struct BackupCoordinatorTests {
 
         time.advance(5 * 86_400)
         try temp.directory("hdd")
-        _ = try await coordinator.tick()
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
+        #expect(try store.loadState().sourceState(source.id).lastRun == start)
         #expect(temp.names(in: "hdd/photos") == ["2026-09-28_100000"])
         #expect(temp.names(in: "trash") == ["takeout-1.zip"])
         #expect(!temp.exists("work/pending/\(source.id.uuidString)"))
@@ -480,7 +482,8 @@ struct BackupCoordinatorTests {
         time.advance(86_400)
         try temp.directory("hdd")
         let caughtUp = try await coordinator.tick()
-        #expect(caughtUp.runs.map(\.trigger) == [.pickup])
+        #expect(caughtUp.runs.map(\.trigger) == [.catchUp])
+        #expect(try store.loadState().sourceState(source.id).lastRun == start)
         #expect(temp.names(in: "hdd/claude") == ["2026-09-28_100000"])
         #expect(temp.names(in: "cloud/claude") == ["2026-09-28_100000"])
         #expect(!temp.exists("work/pending/\(source.id.uuidString)"))
@@ -712,7 +715,7 @@ struct BackupCoordinatorTests {
         try FileManager.default.removeItem(at: book.deletingLastPathComponent().deletingLastPathComponent())
         try temp.directory("hdd")
         time.advance(3600)
-        #expect(try await coordinator.tick().runs.map(\.trigger) == [.pickup])
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
         #expect(temp.names(in: "hdd/pocketbook/2026-09-28_100000") == [".complete", "book.epub"])
         #expect(try await coordinator.statusReport().overall == .ok)
     }
@@ -999,6 +1002,54 @@ struct BackupCoordinatorTests {
         #expect(temp.names(in: "cloud/obsidian").count == 3)
     }
 
+    /// A package in pending whose delivery to a returned disk keeps failing is tried again once an hour, not on every check.
+    @Test func failingDeliveryOfAPendingPackageIsRetriedOncePerHour() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud, disk])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+        _ = try await coordinator.tick()
+        #expect(temp.names(in: "work/pending/\(source.id.uuidString)") == ["2026-09-28_100000"])
+
+        try temp.file("hdd/claude", "a file where the folder of the source should be")
+        time.advance(60)
+        let failed = try await coordinator.tick()
+        #expect(failed.runs.map(\.trigger) == [.catchUp])
+        #expect(failed.runs.first?.firstFailure != nil)
+        time.advance(60)
+        #expect(try await coordinator.tick().runs.isEmpty)
+        time.advance(3600)
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "work/pending/\(source.id.uuidString)") == ["2026-09-28_100000"])
+    }
+
+    /// Showing the status saves the refreshed copy cache over the state as it is then, not over the one read before the
+    /// destinations were listed: a check finishing meanwhile keeps what it wrote.
+    @Test func showingTheStatusKeepsWhatABackupSavedMeanwhile() async throws {
+        defer { temp.remove() }
+        let source = vault([cloud])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud]))
+        try temp.file("cloud/obsidian/2026-09-28_090000/.complete", "")
+        let armed = LockedBox(false)
+        let reminded = start.addingTimeInterval(-60)
+        let access = HookedAccess { [store] in
+            guard armed.get() else { return }
+            armed.set(false)
+            var meanwhile = try! store.loadState()
+            meanwhile.lastReminders["x"] = reminded
+            try! store.saveState(meanwhile)
+        }
+        let coordinator = Self.coordinator(temp: temp, store: store, time: time, events: events, runner: SystemProcessRunner(), quit: ProcessGroups.shared, access: access)
+
+        armed.set(true)
+        let current = try await coordinator.currentStatus()
+
+        let saved = try store.loadState()
+        #expect(saved.lastReminders["x"] == reminded)
+        #expect(saved.newestCopyDate(sourceId: source.id, destinationId: cloud.id) == Fixtures.date("2026-09-28 09:00:00"))
+        #expect(current.state == saved)
+    }
+
     // MARK: Quitting the app
 
     /// The command is stopped because the app quits (Quit in the menu) — like a real one, it then reports SIGTERM.
@@ -1089,5 +1140,15 @@ private final class FakeQuit: QuitSignal, @unchecked Sendable {
 
     func begin() {
         quitting.set(true)
+    }
+}
+
+/// Any existing folder is ready; `onCheck` runs on every check, as a backup finishing at that moment would.
+private struct HookedAccess: DestinationAccess {
+    let onCheck: @Sendable () -> Void
+
+    func readiness(of root: URL) -> DestinationReadiness {
+        onCheck()
+        return AlwaysReadyAccess().readiness(of: root)
     }
 }

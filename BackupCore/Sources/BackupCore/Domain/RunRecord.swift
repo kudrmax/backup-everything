@@ -3,7 +3,7 @@ import Foundation
 public enum RunTrigger: String, Codable, Sendable {
     case scheduled
     case manual
-    /// Recorded by earlier versions that caught up missed copies; no longer started.
+    /// A package kept in pending delivered later to destinations that were away when it was collected.
     case catchUp
     case pickup
 }
