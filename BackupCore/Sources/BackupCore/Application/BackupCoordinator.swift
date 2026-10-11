@@ -89,7 +89,7 @@ public actor BackupCoordinator {
                 } else {
                     continue
                 }
-                let found = excess.excess(of: source, on: destination, copies: copies, folder: { try store.url(of: $0, sourceSlug: source.slug) }, asOf: asOf)
+                let found = try excess.excess(of: source, on: destination, copies: copies, folder: { try store.url(of: $0, sourceSlug: source.slug) }, asOf: asOf)
                 if !found.items.isEmpty { result.append(found) }
             }
         }

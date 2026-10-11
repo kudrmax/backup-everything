@@ -990,6 +990,50 @@ struct BackupCoordinatorTests {
         #expect(late.notices.contains { if case .connectDestination = $0 { true } else { false } })
     }
 
+    private func sourceWithThreeCopies(on destination: Destination, keepDaily: Int, into folder: String) throws -> Source {
+        var source = vault([destination])
+        source.retention = RetentionRules(daily: keepDaily, weekly: 0, monthly: 0, yearly: 0)
+        try store.saveConfig(Config(sources: [source], destinations: [destination]))
+        for day in ["2026-09-25", "2026-09-26", "2026-09-27"] {
+            let name = day + "_090000"
+            try temp.file("\(folder)/obsidian/\(name)/.complete", "")
+            try temp.file("\(folder)/obsidian/\(name)/a.md", "alpha")
+        }
+        return source
+    }
+
+    @Test func excessCopiesListsRealFoldersBeyondTheRule() async throws {
+        defer { temp.remove() }
+        let source = try sourceWithThreeCopies(on: cloud, keepDaily: 1, into: "cloud")
+        let result = try await coordinator.excessCopies()
+        #expect(result.count == 1)
+        #expect(result[0].sourceId == source.id && result[0].destinationId == cloud.id)
+        #expect(result[0].asOf == nil)
+        #expect(result[0].items.map(\.snapshot.name) == ["2026-09-25_090000", "2026-09-26_090000"])
+        #expect(result[0].items.allSatisfy { $0.bytes > 0 })
+    }
+
+    @Test func excessCopiesOfAnUnreachableDestinationComeFromTheCache() async throws {
+        defer { temp.remove() }
+        try temp.directory("hdd")
+        let source = try sourceWithThreeCopies(on: disk, keepDaily: 1, into: "hdd")
+        let seen = try await coordinator.currentStatus()
+        let seenAt = try #require(seen.state.cachedCopies(sourceId: source.id, destinationId: disk.id)).seenAt
+        try FileManager.default.moveItem(at: temp.path("hdd"), to: temp.path("hdd-unplugged"))
+        time.advance(3600)
+        let result = try await coordinator.excessCopies()
+        #expect(result.count == 1)
+        #expect(result[0].asOf == seenAt)
+        #expect(result[0].items.map(\.snapshot.name) == ["2026-09-25_090000", "2026-09-26_090000"])
+        #expect(result[0].items.allSatisfy { $0.bytes == 0 })
+    }
+
+    @Test func pairsKeepingEverythingAreNotInExcessCopies() async throws {
+        defer { temp.remove() }
+        _ = try sourceWithThreeCopies(on: cloud, keepDaily: 10, into: "cloud")
+        #expect(try await coordinator.excessCopies().isEmpty)
+    }
+
     @Test func nothingIsEverDeletedFromADestination() async throws {
         defer { temp.remove() }
         var source = vault([cloud])

@@ -30,8 +30,12 @@ public struct ExcessCopies: Sendable, Equatable {
     public var totalBytes: Int64 { items.reduce(0) { $0 + $1.bytes } }
 
     public static func command(for items: [Item], user: String) -> String {
-        let folders = items.map { "\"\($0.folder.path)\"" }.joined(separator: " ")
-        return "sudo chown -R \(user) \(folders) && trash \(folders)"
+        let folders = items.map { quoted($0.folder.path) }.joined(separator: " ")
+        return "sudo chown -R \(quoted(user)) \(folders) && trash \(folders)"
+    }
+
+    private static func quoted(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
@@ -42,10 +46,10 @@ public struct ExcessCalculator: Sendable {
         self.retention = retention
     }
 
-    public func excess(of source: Source, on destination: Destination, copies: [Snapshot], folder: (Snapshot) throws -> URL, asOf: Date?) -> ExcessCopies {
+    public func excess(of source: Source, on destination: Destination, copies: [Snapshot], folder: (Snapshot) throws -> URL, asOf: Date?) throws -> ExcessCopies {
         let doomed = retention.snapshotsToDelete(copies, rules: source.retention)
-        let items = doomed.compactMap { snapshot -> ExcessCopies.Item? in
-            guard let url = try? folder(snapshot) else { return nil }
+        let items = try doomed.map { snapshot -> ExcessCopies.Item in
+            let url = try folder(snapshot)
             let bytes = asOf == nil ? (try? DestinationUsage().bytes(under: url)) ?? 0 : 0
             return ExcessCopies.Item(snapshot: snapshot, folder: url, bytes: bytes)
         }
