@@ -37,16 +37,16 @@ public struct PayloadWalker: Sendable {
     }
 
     private struct Filter {
-        let anywhere: [GlobPattern]
+        let anywhere: [ExcludePattern]
         let atTop: [GlobPattern]
 
         init(_ payload: Payload) {
-            anywhere = payload.excludes.map(GlobPattern.init)
+            anywhere = payload.excludes.map(ExcludePattern.init)
             atTop = payload.excludedAtTop.map(GlobPattern.init)
         }
 
         func excludes(_ relativePath: String, name: String) -> Bool {
-            anywhere.contains { $0.matches(relativePath) || $0.matches(name) }
+            anywhere.contains { $0.matches(relativePath, name: name) }
                 || (relativePath == name && atTop.contains { $0.matches(name) })
         }
     }

@@ -5,7 +5,7 @@ import Testing
 struct RsyncTransferTests {
     private let temp = try! TempDirectory()
     private var transfer: RsyncTransfer {
-        RsyncTransfer(rsync: RsyncTransfer.homebrewRsync, receiver: nil, runner: SystemProcessRunner())
+        RsyncTransfer(rsync: RsyncTransfer.homebrewRsync, receiver: nil, runner: SystemProcessRunner(), scratch: temp.path("scratch"))
     }
 
     @Test func rsyncFromHomebrewIsInstalled() {
@@ -22,7 +22,9 @@ struct RsyncTransferTests {
         try await transfer.write(payload, into: copy, linkDest: nil)
         #expect(temp.names(in: "dst/obsidian/2026-10-08_100000") == ["a.md"])
         try await transfer.markComplete(copy)
+        try await transfer.markComplete(copy)
         #expect(temp.names(in: "dst/obsidian/2026-10-08_100000") == [".complete", "a.md"])
+        #expect(temp.names(in: "scratch") == ["complete"])
     }
 
     @Test func unchangedFilesBecomeHardLinksOfThePreviousCopy() async throws {
@@ -49,6 +51,18 @@ struct RsyncTransferTests {
         #expect(temp.names(in: "dst/finance/2026-10-08_100000") == ["export.csv"])
     }
 
+    @Test func aSymlinkToAFileIsCopiedAsTheFileUnderTheLinkName() async throws {
+        defer { temp.remove() }
+        try temp.file("src/real.csv", "a,b")
+        try FileManager.default.createSymbolicLink(at: temp.path("src/link.csv"), withDestinationURL: temp.path("src/real.csv"))
+        let copy = temp.path("dst/finance/2026-10-08_100000")
+        try await transfer.write(Payload(root: temp.path("src/link.csv"), collectedAt: Date()), into: copy, linkDest: nil)
+        #expect(temp.names(in: "dst/finance/2026-10-08_100000") == ["link.csv"])
+        let attributes = try FileManager.default.attributesOfItem(atPath: copy.appendingPathComponent("link.csv").path)
+        #expect(attributes[.type] as? FileAttributeType == .typeRegular)
+        #expect(try String(contentsOf: copy.appendingPathComponent("link.csv"), encoding: .utf8) == "a,b")
+    }
+
     @Test func missingSourceFailsWithRsyncError() async throws {
         defer { temp.remove() }
         let copy = temp.path("dst/x/2026-10-08_100000")
@@ -60,7 +74,7 @@ struct RsyncTransferTests {
 
     @Test func missingRsyncIsToldAsSuch() async throws {
         defer { temp.remove() }
-        let transfer = RsyncTransfer(rsync: temp.path("no-rsync"), receiver: nil, runner: SystemProcessRunner())
+        let transfer = RsyncTransfer(rsync: temp.path("no-rsync"), receiver: nil, runner: SystemProcessRunner(), scratch: temp.path("scratch"))
         await #expect(throws: DestinationError.rsyncMissing) {
             try await transfer.markComplete(temp.path("dst/x/2026-10-08_100000"))
         }
@@ -69,7 +83,7 @@ struct RsyncTransferTests {
     @Test func receiverCommandBecomesTheRshOption() async throws {
         defer { temp.remove() }
         let runner = FakeProcessRunner()
-        let transfer = RsyncTransfer(rsync: RsyncTransfer.homebrewRsync, receiver: .standard, runner: runner)
+        let transfer = RsyncTransfer(rsync: RsyncTransfer.homebrewRsync, receiver: .standard, runner: runner, scratch: temp.path("scratch"))
         try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: temp.path("dst/obsidian/2026-10-08_100000"), linkDest: temp.path("dst/obsidian/2026-10-07_100000"))
         let arguments = runner.calls.last?.arguments ?? []
         #expect(arguments.contains("--rsh=/usr/bin/sudo -n -u _backupeverything /usr/local/libexec/backup-everything/backup-receiver"))

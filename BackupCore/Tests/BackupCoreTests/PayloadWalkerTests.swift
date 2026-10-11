@@ -37,7 +37,7 @@ struct PayloadWalkerTests {
         #expect(entries.map(\.relativePath) == ["._folder", "._folder/._deeper", "._notes.md", "._only", "notes.md"])
     }
 
-    @Test func appliesExcludesToNamesAndPathsIncludingCyrillic() throws {
+    @Test func appliesExcludesToNamesAndPathsCaseSensitivelyIncludingCyrillic() throws {
         defer { temp.remove() }
         try temp.file("vault/keep.md")
         try temp.file("vault/.trash/old.md")
@@ -45,7 +45,7 @@ struct PayloadWalkerTests {
         try temp.file("vault/.obsidian/app.json")
         try temp.file("vault/Черновики/й.md")
 
-        let payload = Payload(root: temp.path("vault"), excludes: [".trash", ".obsidian/workspace*.json", "черновики"], collectedAt: date)
+        let payload = Payload(root: temp.path("vault"), excludes: [".trash", ".obsidian/workspace*.json", "Черновики"], collectedAt: date)
         let files = try walker.entries(of: payload).filter { $0.kind == .file }.map(\.relativePath)
         #expect(files == [".obsidian/app.json", "keep.md"])
     }

@@ -23,26 +23,31 @@ public struct RsyncTransfer: Sendable {
     private let rsync: URL
     private let receiver: ReceiverCommand?
     private let runner: any ProcessRunner
+    private let scratch: URL
 
-    public init(rsync: URL, receiver: ReceiverCommand?, runner: any ProcessRunner) {
+    public init(rsync: URL, receiver: ReceiverCommand?, runner: any ProcessRunner, scratch: URL) {
         self.rsync = rsync
         self.receiver = receiver
         self.runner = runner
+        self.scratch = scratch
     }
 
     public func write(_ payload: Payload, into copy: URL, linkDest: URL?) async throws {
         var arguments = ["-aAX", "--inplace", "--mkpath"]
         if let linkDest { arguments.append("--link-dest=\(linkDest.path)") }
         arguments += payload.excludes.map { "--exclude=\($0)" }
-        let source = PayloadWalker().isDirectory(payload) ? payload.root.path + "/" : payload.root.path
+        let isDirectory = PayloadWalker().isDirectory(payload)
+        if !isDirectory { arguments.append("--copy-links") }
+        let source = isDirectory ? payload.root.path + "/" : payload.root.path
         try await run(arguments + [source, destination(copy.path + "/")])
     }
 
     public func markComplete(_ copy: URL) async throws {
-        let marker = FileManager.default.temporaryDirectory.appendingPathComponent("complete-\(UUID().uuidString)")
-        try Data().write(to: marker)
-        defer { try? FileManager.default.trashItem(at: marker, resultingItemURL: nil) }
-        try await run([marker.path, destination(copy.path + "/" + CopyFolder.completionMarker)])
+        guard FileManager.default.isExecutableFile(atPath: rsync.path) else { throw DestinationError.rsyncMissing }
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let marker = scratch.appendingPathComponent("complete")
+        if !FileManager.default.fileExists(atPath: marker.path) { try Data().write(to: marker) }
+        try await run(["--inplace", marker.path, destination(copy.path + "/" + CopyFolder.completionMarker)])
     }
 
     private func destination(_ path: String) -> String {
