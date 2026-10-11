@@ -57,9 +57,13 @@ public enum Gate {
         guard target.hasPrefix("/"), !target.split(separator: "/").contains("..") else {
             return GateError(message: "path must be absolute without “..”")
         }
-        let folder = target.hasSuffix("/") ? String(target.dropLast()) : (target as NSString).deletingLastPathComponent
-        if environment.fileExists(atPath: folder + "/" + completionMarker) {
-            return GateError(message: "\(folder) is a finished copy")
+        let folder = target.hasSuffix("/") ? String(target.dropLast()) : target
+        var level = folder
+        while !level.isEmpty, level != "/" {
+            if environment.fileExists(atPath: level + "/" + completionMarker) {
+                return GateError(message: "\(level) is a finished copy")
+            }
+            level = (level as NSString).deletingLastPathComponent
         }
         guard let existing = nearestExisting(folder, environment: environment) else {
             return GateError(message: "\(folder) is not inside a folder of the backup account")

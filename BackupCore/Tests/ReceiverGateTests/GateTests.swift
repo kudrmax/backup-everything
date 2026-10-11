@@ -14,7 +14,6 @@ struct FakeEnvironment: GateEnvironment {
 }
 
 struct GateTests {
-    private let root = "/Volumes/HDD/Backups"
     private var environment: FakeEnvironment {
         FakeEnvironment(owners: ["/Volumes/HDD/Backups": 497, "/Volumes/HDD/Backups/obsidian": 497])
     }
@@ -71,5 +70,26 @@ struct GateTests {
     @Test func refusesASecondPath() {
         let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/a/", "/Volumes/HDD/Backups/obsidian/b/"], environment: environment)
         #expect(plan == .failure(GateError(message: "exactly one destination path is accepted")))
+    }
+
+    @Test func refusesAFinishedCopyTargetedWithoutATrailingSlash() {
+        var environment = environment
+        environment.existing.insert("/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete")
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 is a finished copy")))
+    }
+
+    @Test func refusesASubfolderOfAFinishedCopy() {
+        var environment = environment
+        environment.existing.insert("/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete")
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/sub/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 is a finished copy")))
+    }
+
+    @Test func refusesATargetUnderAFolderOwnedBySomeoneElse() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/other"] = 501
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/other/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/other/2026-10-08_100000 is not inside a folder of the backup account")))
     }
 }
