@@ -8,6 +8,7 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     /// Another copy of the source is being written into this unfinished copy folder right now (by another running instance).
     case copyInProgress(String)
     case rcloneMissing
+    case rsyncMissing
     case commandFailed(String)
     case folderInTheWay(String)
     case invalidFolderName(String)
@@ -41,6 +42,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
                 + ". Free up space on it or choose a larger one: old copies are removed only after a new copy is complete."
         case let .copyInProgress(path):
             "Another copy of this source is being written into “\(path)” right now (is a second Backup Everything running?). It was left alone; the backup is retried later."
+        case .rsyncMissing:
+            "rsync 3 is not installed. Install it with “brew install rsync”."
         case .rcloneMissing:
             "rclone is not installed. Install it with “brew install rclone”."
         case let .commandFailed(output):
