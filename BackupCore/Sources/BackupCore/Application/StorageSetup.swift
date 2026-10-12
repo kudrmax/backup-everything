@@ -13,7 +13,10 @@ public struct StorageSetup: Sendable {
     }
 
     public static let receiverPath = "/usr/local/libexec/backup-everything/backup-receiver"
-    public static let command = "sudo scripts/setup-storage.sh"
+    /// The command that protects one destination folder; the account, the gate and the sudo rule come with it.
+    public static func command(for folder: String) -> String {
+        "sudo scripts/setup-storage.sh \(ShellQuoting.quoted(folder))"
+    }
     private static let sudo = URL(fileURLWithPath: "/usr/bin/sudo")
 
     private let rsync: URL

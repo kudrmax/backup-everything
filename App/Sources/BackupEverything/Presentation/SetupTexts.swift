@@ -2,8 +2,8 @@ import BackupCore
 import Foundation
 
 enum SetupTexts {
-    static let intro = "Copies are protected by a separate account on this Mac: the app can only add copies, never delete or change them. The setup script creates that account and prepares the destination folders. Run it once in Terminal from the project folder:"
-    static let command = StorageSetup.command
+    static let intro = "Copies are protected by a separate account on this Mac: the app can only add copies, never delete or change them. The setup script creates that account, installs the receiver gate and hands a destination folder to the account. Run it in Terminal from the project folder, once per destination:"
+    static let noDestination = "Add a destination folder first; the script protects the folder you give it."
 
     static func line(_ problem: StorageSetup.Problem, config: Config) -> String {
         switch problem {
@@ -14,6 +14,17 @@ enum SetupTexts {
         case let .destinationNotReady(id, readiness):
             "“\(config.destination(id)?.name ?? "?")”: \(describe(readiness))"
         }
+    }
+
+    /// One command per destination that is not ready; when only the account, gate or rule are missing, the command for
+    /// the first destination does all of that too.
+    static func commands(for problems: [StorageSetup.Problem], config: Config) -> [String] {
+        let notReady = problems.compactMap { problem -> Destination? in
+            guard case let .destinationNotReady(id, _) = problem else { return nil }
+            return config.destination(id)
+        }
+        let targets = notReady.isEmpty ? Array(config.destinations.prefix(1)) : notReady
+        return targets.map { StorageSetup.command(for: ($0.path as NSString).expandingTildeInPath) }
     }
 
     private static func describe(_ readiness: DestinationReadiness) -> String {

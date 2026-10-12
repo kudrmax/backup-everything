@@ -19,7 +19,13 @@ struct SetupSection: View {
                     }
                 }
                 .foregroundStyle(.secondary)
-                CommandBox(command: SetupTexts.command)
+                let commands = SetupTexts.commands(for: model.setupProblems, config: model.config)
+                if commands.isEmpty {
+                    Text(SetupTexts.noDestination).foregroundStyle(.secondary)
+                }
+                ForEach(commands, id: \.self) { command in
+                    CommandBox(command: command)
+                }
             }
             .font(.callout)
             .padding(16)

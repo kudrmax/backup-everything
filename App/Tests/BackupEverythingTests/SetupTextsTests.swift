@@ -15,7 +15,13 @@ struct SetupTextsTests {
         #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .notOwnedByBackupAccount(owner: "max")), config: config) == "“HDD”: the folder belongs to “max”, not to the backup account")
     }
 
-    @Test func commandIsTheSetupScript() {
-        #expect(SetupTexts.command == "sudo scripts/setup-storage.sh")
+    @Test func commandNamesTheFolderOfEachDestinationThatIsNotReady() {
+        let hdd = Destination(name: "HDD", kind: .localFolder(path: "/Volumes/Max's HDD/Backups"))
+        let laptop = Destination(name: "Laptop", kind: .localFolder(path: "/Users/max/Files/Backups"))
+        let config = Config(destinations: [laptop, hdd])
+        #expect(SetupTexts.commands(for: [.destinationNotReady(id: hdd.id, .volumeIgnoresOwners)], config: config)
+            == ["sudo scripts/setup-storage.sh '/Volumes/Max'\\''s HDD/Backups'"])
+        #expect(SetupTexts.commands(for: [.accountMissing], config: config) == ["sudo scripts/setup-storage.sh '/Users/max/Files/Backups'"])
+        #expect(SetupTexts.commands(for: [.accountMissing], config: Config(destinations: [])) == [])
     }
 }

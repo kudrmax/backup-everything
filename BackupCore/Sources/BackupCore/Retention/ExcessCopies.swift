@@ -40,13 +40,10 @@ public struct ExcessCopies: Sendable, Equatable {
     public var unfinishedCount: Int { items.filter(\.isUnfinished).count }
 
     public static func command(for items: [Item], user: String) -> String {
-        let folders = items.map { quoted($0.folder.path) }.joined(separator: " ")
-        return "sudo chown -R \(quoted(user)) \(folders) && trash \(folders)"
+        let folders = items.map { ShellQuoting.quoted($0.folder.path) }.joined(separator: " ")
+        return "sudo chown -R \(ShellQuoting.quoted(user)) \(folders) && trash \(folders)"
     }
 
-    private static func quoted(_ text: String) -> String {
-        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 }
 
 public struct ExcessCalculator: Sendable {
