@@ -38,4 +38,13 @@ struct ExcessCopiesTextTests {
         #expect(ExcessCopiesText.title(attempts, config: config) == "Obsidian on HDD: 2 unfinished attempts, up to 2 GB")
         #expect(ExcessCopiesText.summary([attempts], config: config) == "2 unfinished attempts, up to 2 GB")
     }
+
+    /// An unfinished attempt may be the folder rsync is writing right now: no removal command while a backup runs.
+    @Test func noCommandWhileABackupRuns() {
+        let item = ExcessCopies.Item(snapshot: Snapshot(name: "2026-10-01_100000", date: Date()), folder: URL(fileURLWithPath: "/x/a"), bytes: 0, isUnfinished: true)
+        let excess = ExcessCopies(sourceId: UUID(), destinationId: UUID(), items: [item], asOf: nil)
+        #expect(ExcessCopiesText.command(for: excess, user: "max", backupRunning: true) == nil)
+        #expect(ExcessCopiesText.command(for: excess, user: "max", backupRunning: false) == "sudo chown -R 'max' '/x/a' && trash '/x/a'")
+        #expect(ExcessCopiesText.whileRunning == "Commands appear when no backup is running.")
+    }
 }

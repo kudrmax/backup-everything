@@ -396,8 +396,8 @@ final class AppModel {
             .min()
     }
 
-    func excessCommand(for excess: ExcessCopies) -> String {
-        ExcessCopies.command(for: excess.items, user: NSUserName())
+    func excessCommand(for excess: ExcessCopies) -> String? {
+        ExcessCopiesText.command(for: excess, user: NSUserName(), backupRunning: isWorking)
     }
 
     func condition(of destination: Destination) -> DestinationCondition {

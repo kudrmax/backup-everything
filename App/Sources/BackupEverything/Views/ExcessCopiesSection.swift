@@ -16,13 +16,16 @@ struct ExcessCopiesSection: View {
                     Text(ExcessCopiesText.intro)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if model.isWorking {
+                        Text(ExcessCopiesText.whileRunning).foregroundStyle(.secondary)
+                    }
                     ForEach(Array(model.excessCopies.enumerated()), id: \.offset) { _, excess in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(ExcessCopiesText.title(excess, config: model.config))
-                            if excess.asOf == nil {
-                                CommandBox(command: model.excessCommand(for: excess))
-                            } else {
+                            if excess.asOf != nil {
                                 Text(ExcessCopiesText.disconnected).foregroundStyle(.secondary)
+                            } else if let command = model.excessCommand(for: excess) {
+                                CommandBox(command: command)
                             }
                         }
                     }

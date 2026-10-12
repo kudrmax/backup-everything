@@ -160,7 +160,7 @@ struct AppModelQueryTests {
         #expect(await eventually { fixture.model.excessCopies.count == 1 })
         let excess = try #require(fixture.model.excessCopies.first)
         #expect(excess.items.map(\.snapshot.name) == [SnapshotNaming().name(for: older)])
-        let command = fixture.model.excessCommand(for: excess)
+        let command = try #require(fixture.model.excessCommand(for: excess))
         #expect(command.hasPrefix("sudo chown -R '\(NSUserName())' "))
         #expect(command.contains("trash "))
         #expect(command.contains(excess.items[0].folder.path))

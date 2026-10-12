@@ -4,6 +4,12 @@ import Foundation
 enum ExcessCopiesText {
     static let intro = "These copies are older than the retention rules allow; unfinished attempts are folders of interrupted backups, never written into again. The app never deletes copies; run the command to hand them back to you and move them to the Trash."
     static let disconnected = "connect the disk to get the command"
+    static let whileRunning = "Commands appear when no backup is running."
+
+    /// An unfinished attempt may be the folder a running backup is writing: removing it would break that copy.
+    static func command(for excess: ExcessCopies, user: String, backupRunning: Bool) -> String? {
+        backupRunning ? nil : ExcessCopies.command(for: excess.items, user: user)
+    }
 
     static func summary(_ excess: [ExcessCopies], config: Config) -> String? {
         let copies = excess.reduce(0) { $0 + $1.copyCount }
