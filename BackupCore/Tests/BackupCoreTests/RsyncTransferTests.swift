@@ -128,4 +128,16 @@ struct RsyncTransferTests {
             try await broken.write(Payload(root: temp.path("src"), collectedAt: Date()), into: temp.path("dst/x/2026-10-08_100000"), linkDests: [])
         }
     }
+
+    /// The walker reads exclusions the way rsync does; this pins rsync's side of the `*` and `**` rule.
+    @Test(arguments: [("build/*.o", ["sub", "y.o"]), ("build/**.o", ["sub"])])
+    func rsyncKeepsSingleStarInsideOneName(pattern: String, kept: [String]) async throws {
+        defer { temp.remove() }
+        try temp.file("src/build/x.o", "x")
+        try temp.file("src/build/sub/y.o", "y")
+        let copy = temp.path("dst/code/2026-10-08_100000")
+        _ = try await transfer.write(Payload(root: temp.path("src"), excludes: [pattern], collectedAt: Date()), into: copy, linkDests: [])
+        #expect(temp.names(in: "dst/code/2026-10-08_100000/build") == ["sub"])
+        #expect(temp.names(in: "dst/code/2026-10-08_100000/build/sub") == Array(kept.dropFirst()))
+    }
 }

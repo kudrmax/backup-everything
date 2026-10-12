@@ -18,8 +18,9 @@ enum AppPaths {
         writesDirectly(environment: ProcessInfo.processInfo.environment)
     }
 
+    /// Only together with the sandbox home: with the real settings it would leave the copies unprotected.
     static func writesDirectly(environment: [String: String]) -> Bool {
-        environment[directRsyncVariable] != nil
+        environment[directRsyncVariable] != nil && overrideRoot(environment) != nil
     }
 
     static func dataDirectory(environment: [String: String], home: URL) -> URL {

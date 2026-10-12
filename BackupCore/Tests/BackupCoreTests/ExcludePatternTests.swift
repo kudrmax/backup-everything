@@ -31,4 +31,13 @@ struct ExcludePatternTests {
     @Test func trailingSlashIsIgnored() {
         #expect(ExcludePattern("cache/").matches("x/cache", name: "cache"))
     }
+
+    /// As in rsync: `*` stays inside one name, `**` crosses folders.
+    @Test func singleStarStaysInOneNameDoubleStarCrossesFolders() {
+        #expect(ExcludePattern("build/*.o").matches("build/x.o", name: "x.o"))
+        #expect(!ExcludePattern("build/*.o").matches("build/sub/y.o", name: "y.o"))
+        #expect(ExcludePattern("build/**.o").matches("build/sub/y.o", name: "y.o"))
+        #expect(ExcludePattern("/build/**").matches("build/sub/y.o", name: "y.o"))
+        #expect(!ExcludePattern("/a?b").matches("a/b", name: "b"))
+    }
 }

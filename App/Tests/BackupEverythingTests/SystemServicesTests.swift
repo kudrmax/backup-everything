@@ -147,8 +147,13 @@ struct AppPathsTests {
     }
 
     @Test func sandboxCanWriteCopiesStraightIntoTheFolders() {
-        #expect(AppPaths.writesDirectly(environment: ["BACKUP_EVERYTHING_DIRECT_RSYNC": "1"]))
+        #expect(AppPaths.writesDirectly(environment: ["BACKUP_EVERYTHING_DIRECT_RSYNC": "1", "BACKUP_EVERYTHING_HOME": "/tmp/sandbox"]))
         #expect(!AppPaths.writesDirectly(environment: ["BACKUP_EVERYTHING_HOME": "/tmp/sandbox"]))
+    }
+
+    /// Without the sandbox home the variable would turn off the protection of the real copies.
+    @Test func directWritingNeedsTheSandboxHome() {
+        #expect(!AppPaths.writesDirectly(environment: ["BACKUP_EVERYTHING_DIRECT_RSYNC": "1"]))
     }
 
     @Test func realPathsFollowTheProcessEnvironment() {

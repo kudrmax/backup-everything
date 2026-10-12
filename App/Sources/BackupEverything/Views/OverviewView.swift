@@ -101,7 +101,7 @@ struct GettingStarted: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Getting started").font(.headline)
-            Text("1. Add a destination — a folder, an external disk or a cloud.")
+            Text("1. Add a destination — a folder or an external disk.")
             Text("2. Add sources from templates and choose where to back them up.")
             HStack {
                 Button("Add destination", action: openDestinations).buttonStyle(.borderedProminentPointing)

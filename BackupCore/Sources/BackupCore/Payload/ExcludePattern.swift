@@ -1,7 +1,8 @@
 import Foundation
 
 /// An exclusion as rsync reads it: case-sensitive, no normalisation. Without a slash it matches the name at any depth; with
-/// one, the end of the relative path on component boundaries; a leading slash anchors it at the top. A trailing slash is ignored.
+/// one, the end of the relative path on component boundaries; a leading slash anchors it at the top. A trailing slash is
+/// ignored. `*` does not cross `/`, `**` does.
 struct ExcludePattern: Sendable {
     private let pattern: String
     private let anchored: Bool
@@ -28,7 +29,10 @@ struct ExcludePattern: Sendable {
         return false
     }
 
+    /// `*`, `?` and `[…]` stay inside one name; a pattern with `**` may cross folders, as in rsync.
     private static func fnmatches(_ pattern: String, _ text: String) -> Bool {
-        fnmatch(pattern, text, 0) == 0
+        guard pattern.contains("**") else { return fnmatch(pattern, text, FNM_PATHNAME) == 0 }
+        let single = pattern.replacingOccurrences(of: "**", with: "*")
+        return fnmatch(single, text, FNM_PATHNAME) == 0 || fnmatch(single, text, 0) == 0
     }
 }
