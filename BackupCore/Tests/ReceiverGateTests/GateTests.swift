@@ -86,6 +86,44 @@ struct GateTests {
         #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 is a finished copy")))
     }
 
+    /// A dated folder is written once: an unfinished attempt may hold hard links into a finished copy, and rsync
+    /// `--inplace` would write through them.
+    @Test func refusesAnExistingUnfinishedFolderAsTarget() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_100000"] = 497
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 already exists")))
+    }
+
+    @Test func passesTheMarkerIntoAFolderWithoutOne() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_100000"] = 497
+        let arguments = ["backup", "rsync", "--server", "-e.LsfxCIvu", "--inplace", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"]
+        #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
+    }
+
+    @Test func passesADataTransferIntoANewFolderUnderAnOwnedParent() {
+        let arguments = server + ["/Volumes/HDD/Backups/obsidian/2026-10-09_100000/"]
+        #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
+    }
+
+    @Test(arguments: ["-K", "-b", "-T", "-f", "-y", "-B", "-E", "-O", "-J", "-W", "-logDtpAXrKe.iLsfxCIvu"])
+    func refusesShortOptionsRsyncDoesNotSendForUs(cluster: String) {
+        let plan = Gate.plan(arguments: ["backup", "rsync", "--server", cluster, ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "refused option \(cluster)")))
+    }
+
+    @Test(arguments: ["-logDtpAXre.iLsfxCIvu", "-logDtpAXrLe.iLsfxCIvu", "-e.LsfxCIvu"])
+    func passesTheShortOptionsOfOurTwoTransfers(cluster: String) {
+        let arguments = ["backup", "rsync", "--server", cluster, ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]
+        #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
+    }
+
+    @Test func passesChmod() {
+        let arguments = ["backup", "rsync", "--server", "-logDtpAXre.iLsfxCIvu", "--chmod=Dg+rx,Fg+r", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]
+        #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
+    }
+
     @Test func refusesATargetUnderAFolderOwnedBySomeoneElse() {
         var environment = environment
         environment.owners["/Volumes/HDD/Backups/other"] = 501

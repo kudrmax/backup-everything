@@ -68,7 +68,7 @@ public struct BackupEngine: Sendable {
             return record
         }
 
-        let snapshotName = naming.name(for: payload.collectedAt)
+        let snapshotName = naming.name(for: record.startedAt)
         record.snapshotName = snapshotName
         record.collectedAt = payload.collectedAt
         record.fileCount = stats.fileCount
@@ -97,10 +97,10 @@ public struct BackupEngine: Sendable {
         return record
     }
 
-    /// A copy of this name already there (the same package delivered earlier) counts as delivered.
+    /// A copy at least as new as the collected data (the same package delivered earlier) counts as delivered.
     private func deliver(_ payload: Payload, snapshotName: String, slug: String, to store: any DestinationStore) async -> DeliveryOutcome {
         do {
-            if try await !store.copies(of: slug).contains(where: { $0.name == snapshotName }) {
+            if try await !store.copies(of: slug).contains(where: { $0.date >= payload.collectedAt }) {
                 try await store.write(payload, sourceSlug: slug, snapshotName: snapshotName)
             }
             return .delivered(pruned: 0, warning: nil)

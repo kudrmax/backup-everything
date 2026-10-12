@@ -13,8 +13,8 @@ public struct ReceiverCommand: Sendable, Equatable {
     )
 }
 
-/// Writes a copy with rsync: everything of the payload into the copy folder, unchanged files as hard links of the previous
-/// copy, then the completion marker. Nothing is ever deleted or renamed.
+/// Writes a copy with rsync: everything of the payload into a new copy folder, unchanged files as hard links of earlier
+/// folders, then the completion marker. Nothing is ever deleted or renamed.
 public struct RsyncTransfer: Sendable {
     public static let homebrewRsync = URL(fileURLWithPath: "/opt/homebrew/bin/rsync")
     private static let errorTailLength = 2000
@@ -32,9 +32,10 @@ public struct RsyncTransfer: Sendable {
         self.scratch = scratch
     }
 
-    public func write(_ payload: Payload, into copy: URL, linkDest: URL?) async throws {
+    /// rsync looks for an unchanged file in `linkDests` in the given order.
+    public func write(_ payload: Payload, into copy: URL, linkDests: [URL]) async throws {
         var arguments = ["-aAX", "--inplace", "--mkpath"]
-        if let linkDest { arguments.append("--link-dest=\(linkDest.path)") }
+        arguments += linkDests.map { "--link-dest=\($0.path)" }
         arguments += payload.excludes.map { "--exclude=\($0)" }
         let isDirectory = PayloadWalker().isDirectory(payload)
         if !isDirectory { arguments.append("--copy-links") }

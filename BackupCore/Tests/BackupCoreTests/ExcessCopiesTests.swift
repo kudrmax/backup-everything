@@ -10,7 +10,7 @@ struct ExcessCopiesTests {
         var source = Fixtures.source(destinations: [destination])
         source.retention = RetentionRules(daily: 2, weekly: 0, monthly: 0, yearly: 0)
         let copies = ["2026-10-01 10:00:00", "2026-10-02 10:00:00", "2026-10-03 10:00:00"].map(Fixtures.snapshot)
-        let excess = try calculator.excess(of: source, on: destination, copies: copies, folder: { URL(fileURLWithPath: "/Volumes/HDD/Backups/obsidian/\($0.name)") }, asOf: nil)
+        let excess = try calculator.excess(of: source, on: destination, copies: copies, unfinished: [], folder: { URL(fileURLWithPath: "/Volumes/HDD/Backups/obsidian/\($0.name)") }, asOf: nil)
         #expect(excess.items.map(\.snapshot) == [Fixtures.snapshot("2026-10-01 10:00:00")])
         #expect(excess.sourceId == source.id && excess.destinationId == destination.id)
     }
@@ -32,14 +32,31 @@ struct ExcessCopiesTests {
         let copies = ["2026-10-01 10:00:00", "2026-10-02 10:00:00"].map(Fixtures.snapshot)
         struct Broken: Error {}
         #expect(throws: Broken.self) {
-            try calculator.excess(of: source, on: destination, copies: copies, folder: { _ in throw Broken() }, asOf: nil)
+            try calculator.excess(of: source, on: destination, copies: copies, unfinished: [], folder: { _ in throw Broken() }, asOf: nil)
         }
     }
 
     @Test func newestCopyIsNeverListed() throws {
         var source = Fixtures.source(destinations: [destination])
         source.retention = RetentionRules(daily: 0, weekly: 0, monthly: 0, yearly: 0)
-        let excess = try calculator.excess(of: source, on: destination, copies: [Fixtures.snapshot("2026-10-01 10:00:00")], folder: { URL(fileURLWithPath: "/x/\($0.name)") }, asOf: nil)
+        let excess = try calculator.excess(of: source, on: destination, copies: [Fixtures.snapshot("2026-10-01 10:00:00")], unfinished: [], folder: { URL(fileURLWithPath: "/x/\($0.name)") }, asOf: nil)
         #expect(excess.items.isEmpty)
+    }
+
+    /// An interrupted attempt is never written into again; it stays until the person removes it with the copies.
+    @Test func everyUnfinishedAttemptIsListedAfterTheCopies() throws {
+        var source = Fixtures.source(destinations: [destination])
+        source.retention = RetentionRules(daily: 1, weekly: 0, monthly: 0, yearly: 0)
+        let copies = ["2026-10-01 10:00:00", "2026-10-03 10:00:00"].map(Fixtures.snapshot)
+        let unfinished = ["2026-10-02 10:00:00", "2026-10-04 10:00:00"].map(Fixtures.snapshot)
+        let excess = try calculator.excess(of: source, on: destination, copies: copies, unfinished: unfinished, folder: { URL(fileURLWithPath: "/x/\($0.name)") }, asOf: nil)
+        #expect(excess.items.map(\.snapshot.name) == ["2026-10-01_100000", "2026-10-02_100000", "2026-10-04_100000"])
+        #expect(excess.items.map(\.isUnfinished) == [false, true, true])
+    }
+
+    @Test func unfinishedAttemptsAloneAreListed() throws {
+        let source = Fixtures.source(destinations: [destination])
+        let excess = try calculator.excess(of: source, on: destination, copies: [], unfinished: [Fixtures.snapshot("2026-10-02 10:00:00")], folder: { URL(fileURLWithPath: "/x/\($0.name)") }, asOf: nil)
+        #expect(excess.items.map(\.isUnfinished) == [true])
     }
 }

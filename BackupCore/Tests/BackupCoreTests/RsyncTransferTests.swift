@@ -19,7 +19,7 @@ struct RsyncTransferTests {
         try temp.file("src/.DS_Store", "x")
         let copy = temp.path("dst/obsidian/2026-10-08_100000")
         let payload = Payload(root: temp.path("src"), excludes: ["cache", ".DS_Store"], collectedAt: Date())
-        try await transfer.write(payload, into: copy, linkDest: nil)
+        try await transfer.write(payload, into: copy, linkDests: [])
         #expect(temp.names(in: "dst/obsidian/2026-10-08_100000") == ["a.md"])
         try await transfer.markComplete(copy)
         try await transfer.markComplete(copy)
@@ -33,10 +33,10 @@ struct RsyncTransferTests {
         try temp.file("src/b.md", "beta")
         let first = temp.path("dst/obsidian/2026-10-07_100000")
         let second = temp.path("dst/obsidian/2026-10-08_100000")
-        try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: first, linkDest: nil)
+        try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: first, linkDests: [])
         try await transfer.markComplete(first)
         try Data("beta2".utf8).write(to: temp.path("src/b.md"))
-        try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: second, linkDest: first)
+        try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: second, linkDests: [first])
         let inode = { (relative: String) in try FileManager.default.attributesOfItem(atPath: temp.path(relative).path)[.systemFileNumber] as? UInt64 }
         #expect(try inode("dst/obsidian/2026-10-07_100000/a.md") == inode("dst/obsidian/2026-10-08_100000/a.md"))
         #expect(try inode("dst/obsidian/2026-10-07_100000/b.md") != inode("dst/obsidian/2026-10-08_100000/b.md"))
@@ -47,7 +47,7 @@ struct RsyncTransferTests {
         defer { temp.remove() }
         try temp.file("export.csv", "a,b")
         let copy = temp.path("dst/finance/2026-10-08_100000")
-        try await transfer.write(Payload(root: temp.path("export.csv"), collectedAt: Date()), into: copy, linkDest: nil)
+        try await transfer.write(Payload(root: temp.path("export.csv"), collectedAt: Date()), into: copy, linkDests: [])
         #expect(temp.names(in: "dst/finance/2026-10-08_100000") == ["export.csv"])
     }
 
@@ -56,7 +56,7 @@ struct RsyncTransferTests {
         try temp.file("src/real.csv", "a,b")
         try FileManager.default.createSymbolicLink(at: temp.path("src/link.csv"), withDestinationURL: temp.path("src/real.csv"))
         let copy = temp.path("dst/finance/2026-10-08_100000")
-        try await transfer.write(Payload(root: temp.path("src/link.csv"), collectedAt: Date()), into: copy, linkDest: nil)
+        try await transfer.write(Payload(root: temp.path("src/link.csv"), collectedAt: Date()), into: copy, linkDests: [])
         #expect(temp.names(in: "dst/finance/2026-10-08_100000") == ["link.csv"])
         let attributes = try FileManager.default.attributesOfItem(atPath: copy.appendingPathComponent("link.csv").path)
         #expect(attributes[.type] as? FileAttributeType == .typeRegular)
@@ -67,7 +67,7 @@ struct RsyncTransferTests {
         defer { temp.remove() }
         let copy = temp.path("dst/x/2026-10-08_100000")
         await #expect(throws: DestinationError.self) {
-            try await transfer.write(Payload(root: temp.path("gone"), collectedAt: Date()), into: copy, linkDest: nil)
+            try await transfer.write(Payload(root: temp.path("gone"), collectedAt: Date()), into: copy, linkDests: [])
         }
         #expect(!temp.exists("dst/x/2026-10-08_100000/.complete"))
     }
@@ -84,10 +84,13 @@ struct RsyncTransferTests {
         defer { temp.remove() }
         let runner = FakeProcessRunner()
         let transfer = RsyncTransfer(rsync: RsyncTransfer.homebrewRsync, receiver: .standard, runner: runner, scratch: temp.path("scratch"))
-        try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: temp.path("dst/obsidian/2026-10-08_100000"), linkDest: temp.path("dst/obsidian/2026-10-07_100000"))
+        try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: temp.path("dst/obsidian/2026-10-08_100000"), linkDests: [temp.path("dst/obsidian/2026-10-07_100000"), temp.path("dst/obsidian/2026-10-08_090000")])
         let arguments = runner.calls.last?.arguments ?? []
         #expect(arguments.contains("--rsh=/usr/bin/sudo -n -u _backupeverything /usr/local/libexec/backup-everything/backup-receiver"))
-        #expect(arguments.contains("--link-dest=\(temp.path("dst/obsidian/2026-10-07_100000").path)"))
+        #expect(arguments.filter { $0.hasPrefix("--link-dest=") } == [
+            "--link-dest=\(temp.path("dst/obsidian/2026-10-07_100000").path)",
+            "--link-dest=\(temp.path("dst/obsidian/2026-10-08_090000").path)",
+        ])
         #expect(arguments.last == "backup:\(temp.path("dst/obsidian/2026-10-08_100000").path)/")
         #expect(arguments.contains("--inplace") && arguments.contains("--mkpath") && arguments.contains("-aAX"))
         #expect(!arguments.contains { $0.hasPrefix("--delete") })

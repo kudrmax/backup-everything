@@ -13,6 +13,11 @@ public enum Gate {
     public static let completionMarker = ".complete"
     private static let allowedLongOptions: Set<String> = ["--server", "--inplace", "--mkpath"]
     private static let optionsWithValue: Set<String> = ["--link-dest"]
+    private static let allowedLongPrefixes = ["--chmod="]
+    /// The letters rsync 3 sends to the receiver for our data transfer and for the completion marker: options without a
+    /// value, then `e` whose value (the rest of the cluster) lists the protocol capabilities of the client.
+    private static let allowedOptionLetters = Set("logDtpAXrHiLsxCIvu")
+    private static let allowedCapabilityLetters = Set("logDtpAXreHiLsfxCIvu.")
 
     public static func plan(arguments: [String], environment: any GateEnvironment) -> Result<[String], GateError> {
         var rest = arguments.dropFirst()
@@ -27,7 +32,8 @@ public enum Gate {
                 expectingValue = false
                 continue
             }
-            if allowedLongOptions.contains(argument) || isShortCluster(argument) || argument == "." {
+            if allowedLongOptions.contains(argument) || allowedLongPrefixes.contains(where: argument.hasPrefix)
+                || isAllowedShortCluster(argument) || argument == "." {
                 argv.append(argument)
             } else if optionsWithValue.contains(argument) {
                 argv.append(argument)
@@ -46,13 +52,17 @@ public enum Gate {
         return .success(argv)
     }
 
-    private static func isShortCluster(_ argument: String) -> Bool {
-        argument.count > 1 && argument.hasPrefix("-") && !argument.hasPrefix("--")
-            && argument.dropFirst().allSatisfy { $0.isASCII && ($0.isLetter || $0 == ".") }
+    private static func isAllowedShortCluster(_ argument: String) -> Bool {
+        guard argument.count > 1, argument.hasPrefix("-"), !argument.hasPrefix("--") else { return false }
+        let letters = argument.dropFirst()
+        let options = letters.prefix { $0 != "e" }
+        let capabilities = letters.dropFirst(options.count).dropFirst()
+        return options.allSatisfy(allowedOptionLetters.contains) && capabilities.allSatisfy(allowedCapabilityLetters.contains)
     }
 
-    /// The target must sit under a folder of the backup account, on a volume that honours owners, and must not be
-    /// (or lie in) a finished copy.
+    /// The target must sit under a folder of the backup account, on a volume that honours owners, must not be (or lie
+    /// in) a finished copy, and must not exist yet: a folder is written once, so an attempt never writes through hard
+    /// links into an earlier copy.
     private static func check(target: String, environment: any GateEnvironment) -> GateError? {
         guard target.hasPrefix("/"), !target.split(separator: "/").contains("..") else {
             return GateError(message: "path must be absolute without “..”")
@@ -64,6 +74,9 @@ public enum Gate {
                 return GateError(message: "\(level) is a finished copy")
             }
             level = (level as NSString).deletingLastPathComponent
+        }
+        if environment.fileExists(atPath: folder) {
+            return GateError(message: "\(folder) already exists")
         }
         guard let existing = nearestExisting(folder, environment: environment) else {
             return GateError(message: "\(folder) is not inside a folder of the backup account")

@@ -46,7 +46,7 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
         if let writeError { throw writeError }
         log.append("write:\(snapshotName)")
         writtenPayloads.append(payload)
-        snapshots.append(Snapshot(name: snapshotName, date: payload.collectedAt))
+        snapshots.append(Snapshot(name: snapshotName, date: Fixtures.naming.date(from: snapshotName) ?? payload.collectedAt))
     }
 
     func usedBytes() async throws -> Int64 { 0 }

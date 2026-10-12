@@ -1,7 +1,7 @@
 import Foundation
 
-/// A folder owned by the backup account. The app only reads it; rsync writes into it through the receiver, and a copy
-/// counts once its completion marker is there. Nothing here deletes or renames.
+/// A folder owned by the backup account. The app only reads it; rsync writes each copy once into a new folder through the
+/// receiver, and a copy counts once its completion marker is there. Nothing here deletes or renames.
 public struct LocalFolderDestination: DestinationStore {
     private let folder: CopyFolder
     private let access: any DestinationAccess
@@ -29,10 +29,19 @@ public struct LocalFolderDestination: DestinationStore {
         let readiness = await readiness()
         guard readiness == .ready else { throw DestinationError.notReady(readiness) }
         let target = try folder.sourceFolder(sourceSlug).appendingPathComponent(snapshotName, isDirectory: true)
-        let previous = try folder.newestCopy(of: sourceSlug).map { try folder.url(of: $0, slug: sourceSlug) }
-        try await transfer.write(payload, into: target, linkDest: previous)
+        guard !FileManager.default.fileExists(atPath: target.path) else { throw DestinationError.folderExists(target.path) }
+        try await transfer.write(payload, into: target, linkDests: try linkDests(of: sourceSlug))
         try await transfer.markComplete(target)
     }
+
+    /// rsync takes at most 20. The newest copy first, then the files interrupted attempts already hold.
+    private func linkDests(of slug: String) throws -> [URL] {
+        let newest = try folder.newestCopy(of: slug).map { [$0] } ?? []
+        let attempts = try folder.unfinished(of: slug).reversed()
+        return try (newest + attempts).prefix(Self.maxLinkDests).map { try folder.url(of: $0, slug: slug) }
+    }
+
+    private static let maxLinkDests = 20
 
     public func usedBytes() async throws -> Int64 {
         let readiness = await readiness()

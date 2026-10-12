@@ -163,10 +163,27 @@ struct BackupEngineTests {
         #expect(provider.finished == [.partly])
     }
 
+    /// A destination that holds a copy at least as new as the collected data already has the package.
     @Test func deliversOnlyWhereTheCopyIsMissing() async {
         defer { temp.remove() }
-        cloudStore.snapshots = [Snapshot(name: name, date: now)]
+        cloudStore.snapshots = [Fixtures.snapshot("2026-09-28 14:30:00")]
+        diskStore.snapshots = [Fixtures.snapshot("2026-09-28 14:29:59")]
         let record = await run(.pickup)
+        #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .delivered(pruned: 0, warning: nil)])
+        #expect(diskStore.log == ["write:\(name)"])
+        #expect(cloudStore.log.isEmpty)
+    }
+
+    /// A package kept in pending is written under the time of this run, and only where no copy as new as it is yet.
+    @Test func pendingPackageIsNamedByTheRunAndSkippedWhereANewerCopyIs() async {
+        defer { temp.remove() }
+        let collected = Fixtures.date("2026-09-25 09:00:00")
+        provider.result = .success(Payload(root: temp.path("vault"), collectedAt: collected, madeEarlier: true))
+        cloudStore.snapshots = [Fixtures.snapshot("2026-09-26 10:00:00")]
+        diskStore.snapshots = [Fixtures.snapshot("2026-09-20 10:00:00")]
+        let record = await run(.catchUp)
+        #expect(record.snapshotName == name)
+        #expect(record.collectedAt == collected)
         #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: nil), .delivered(pruned: 0, warning: nil)])
         #expect(diskStore.log == ["write:\(name)"])
         #expect(cloudStore.log.isEmpty)

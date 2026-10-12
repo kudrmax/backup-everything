@@ -192,7 +192,7 @@ struct BackupCoordinatorTests {
         try temp.directory("hdd")
         #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
         #expect(try store.loadState().sourceState(source.id).lastRun == start)
-        #expect(temp.names(in: "hdd/photos") == ["2026-09-28_100000"])
+        #expect(temp.names(in: "hdd/photos") == ["2026-10-03_100000"])
         #expect(temp.names(in: "trash") == ["takeout-1.zip"])
         #expect(!temp.exists("work/pending/\(source.id.uuidString)"))
     }
@@ -484,9 +484,30 @@ struct BackupCoordinatorTests {
         let caughtUp = try await coordinator.tick()
         #expect(caughtUp.runs.map(\.trigger) == [.catchUp])
         #expect(try store.loadState().sourceState(source.id).lastRun == start)
-        #expect(temp.names(in: "hdd/claude") == ["2026-09-28_100000"])
+        #expect(temp.names(in: "hdd/claude") == ["2026-09-29_100000"])
         #expect(temp.names(in: "cloud/claude") == ["2026-09-28_100000"])
         #expect(!temp.exists("work/pending/\(source.id.uuidString)"))
+    }
+
+    /// A destination that got the package under a later name has it: the package waits only for the other one.
+    @Test func pendingPackageIsNotDeliveredAgainWhereANewerCopyIs() async throws {
+        defer { temp.remove() }
+        let source = claude([cloud, disk])
+        try store.saveConfig(Config(sources: [source], destinations: [cloud, disk]))
+        try temp.file("Downloads/manifest-a.json", "{}", modified: start.addingTimeInterval(-60))
+        _ = try await coordinator.tick()
+        #expect(temp.names(in: "cloud/claude") == ["2026-09-28_100000"])
+
+        try FileManager.default.moveItem(at: temp.path("cloud"), to: temp.path("cloud-away"))
+        try temp.directory("hdd")
+        time.advance(86_400)
+        #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
+        #expect(temp.names(in: "hdd/claude") == ["2026-09-29_100000"])
+        #expect(temp.names(in: "work/pending/\(source.id.uuidString)") == ["2026-09-28_100000"])
+
+        time.advance(2 * 3600)
+        #expect(try await coordinator.tick().runs.isEmpty)
+        #expect(temp.names(in: "hdd/claude") == ["2026-09-29_100000"])
     }
 
     @Test func sourceOfOneCommandRunsOnSchedule() async throws {
@@ -716,7 +737,7 @@ struct BackupCoordinatorTests {
         try temp.directory("hdd")
         time.advance(3600)
         #expect(try await coordinator.tick().runs.map(\.trigger) == [.catchUp])
-        #expect(temp.names(in: "hdd/pocketbook/2026-09-28_100000") == [".complete", "book.epub"])
+        #expect(temp.names(in: "hdd/pocketbook/2026-09-28_110000") == [".complete", "book.epub"])
         #expect(try await coordinator.statusReport().overall == .ok)
     }
 
@@ -1026,6 +1047,18 @@ struct BackupCoordinatorTests {
         #expect(result[0].asOf == seenAt)
         #expect(result[0].items.map(\.snapshot.name) == ["2026-09-25_090000", "2026-09-26_090000"])
         #expect(result[0].items.allSatisfy { $0.bytes == 0 })
+    }
+
+    @Test func excessCopiesListUnfinishedAttemptsOfAReachableDestination() async throws {
+        defer { temp.remove() }
+        let source = try sourceWithThreeCopies(on: cloud, keepDaily: 10, into: "cloud")
+        try temp.file("cloud/obsidian/2026-09-27_120000/a.md", "interrupted")
+        let result = try await coordinator.excessCopies()
+        #expect(result.count == 1)
+        #expect(result[0].sourceId == source.id)
+        #expect(result[0].items.map(\.snapshot.name) == ["2026-09-27_120000"])
+        #expect(result[0].items.map(\.isUnfinished) == [true])
+        #expect(result[0].items[0].folder == temp.path("cloud/obsidian/2026-09-27_120000"))
     }
 
     @Test func pairsKeepingEverythingAreNotInExcessCopies() async throws {

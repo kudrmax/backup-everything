@@ -5,6 +5,7 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case rsyncMissing
     case commandFailed(String)
     case invalidFolderName(String)
+    case folderExists(String)
 
     public var errorDescription: String? {
         switch self {
@@ -14,6 +15,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "rsync 3 is not installed. Install it with “brew install rsync”."
         case let .commandFailed(output):
             "rsync failed: \(output)"
+        case let .folderExists(path):
+            "A folder “\(path)” is already there. Copies are never written into an existing folder; the next backup gets a new name."
         case let .invalidFolderName(name):
             "The folder for copies of this source is named “\(name)”, which is not a single folder name. Nothing was read or written. Fix “slug” of the source in config.json."
         }

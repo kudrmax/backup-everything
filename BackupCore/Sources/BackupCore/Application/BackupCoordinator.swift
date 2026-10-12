@@ -70,7 +70,8 @@ public actor BackupCoordinator {
 
     public func statusReport() async throws -> StatusReport { try await currentStatus().report }
 
-    /// Copies the retention rule no longer keeps: real folders on reachable destinations, the display cache otherwise.
+    /// Copies the retention rule no longer keeps and unfinished attempts: real folders on reachable destinations, the
+    /// display cache otherwise (it holds finished copies only).
     public func excessCopies() async throws -> [ExcessCopies] {
         let current = try await currentStatus()
         var result: [ExcessCopies] = []
@@ -79,17 +80,23 @@ public actor BackupCoordinator {
                 let store = stores.store(for: destination)
                 let available = await store.isAvailable()
                 let copies: [Snapshot]
+                let unfinished: [Snapshot]
                 let asOf: Date?
                 if available, let listed = try? await store.copies(of: source.slug) {
                     copies = listed
+                    unfinished = (try? await store.unfinishedCopies(of: source.slug)) ?? []
                     asOf = nil
                 } else if let cached = current.state.cachedCopies(sourceId: source.id, destinationId: destination.id) {
                     copies = cached.copies.map { Snapshot(name: $0.name, date: $0.date) }
+                    unfinished = []
                     asOf = cached.seenAt
                 } else {
                     continue
                 }
-                let found = try excess.excess(of: source, on: destination, copies: copies, folder: { try store.url(of: $0, sourceSlug: source.slug) }, asOf: asOf)
+                let found = try excess.excess(
+                    of: source, on: destination, copies: copies, unfinished: unfinished,
+                    folder: { try store.url(of: $0, sourceSlug: source.slug) }, asOf: asOf
+                )
                 if !found.items.isEmpty { result.append(found) }
             }
         }
@@ -150,14 +157,14 @@ public actor BackupCoordinator {
         return work
     }
 
-    /// Reachable destinations that do not hold the package a source with a manual step keeps in pending until it is everywhere.
+    /// Reachable destinations that do not hold the package a source with a manual step keeps in pending until it is
+    /// everywhere: a copy at least as new as the package means the package is there.
     private func pendingTargets(of source: Source, config: Config, state: AppState, now: Date) async -> [Destination] {
         guard planner.mayRetry(state.sourceState(source.id), now: now), let package = inbox.pendingPackage(for: source.id) else { return [] }
-        let name = package.directory.lastPathComponent
         var reachable: [Destination] = []
         for destination in config.destinations(of: source) {
             let copies = state.cachedCopies(sourceId: source.id, destinationId: destination.id)?.copies ?? []
-            guard !copies.contains(where: { $0.name == name }), await stores.store(for: destination).isAvailable() else { continue }
+            guard !copies.contains(where: { $0.date >= package.collectedAt }), await stores.store(for: destination).isAvailable() else { continue }
             reachable.append(destination)
         }
         return reachable
