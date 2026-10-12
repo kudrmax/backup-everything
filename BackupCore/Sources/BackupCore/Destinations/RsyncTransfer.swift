@@ -19,6 +19,8 @@ public struct RsyncTransfer: Sendable {
     public static let homebrewRsync = URL(fileURLWithPath: "/opt/homebrew/bin/rsync")
     private static let errorTailLength = 2000
     private static let host = "backup"
+    /// The copy belongs to the backup account; the person reads it through the group of the destination root.
+    private static let groupReadable = "--chmod=Dg+rx,Fg+r"
 
     private let rsync: URL
     private let receiver: ReceiverCommand?
@@ -34,7 +36,7 @@ public struct RsyncTransfer: Sendable {
 
     /// rsync looks for an unchanged file in `linkDests` in the given order.
     public func write(_ payload: Payload, into copy: URL, linkDests: [URL]) async throws {
-        var arguments = ["-aAX", "--inplace", "--mkpath"]
+        var arguments = ["-aAX", "--inplace", "--mkpath", Self.groupReadable]
         arguments += linkDests.map { "--link-dest=\($0.path)" }
         arguments += payload.excludes.map { "--exclude=\($0)" }
         let isDirectory = PayloadWalker().isDirectory(payload)

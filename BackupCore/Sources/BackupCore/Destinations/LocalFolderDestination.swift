@@ -32,6 +32,9 @@ public struct LocalFolderDestination: DestinationStore {
         guard !FileManager.default.fileExists(atPath: target.path) else { throw DestinationError.folderExists(target.path) }
         try await transfer.write(payload, into: target, linkDests: try linkDests(of: sourceSlug))
         try await transfer.markComplete(target)
+        guard try folder.copies(of: sourceSlug).contains(where: { $0.name == snapshotName }) else {
+            throw DestinationError.copyNotVisible(target.path)
+        }
     }
 
     /// rsync takes at most 20. The newest copy first, then the files interrupted attempts already hold.

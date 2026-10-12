@@ -88,6 +88,19 @@ struct LocalFolderDestinationTests {
         #expect(runner.calls.isEmpty)
     }
 
+    /// rsync reported success, yet the person cannot list the copy: every check would make a new full copy, so it is an error.
+    @Test func copyThatCannotBeSeenAfterwardsIsAnError() async throws {
+        defer { temp.remove() }
+        try temp.directory("dest")
+        try temp.file("src/a.md", "alpha")
+        let target = temp.path("dest/obsidian/2026-10-08_100000").path
+        let error = DestinationError.copyNotVisible(target)
+        await #expect(throws: error) {
+            try await destination(runner: FakeProcessRunner()).write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
+        }
+        #expect(error.localizedDescription == "The copy was written to “\(target)” but you cannot read it: fix the permissions of that folder (run the setup script again).")
+    }
+
     @Test func failedCopyLeavesNoMarkerAndTouchesNoOtherCopy() async throws {
         defer { temp.remove() }
         try temp.directory("dest")

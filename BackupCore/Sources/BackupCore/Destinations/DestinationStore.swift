@@ -6,6 +6,7 @@ public enum DestinationError: Error, Equatable, LocalizedError {
     case commandFailed(String)
     case invalidFolderName(String)
     case folderExists(String)
+    case copyNotVisible(String)
 
     public var errorDescription: String? {
         switch self {
@@ -17,6 +18,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
             "rsync failed: \(output)"
         case let .folderExists(path):
             "A folder “\(path)” is already there. Copies are never written into an existing folder; the next backup gets a new name."
+        case let .copyNotVisible(path):
+            "The copy was written to “\(path)” but you cannot read it: fix the permissions of that folder (run the setup script again)."
         case let .invalidFolderName(name):
             "The folder for copies of this source is named “\(name)”, which is not a single folder name. Nothing was read or written. Fix “slug” of the source in config.json."
         }

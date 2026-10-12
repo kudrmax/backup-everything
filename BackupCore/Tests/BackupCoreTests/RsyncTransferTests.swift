@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import BackupCore
@@ -93,6 +94,21 @@ struct RsyncTransferTests {
         ])
         #expect(arguments.last == "backup:\(temp.path("dst/obsidian/2026-10-08_100000").path)/")
         #expect(arguments.contains("--inplace") && arguments.contains("--mkpath") && arguments.contains("-aAX"))
+        #expect(arguments.contains("--chmod=Dg+rx,Fg+r"))
         #expect(!arguments.contains { $0.hasPrefix("--delete") })
+    }
+
+    /// The copy belongs to the backup account; the person reads it through the group, whatever the modes of the originals.
+    @Test func copyIsReadableByTheGroupEvenFromAPrivateSource() async throws {
+        defer { temp.remove() }
+        try temp.file("src/secret.md", "alpha")
+        #expect(chmod(temp.path("src").path, 0o700) == 0)
+        #expect(chmod(temp.path("src/secret.md").path, 0o600) == 0)
+        let copy = temp.path("dst/notes/2026-10-08_100000")
+        try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: copy, linkDests: [])
+        let mode = { (relative: String) in try (FileManager.default.attributesOfItem(atPath: temp.path(relative).path)[.posixPermissions] as? Int ?? 0) }
+        #expect(try mode("dst/notes/2026-10-08_100000") & 0o050 == 0o050)
+        #expect(try mode("dst/notes/2026-10-08_100000/secret.md") & 0o040 == 0o040)
+        #expect(try mode("dst/notes/2026-10-08_100000/secret.md") & 0o007 == 0)
     }
 }

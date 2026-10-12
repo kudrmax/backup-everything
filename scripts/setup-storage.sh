@@ -22,12 +22,10 @@ run() {
   fi
 }
 
-is_dangerous_root() {
-  if [ "$1" = "/" ] || [ "$1" = "$HOME_REAL" ]; then
-    return 0
-  fi
-  case "$HOME_REAL/" in
-    "$1"/*) return 0 ;;
+is_allowed_root() {
+  case "$1" in
+    /Volumes/?*/?*) return 0 ;;
+    "$HOME_REAL"/?*) return 0 ;;
   esac
   return 1
 }
@@ -35,10 +33,17 @@ is_dangerous_root() {
 [ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
 [ "$USER_NAME" != "root" ] || { echo "run as your own user with sudo, not as root"; exit 1; }
 [ -x /opt/homebrew/bin/rsync ] || { echo "rsync from Homebrew is missing: run 'brew install rsync' as $USER_NAME first"; exit 1; }
+if [ "$DRY_RUN" = 0 ]; then
+  pgrep -x BackupEverything >/dev/null && { echo "quit Backup Everything first (a copy in progress would fail while folders change owner)"; exit 1; }
+fi
 
-HOME_DIR=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory | awk '{print $2}')
+HOME_DIR=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory | sed 's/^NFSHomeDirectory://' | tr -d '\n' | sed 's/^ //')
 HOME_REAL=$(cd "$HOME_DIR" && pwd -P)
-CONFIG="${BACKUP_EVERYTHING_HOME:-$HOME_DIR/BackupEverything}/config.json"
+if [ -n "${BACKUP_EVERYTHING_HOME:-}" ]; then
+  CONFIG="$BACKUP_EVERYTHING_HOME/data/config.json"
+else
+  CONFIG="$HOME_DIR/BackupEverything/config.json"
+fi
 
 echo "== 1. backup account $ACCOUNT"
 if ! id "$ACCOUNT" >/dev/null 2>&1; then
@@ -54,8 +59,8 @@ run mkdir -p "$LIBEXEC"
 run install -o root -g wheel -m 755 BackupCore/.build/release/backup-receiver "$RECEIVER"
 
 echo "== 3. sudo rule with the binary's SHA-256"
-trap 'if [ -e "$SUDOERS.tmp" ]; then /opt/homebrew/bin/trash "$SUDOERS.tmp" 2>/dev/null || true; fi' EXIT
 if [ "$DRY_RUN" = 0 ]; then
+  trap 'if [ -e "$SUDOERS.tmp" ]; then /opt/homebrew/bin/trash "$SUDOERS.tmp" 2>/dev/null || true; fi' EXIT
   DIGEST=$(shasum -a 256 "$RECEIVER" | awk '{print $1}')
 else
   DIGEST="<sha256 of the installed receiver>"
@@ -95,10 +100,6 @@ while IFS= read -r ROOT; do
       fi
       ;;
   esac
-  if [ "$(basename "$ROOT")" = "/" ] || is_dangerous_root "$ROOT"; then
-    echo "skip $ROOT: refusing to take over the root of the disk or your home folder"
-    continue
-  fi
   if ! PARENT=$(cd "$(dirname "$ROOT")" 2>/dev/null && pwd -P); then
     echo "skip $ROOT: parent folder is not there (disk not connected?)"
     continue
@@ -107,12 +108,13 @@ while IFS= read -r ROOT; do
   if [ -d "$ROOT" ]; then
     ROOT=$(cd "$ROOT" && pwd -P)
   fi
-  if is_dangerous_root "$ROOT"; then
-    echo "skip $ROOT: refusing to take over the root of the disk or your home folder"
+  if ! is_allowed_root "$ROOT"; then
+    echo "skip $ROOT: outside /Volumes/<disk>/… and your home folder"
     continue
   fi
   case "$ROOT" in
     /Volumes/*)
+      VOLUME="/Volumes/$(echo "$ROOT" | cut -d/ -f3)"
       if ! run diskutil enableOwnership "$VOLUME"; then
         echo "skip $ROOT: ownership cannot be enabled on $VOLUME (exFAT/FAT volumes do not support it)"
         continue
@@ -139,6 +141,7 @@ while IFS= read -r ROOT; do
   fi
   echo "ownership of $ROOT and everything under it changes to $ACCOUNT:staff"
   run chown -R "$ACCOUNT:staff" "$ROOT"
+  run chmod -R g+rX "$ROOT"
   run chmod 755 "$ROOT"
 done <<< "$ROOTS"
 
