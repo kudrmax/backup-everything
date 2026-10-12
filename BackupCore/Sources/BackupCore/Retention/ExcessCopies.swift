@@ -30,6 +30,12 @@ public struct ExcessCopies: Sendable, Equatable {
     }
 
     public var totalBytes: Int64 { items.reduce(0) { $0 + $1.bytes } }
+
+    /// Sizes are left to the caller: measuring walks the folders.
+    public func sized(_ bytes: (Item) -> Int64) -> ExcessCopies {
+        let sized = items.map { Item(snapshot: $0.snapshot, folder: $0.folder, bytes: bytes($0), isUnfinished: $0.isUnfinished) }
+        return ExcessCopies(sourceId: sourceId, destinationId: destinationId, items: sized, asOf: asOf)
+    }
     public var copyCount: Int { items.filter { !$0.isUnfinished }.count }
     public var unfinishedCount: Int { items.filter(\.isUnfinished).count }
 
@@ -59,10 +65,8 @@ public struct ExcessCalculator: Sendable {
         asOf: Date?
     ) throws -> ExcessCopies {
         let doomed = retention.snapshotsToDelete(copies, rules: source.retention).map { ($0, false) } + unfinished.map { ($0, true) }
-        let items = try doomed.map { snapshot, isUnfinished -> ExcessCopies.Item in
-            let url = try folder(snapshot)
-            let bytes = asOf == nil ? (try? DestinationUsage().bytes(under: url)) ?? 0 : 0
-            return ExcessCopies.Item(snapshot: snapshot, folder: url, bytes: bytes, isUnfinished: isUnfinished)
+        let items = try doomed.map { snapshot, isUnfinished in
+            ExcessCopies.Item(snapshot: snapshot, folder: try folder(snapshot), bytes: 0, isUnfinished: isUnfinished)
         }
         return ExcessCopies(sourceId: source.id, destinationId: destination.id, items: items, asOf: asOf)
     }

@@ -1,7 +1,8 @@
 import Foundation
 
 public struct Config: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 2
+    /// 3: destinations without `disk`, sources without `savesSpace` (the storage rework).
+    public static let currentSchemaVersion = 3
 
     public var schemaVersion: Int
     public var sources: [Source]

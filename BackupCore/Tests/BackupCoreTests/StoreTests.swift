@@ -156,7 +156,7 @@ struct StoreTests {
         try temp.file("data/config.json", old)
 
         var config = try store.loadConfig()
-        #expect(config.schemaVersion == 2)
+        #expect(config.schemaVersion == Config.currentSchemaVersion)
         #expect(config.sources.first?.singleFolder?.path == "~/Obsidian")
         config.sources[0].description = "Notes"
         try store.saveConfig(config)
@@ -165,6 +165,22 @@ struct StoreTests {
         #expect(try String(contentsOf: temp.path("data/config.v1.json"), encoding: .utf8) == old)
         #expect(try store.loadConfig() == config)
         #expect(temp.names(in: "data") == ["config.json", "config.v1.json"])
+    }
+
+    /// The previous version reads `disk` and `savesSpace`; the first save of this one drops them, so the old file is kept.
+    @Test func configOfTheVersionBeforeTheStorageReworkIsKeptBeforeTheFirstSave() throws {
+        defer { temp.remove() }
+        let old = #"{"schemaVersion":2,"retiredSlugs":[],"destinations":[{"id":"00000000-0000-0000-0000-000000000003","name":"HDD","kind":{"localFolder":{"path":"/Volumes/HDD/Backups"}},"expectedEvery":{"always":{}},"disk":{"volumeUUID":"X"}}],"sources":[]}"#
+        try temp.file("data/config.json", old)
+
+        let config = try store.loadConfig()
+        #expect(config.destinations.map(\.name) == ["HDD"])
+        try store.saveConfig(config)
+
+        #expect(try String(contentsOf: temp.path("data/config.v2.json"), encoding: .utf8) == old)
+        let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: temp.path("data/config.json"))) as? [String: Any]
+        #expect(saved?["schemaVersion"] as? Int == 3)
+        #expect(temp.names(in: "data") == ["config.json", "config.v2.json"])
     }
 
     @Test func stateWrittenByOlderVersionStillLoads() throws {

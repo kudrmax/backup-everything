@@ -544,10 +544,19 @@ final class AppModel {
             } else {
                 FileManager.default.isExecutableFile(atPath: rsync.path) ? [] : [StorageSetup.Problem.rsyncMissing]
             }
-            let excess = (try? await coordinator.excessCopies()) ?? []
+            let listed = (try? await coordinator.excessCopies()) ?? []
+            let excess = await Task.detached { Self.sized(listed) }.value
             guard check == storageCheck else { return }
             setupProblems = problems
             excessCopies = excess
+        }
+    }
+
+    /// Copies seen on a reachable disk are measured; those known only from the cache have no size.
+    nonisolated private static func sized(_ excess: [ExcessCopies]) -> [ExcessCopies] {
+        excess.map { pair in
+            guard pair.asOf == nil else { return pair }
+            return pair.sized { (try? DestinationUsage().bytes(under: $0.folder)) ?? 0 }
         }
     }
 

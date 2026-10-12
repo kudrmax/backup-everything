@@ -166,6 +166,25 @@ struct AppModelQueryTests {
         #expect(command.contains(excess.items[0].folder.path))
     }
 
+    /// The coordinator lists the copies; the window measures them in the background.
+    @Test func copiesBeyondTheRulesAreSizedByTheWindow() async throws {
+        let fixture = try ModelFixture()
+        let hdd = try fixture.disk("HDD")
+        var notes = try fixture.folderSource("Notes", to: [hdd])
+        notes.retention = RetentionRules(daily: 1, weekly: 0, monthly: 0, yearly: 0)
+        let older = Date.wholeSeconds(-3 * 86_400)
+        try fixture.copy(of: notes, on: hdd, at: older)
+        try fixture.copy(of: notes, on: hdd, at: Date.wholeSeconds(-86_400))
+        let folder = URL(fileURLWithPath: hdd.path).appendingPathComponent("notes").appendingPathComponent(SnapshotNaming().name(for: older))
+        try Data(repeating: 7, count: 50_000).write(to: folder.appendingPathComponent("photo.jpg"))
+        try await fixture.use(Config(sources: [notes], destinations: [hdd]))
+        await fixture.model.save(notes)
+
+        let expected = try DestinationUsage().bytes(under: folder)
+        #expect(expected > 0)
+        #expect(await eventually { fixture.model.excessCopies.first?.items.first?.bytes == expected })
+    }
+
     @Test func unpluggedDiskIsNotASetupProblem() {
         let hdd = UUID()
         let found: [StorageSetup.Problem] = [

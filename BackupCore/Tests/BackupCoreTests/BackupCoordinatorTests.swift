@@ -1031,7 +1031,7 @@ struct BackupCoordinatorTests {
         #expect(result[0].sourceId == source.id && result[0].destinationId == cloud.id)
         #expect(result[0].asOf == nil)
         #expect(result[0].items.map(\.snapshot.name) == ["2026-09-25_090000", "2026-09-26_090000"])
-        #expect(result[0].items.allSatisfy { $0.bytes > 0 })
+        #expect(result[0].items.allSatisfy { $0.bytes == 0 })
     }
 
     @Test func excessCopiesOfAnUnreachableDestinationComeFromTheCache() async throws {
