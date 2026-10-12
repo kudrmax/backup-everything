@@ -18,6 +18,7 @@ public struct ReceiverCommand: Sendable, Equatable {
 public struct RsyncTransfer: Sendable {
     public static let homebrewRsync = URL(fileURLWithPath: "/opt/homebrew/bin/rsync")
     private static let errorTailLength = 2000
+    private static let vanishedFiles: Int32 = 24
     private static let host = "backup"
     /// The copy belongs to the backup account; the person reads it through the group of the destination root.
     private static let groupReadable = "--chmod=Dg+rx,Fg+r"
@@ -34,15 +35,19 @@ public struct RsyncTransfer: Sendable {
         self.scratch = scratch
     }
 
-    /// rsync looks for an unchanged file in `linkDests` in the given order.
-    public func write(_ payload: Payload, into copy: URL, linkDests: [URL]) async throws {
+    /// rsync looks for an unchanged file in `linkDests` in the given order. Returns what rsync said when files vanished
+    /// during the transfer (code 24): the rest is in the copy.
+    public func write(_ payload: Payload, into copy: URL, linkDests: [URL]) async throws -> String? {
         var arguments = ["-aAX", "--inplace", "--mkpath", Self.groupReadable]
         arguments += linkDests.map { "--link-dest=\($0.path)" }
         arguments += payload.excludes.map { "--exclude=\($0)" }
         let isDirectory = PayloadWalker().isDirectory(payload)
         if !isDirectory { arguments.append("--copy-links") }
         let source = isDirectory ? payload.root.path + "/" : payload.root.path
-        try await run(arguments + [source, destination(copy.path + "/")])
+        let result = try await run(arguments + [source, destination(copy.path + "/")])
+        guard result.exitCode != Self.vanishedFiles else { return tail(of: result) }
+        try check(result)
+        return nil
     }
 
     public func markComplete(_ copy: URL) async throws {
@@ -50,19 +55,24 @@ public struct RsyncTransfer: Sendable {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let marker = scratch.appendingPathComponent("complete")
         if !FileManager.default.fileExists(atPath: marker.path) { try Data().write(to: marker) }
-        try await run(["--inplace", marker.path, destination(copy.path + "/" + CopyFolder.completionMarker)])
+        try check(try await run(["--inplace", marker.path, destination(copy.path + "/" + CopyFolder.completionMarker)]))
     }
 
     private func destination(_ path: String) -> String {
         receiver == nil ? path : "\(Self.host):\(path)"
     }
 
-    private func run(_ arguments: [String]) async throws {
+    private func run(_ arguments: [String]) async throws -> ProcessResult {
         guard FileManager.default.isExecutableFile(atPath: rsync.path) else { throw DestinationError.rsyncMissing }
         let rsh = receiver.map { ["--rsh=\($0.rsh)"] } ?? []
-        let result = try await runner.run(executable: rsync, arguments: rsh + arguments, environment: [:], timeout: nil)
-        guard result.exitCode == 0 else {
-            throw DestinationError.commandFailed(String(result.stderr.suffix(Self.errorTailLength)))
-        }
+        return try await runner.run(executable: rsync, arguments: rsh + arguments, environment: [:], timeout: nil)
+    }
+
+    private func check(_ result: ProcessResult) throws {
+        guard result.exitCode == 0 else { throw DestinationError.commandFailed(tail(of: result)) }
+    }
+
+    private func tail(of result: ProcessResult) -> String {
+        String(result.stderr.suffix(Self.errorTailLength))
     }
 }

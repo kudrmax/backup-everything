@@ -41,7 +41,8 @@ public protocol DestinationStore: Sendable {
     /// Finished copies in the folder of the slug, oldest first.
     func copies(of slug: String) async throws -> [Snapshot]
     func unfinishedCopies(of slug: String) async throws -> [Snapshot]
-    func write(_ payload: Payload, sourceSlug: String, snapshotName: String) async throws
+    /// Returns a warning when the copy is complete but rsync reported files that vanished during the transfer.
+    func write(_ payload: Payload, sourceSlug: String, snapshotName: String) async throws -> String?
     func usedBytes() async throws -> Int64
     func url(of snapshot: Snapshot, sourceSlug: String) throws -> URL
 }

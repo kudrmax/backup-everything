@@ -100,10 +100,11 @@ public struct BackupEngine: Sendable {
     /// A copy at least as new as the collected data (the same package delivered earlier) counts as delivered.
     private func deliver(_ payload: Payload, snapshotName: String, slug: String, to store: any DestinationStore) async -> DeliveryOutcome {
         do {
-            if try await !store.copies(of: slug).contains(where: { $0.date >= payload.collectedAt }) {
-                try await store.write(payload, sourceSlug: slug, snapshotName: snapshotName)
+            guard try await !store.copies(of: slug).contains(where: { $0.date >= payload.collectedAt }) else {
+                return .delivered(pruned: 0, warning: nil)
             }
-            return .delivered(pruned: 0, warning: nil)
+            let warning = try await store.write(payload, sourceSlug: slug, snapshotName: snapshotName)
+            return .delivered(pruned: 0, warning: warning)
         } catch {
             return .failed(message: error.localizedDescription)
         }

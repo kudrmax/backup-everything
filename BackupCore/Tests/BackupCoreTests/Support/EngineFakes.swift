@@ -29,6 +29,7 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
     var readinessValue: DestinationReadiness = .ready
     var snapshots: [Snapshot] = []
     var writeError: Error?
+    var writeWarning: String?
     var listError: Error?
     private(set) var log: [String] = []
     private(set) var writtenPayloads: [Payload] = []
@@ -42,11 +43,12 @@ final class FakeDestinationStore: DestinationStore, @unchecked Sendable {
 
     func unfinishedCopies(of slug: String) async throws -> [Snapshot] { [] }
 
-    func write(_ payload: Payload, sourceSlug: String, snapshotName: String) async throws {
+    func write(_ payload: Payload, sourceSlug: String, snapshotName: String) async throws -> String? {
         if let writeError { throw writeError }
         log.append("write:\(snapshotName)")
         writtenPayloads.append(payload)
         snapshots.append(Snapshot(name: snapshotName, date: Fixtures.naming.date(from: snapshotName) ?? payload.collectedAt))
+        return writeWarning
     }
 
     func usedBytes() async throws -> Int64 { 0 }

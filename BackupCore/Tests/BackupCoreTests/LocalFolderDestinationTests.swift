@@ -25,7 +25,7 @@ struct LocalFolderDestinationTests {
         try temp.directory("dest")
         try temp.file("src/a.md", "alpha")
         let payload = Payload(root: temp.path("src"), collectedAt: Fixtures.date("2026-10-08 10:00:00"))
-        try await destination.write(payload, sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
+        _ = try await destination.write(payload, sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
         #expect(temp.names(in: "dest/obsidian/2026-10-08_100000") == [".complete", "a.md"])
         #expect(try await destination.copies(of: "obsidian") == [Fixtures.snapshot("2026-10-08 10:00:00")])
     }
@@ -34,8 +34,8 @@ struct LocalFolderDestinationTests {
         defer { temp.remove() }
         try temp.directory("dest")
         try temp.file("src/a.md", "alpha")
-        try await destination.write(Payload(root: temp.path("src"), collectedAt: Fixtures.date("2026-10-07 10:00:00")), sourceSlug: "obsidian", snapshotName: "2026-10-07_100000")
-        try await destination.write(Payload(root: temp.path("src"), collectedAt: Fixtures.date("2026-10-08 10:00:00")), sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
+        _ = try await destination.write(Payload(root: temp.path("src"), collectedAt: Fixtures.date("2026-10-07 10:00:00")), sourceSlug: "obsidian", snapshotName: "2026-10-07_100000")
+        _ = try await destination.write(Payload(root: temp.path("src"), collectedAt: Fixtures.date("2026-10-08 10:00:00")), sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
         let links = try FileManager.default.attributesOfItem(atPath: temp.path("dest/obsidian/2026-10-08_100000/a.md").path)[.referenceCount] as? Int
         #expect(links == 2)
     }
@@ -47,11 +47,11 @@ struct LocalFolderDestinationTests {
         try temp.directory("dest")
         try temp.file("src/a.md", "alpha")
         let attempt = temp.path("dest/obsidian/2026-10-08_100000")
-        try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: attempt, linkDests: [])
+        _ = try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: attempt, linkDests: [])
         #expect(try await destination.unfinishedCopies(of: "obsidian") == [Fixtures.snapshot("2026-10-08 10:00:00")])
         #expect(try await destination.copies(of: "obsidian") == [])
 
-        try await destination.write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: "obsidian", snapshotName: "2026-10-08_110000")
+        _ = try await destination.write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: "obsidian", snapshotName: "2026-10-08_110000")
 
         #expect(temp.names(in: "dest/obsidian/2026-10-08_100000") == ["a.md"])
         #expect(temp.names(in: "dest/obsidian/2026-10-08_110000") == [".complete", "a.md"])
@@ -68,7 +68,7 @@ struct LocalFolderDestinationTests {
         for minute in 0..<25 {
             try temp.directory("dest/obsidian/2026-10-03_10\(String(format: "%02d", minute))00")
         }
-        try? await destination(runner: runner).write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: "obsidian", snapshotName: "2026-10-04_100000")
+        _ = try? await destination(runner: runner).write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: "obsidian", snapshotName: "2026-10-04_100000")
         let linkDests = (runner.calls.first?.arguments ?? []).filter { $0.hasPrefix("--link-dest=") }
         #expect(linkDests.count == 20)
         #expect(linkDests.first == "--link-dest=\(temp.path("dest/obsidian/2026-10-02_100000").path)")
@@ -101,13 +101,31 @@ struct LocalFolderDestinationTests {
         #expect(error.localizedDescription == "The copy was written to “\(target)” but you cannot read it: fix the permissions of that folder (run the setup script again).")
     }
 
+    @Test func vanishedFilesStillMarkTheCopyCompleteAndReturnAWarning() async throws {
+        defer { temp.remove() }
+        try temp.directory("dest")
+        try temp.file("src/a.md", "alpha")
+        let runner = FakeProcessRunner { call in
+            guard let target = call.arguments.last, target.hasSuffix("/.complete") else {
+                return ProcessResult(exitCode: 24, stderr: "file has vanished: \"tmp.lock\"")
+            }
+            try FileManager.default.createDirectory(at: URL(fileURLWithPath: target).deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: URL(fileURLWithPath: target))
+            return ProcessResult(exitCode: 0)
+        }
+        let warning = try await destination(runner: runner).write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
+        #expect(warning == "file has vanished: \"tmp.lock\"")
+        #expect(runner.calls.count == 2)
+        #expect(temp.exists("dest/obsidian/2026-10-08_100000/.complete"))
+    }
+
     @Test func failedCopyLeavesNoMarkerAndTouchesNoOtherCopy() async throws {
         defer { temp.remove() }
         try temp.directory("dest")
         try temp.file("dest/obsidian/2026-10-07_100000/.complete", "")
         try temp.file("dest/obsidian/2026-10-07_100000/a.md", "old")
         await #expect(throws: DestinationError.self) {
-            try await destination.write(Payload(root: temp.path("gone"), collectedAt: Fixtures.date("2026-10-08 10:00:00")), sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
+            _ = try await destination.write(Payload(root: temp.path("gone"), collectedAt: Fixtures.date("2026-10-08 10:00:00")), sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
         }
         #expect(!temp.exists("dest/obsidian/2026-10-08_100000/.complete"))
         #expect(try String(contentsOf: temp.path("dest/obsidian/2026-10-07_100000/a.md"), encoding: .utf8) == "old")
@@ -117,7 +135,7 @@ struct LocalFolderDestinationTests {
         defer { temp.remove() }
         try temp.file("src/a.md", "alpha")
         await #expect(throws: DestinationError.notReady(.folderMissing)) {
-            try await destination.write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
+            _ = try await destination.write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: "obsidian", snapshotName: "2026-10-08_100000")
         }
         #expect(!temp.exists("dest"))
     }
@@ -165,7 +183,7 @@ struct LocalFolderDestinationTests {
         await #expect(throws: refused) { try await destination.copies(of: slug) }
         await #expect(throws: refused) { try await destination.unfinishedCopies(of: slug) }
         await #expect(throws: refused) {
-            try await destination.write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: slug, snapshotName: "2026-10-08_100000")
+            _ = try await destination.write(Payload(root: temp.path("src"), collectedAt: Date()), sourceSlug: slug, snapshotName: "2026-10-08_100000")
         }
         #expect(temp.names(in: "dest").isEmpty)
     }

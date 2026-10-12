@@ -25,16 +25,17 @@ public struct LocalFolderDestination: DestinationStore {
         try folder.unfinished(of: slug)
     }
 
-    public func write(_ payload: Payload, sourceSlug: String, snapshotName: String) async throws {
+    public func write(_ payload: Payload, sourceSlug: String, snapshotName: String) async throws -> String? {
         let readiness = await readiness()
         guard readiness == .ready else { throw DestinationError.notReady(readiness) }
         let target = try folder.sourceFolder(sourceSlug).appendingPathComponent(snapshotName, isDirectory: true)
         guard !FileManager.default.fileExists(atPath: target.path) else { throw DestinationError.folderExists(target.path) }
-        try await transfer.write(payload, into: target, linkDests: try linkDests(of: sourceSlug))
+        let warning = try await transfer.write(payload, into: target, linkDests: try linkDests(of: sourceSlug))
         try await transfer.markComplete(target)
         guard try folder.copies(of: sourceSlug).contains(where: { $0.name == snapshotName }) else {
             throw DestinationError.copyNotVisible(target.path)
         }
+        return warning
     }
 
     /// rsync takes at most 20. The newest copy first, then the files interrupted attempts already hold.

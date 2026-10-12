@@ -189,6 +189,14 @@ struct BackupEngineTests {
         #expect(cloudStore.log.isEmpty)
     }
 
+    @Test func warningOfTheTransferIsKeptInTheOutcome() async {
+        defer { temp.remove() }
+        diskStore.writeWarning = "file has vanished: \"tmp.lock\""
+        let record = await run()
+        #expect(record.deliveries.map(\.outcome) == [.delivered(pruned: 0, warning: "file has vanished: \"tmp.lock\""), .delivered(pruned: 0, warning: nil)])
+        #expect(provider.finished == [.everywhere])
+    }
+
     /// When clocks go back, the hour repeats: two backups an hour apart are two copies, the second is not taken for “already delivered”.
     @Test func backupInTheRepeatedHourIsNotLost() async throws {
         defer { temp.remove() }
