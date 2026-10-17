@@ -229,7 +229,7 @@ struct BackgroundDriverTests {
     }
 
     @Test func fileLandingChecksSoonAndAgainOnceItSettles() async {
-        let driver = driver(debounce: 0.05, settle: 0.8)
+        let driver = driver(debounce: 0.05, settle: 2)
         driver.start()
         #expect(await eventually { model.ticks == 1 })
         model.config = Config(sources: [exportSource("Google", in: "/tmp/exports")])
