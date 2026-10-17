@@ -61,6 +61,8 @@ final class AppModel {
     /// `nil` without the receiver (the sandbox): copies are written straight into the folder, only rsync has to be there.
     @ObservationIgnored private let setup: StorageSetup?
     @ObservationIgnored private let rsync: URL
+    /// The setup script the “Setup” band tells to run.
+    @ObservationIgnored let setupScript: String
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let finder: any FileRevealing
     @ObservationIgnored private let trash: ManualExportInbox.Trash
@@ -79,6 +81,7 @@ final class AppModel {
         access: any DestinationAccess = SystemDestinationAccess(),
         receiver: ReceiverCommand? = .standard,
         rsync: URL = RsyncTransfer.homebrewRsync,
+        setupScript: String = AppPaths.setupScript,
         trash: @escaping ManualExportInbox.Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     ) {
         store = Store(dataDirectory: dataDirectory)
@@ -108,6 +111,7 @@ final class AppModel {
         )
         setup = receiver == nil ? nil : StorageSetup(rsync: rsync, access: access, runner: runner)
         self.rsync = rsync
+        self.setupScript = setupScript
         var calendar = Calendar(identifier: .iso8601)
         calendar.timeZone = .current
         planner = SchedulePlanner(calendar: calendar)

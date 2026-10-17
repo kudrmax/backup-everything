@@ -11,12 +11,12 @@ public struct GateError: Error, Equatable {
 /// What rsync may ask the receiver to do: copy into an unfinished copy folder owned by the backup account. Nothing else.
 public enum Gate {
     public static let completionMarker = ".complete"
-    private static let allowedLongOptions: Set<String> = ["--server", "--inplace", "--mkpath"]
+    private static let allowedLongOptions: Set<String> = ["--server", "--inplace", "--mkpath", "--chmod=ugo=rwX"]
     private static let optionsWithValue: Set<String> = ["--link-dest"]
-    private static let allowedLongPrefixes = ["--chmod="]
     /// The letters rsync 3 sends to the receiver for our data transfer and for the completion marker: options without a
-    /// value, then `e` whose value (the rest of the cluster) lists the protocol capabilities of the client.
-    private static let allowedOptionLetters = Set("logDtpAXrHiLsxCIvu")
+    /// value, then `e` whose value (the rest of the cluster) lists the protocol capabilities of the client. Letters that
+    /// keep modes, owners, groups, ACLs or hard links (`p o g A H`) are not among them: the gate's umask sets the modes.
+    private static let allowedOptionLetters = Set("lDtrXiLsxCIvu.")
     private static let allowedCapabilityLetters = Set("logDtpAXreHiLsfxCIvu.")
 
     public static func plan(arguments: [String], environment: any GateEnvironment) -> Result<[String], GateError> {
@@ -32,8 +32,7 @@ public enum Gate {
                 expectingValue = false
                 continue
             }
-            if allowedLongOptions.contains(argument) || allowedLongPrefixes.contains(where: argument.hasPrefix)
-                || isAllowedShortCluster(argument) || argument == "." {
+            if allowedLongOptions.contains(argument) || isAllowedShortCluster(argument) || argument == "." {
                 argv.append(argument)
             } else if optionsWithValue.contains(argument) {
                 argv.append(argument)

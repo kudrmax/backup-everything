@@ -17,7 +17,7 @@ struct GateTests {
     private var environment: FakeEnvironment {
         FakeEnvironment(owners: ["/Volumes/HDD/Backups": 497, "/Volumes/HDD/Backups/obsidian": 497])
     }
-    private let server = ["backup", "rsync", "--server", "-logDtpAXre.iLsfxCIvu", "--link-dest", "/Volumes/HDD/Backups/obsidian/2026-10-07_100000", "--inplace", "--mkpath", "."]
+    private let server = ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/HDD/Backups/obsidian/2026-10-07_100000", "--inplace", "--mkpath", "."]
 
     @Test func passesACopyIntoAnUnfinishedFolder() {
         let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
@@ -26,10 +26,10 @@ struct GateTests {
 
     @Test func passesTheCompletionMarker() {
         let plan = Gate.plan(
-            arguments: ["backup", "rsync", "--server", "-logDtpAXre.iLsfxCIvu", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"],
+            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"],
             environment: environment
         )
-        #expect(plan == .success(["--server", "-logDtpAXre.iLsfxCIvu", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"]))
+        #expect(plan == .success(["--server", "-lDtXre.iLsfxCIvu", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"]))
     }
 
     @Test(arguments: ["--delete", "--delete-after", "--remove-source-files", "--sender", "--rsync-path=/bin/sh", "--files-from=/etc/passwd", "--backup-dir=/tmp"])
@@ -107,21 +107,34 @@ struct GateTests {
         #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
     }
 
-    @Test(arguments: ["-K", "-b", "-T", "-f", "-y", "-B", "-E", "-O", "-J", "-W", "-logDtpAXrKe.iLsfxCIvu"])
+    @Test(arguments: ["-K", "-b", "-T", "-f", "-y", "-B", "-E", "-O", "-J", "-W", "-lDtXrKe.iLsfxCIvu"])
     func refusesShortOptionsRsyncDoesNotSendForUs(cluster: String) {
         let plan = Gate.plan(arguments: ["backup", "rsync", "--server", cluster, ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
         #expect(plan == .failure(GateError(message: "refused option \(cluster)")))
     }
 
-    @Test(arguments: ["-logDtpAXre.iLsfxCIvu", "-logDtpAXrLe.iLsfxCIvu", "-e.LsfxCIvu"])
+    /// Modes, owners, groups, ACLs and hard links of the originals are never kept: the gate decides the modes.
+    @Test(arguments: ["-p", "-o", "-g", "-A", "-H", "-logDtpAXre.iLsfxCIvu", "-lDtpXre.iLsfxCIvu", "-lDtXrAe.iLsfxCIvu", "-lDtXrHe.iLsfxCIvu"])
+    func refusesLettersThatKeepModesOrOwners(cluster: String) {
+        let plan = Gate.plan(arguments: ["backup", "rsync", "--server", cluster, ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "refused option \(cluster)")))
+    }
+
+    @Test(arguments: ["-lDtXre.iLsfxCIvu", "-lDtXrLe.iLsfxCIvu", "-e.LsfxCIvu"])
     func passesTheShortOptionsOfOurTwoTransfers(cluster: String) {
         let arguments = ["backup", "rsync", "--server", cluster, ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]
         #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
     }
 
-    @Test func passesChmod() {
-        let arguments = ["backup", "rsync", "--server", "-logDtpAXre.iLsfxCIvu", "--chmod=Dg+rx,Fg+r", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]
+    @Test func passesTheFixedChmod() {
+        let arguments = ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--chmod=ugo=rwX", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]
         #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
+    }
+
+    @Test(arguments: ["--chmod=Dg+rx,Fg+r", "--chmod=ugo=rwx", "--chmod=u+s", "--chmod=ugo=rwX,o+w", "--chmod=", "--chmod"])
+    func refusesAnyOtherChmod(option: String) {
+        let plan = Gate.plan(arguments: server + [option, "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "refused option \(option)")))
     }
 
     @Test func refusesATargetUnderAFolderOwnedBySomeoneElse() {

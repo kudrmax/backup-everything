@@ -164,6 +164,18 @@ struct AppPathsTests {
         #expect(AppPaths.workDirectory == AppPaths.workDirectory(environment: environment, applicationSupport: support))
     }
 
+    @Test func setupScriptShipsInTheAppBundle() {
+        let bundle = URL(fileURLWithPath: "/Applications/Backup Everything.app", isDirectory: true)
+        let resources = bundle.appendingPathComponent("Contents/Resources", isDirectory: true)
+        #expect(AppPaths.setupScript(bundleURL: bundle, resourceURL: resources) == "/Applications/Backup Everything.app/Contents/Resources/setup-storage.sh")
+    }
+
+    /// A `swift build` binary has no bundle: the script is the one in the repository.
+    @Test func setupScriptOutsideTheBundleIsTheOneInTheRepository() {
+        let folder = URL(fileURLWithPath: "/Users/someone/code/App/.build/debug", isDirectory: true)
+        #expect(AppPaths.setupScript(bundleURL: folder, resourceURL: folder) == "scripts/setup-storage.sh")
+    }
+
     @Test func tildeExpandsToTheHomeFolder() {
         #expect(AppPaths.expand("~/Downloads").path == FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads").path)
         #expect(AppPaths.expand("/Volumes/HDD").path == "/Volumes/HDD")

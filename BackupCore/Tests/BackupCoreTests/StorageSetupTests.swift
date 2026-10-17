@@ -15,6 +15,11 @@ struct StorageSetupTests {
         )
     }
 
+    @Test func commandRunsTheGivenScriptOnTheFolder() {
+        #expect(StorageSetup.command(script: "/A b.app/Contents/Resources/setup-storage.sh", folder: "/Volumes/X/it's")
+            == "sudo '/A b.app/Contents/Resources/setup-storage.sh' '/Volumes/X/it'\\''s'")
+    }
+
     @Test func everythingInPlace() async throws {
         defer { temp.remove() }
         let rsync = try temp.file("rsync", "#!/bin/sh")

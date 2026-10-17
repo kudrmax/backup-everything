@@ -33,6 +33,16 @@ enum AppPaths {
         return applicationSupport.appendingPathComponent("BackupEverything", isDirectory: true)
     }
 
+    static var setupScript: String {
+        setupScript(bundleURL: Bundle.main.bundleURL, resourceURL: Bundle.main.resourceURL)
+    }
+
+    /// The script ships inside the app; a `swift build` binary has no bundle and uses the one in the repository.
+    static func setupScript(bundleURL: URL, resourceURL: URL?) -> String {
+        guard bundleURL.pathExtension == "app", let resourceURL else { return "scripts/setup-storage.sh" }
+        return resourceURL.appendingPathComponent("setup-storage.sh").path
+    }
+
     static func expand(_ path: String) -> URL {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }

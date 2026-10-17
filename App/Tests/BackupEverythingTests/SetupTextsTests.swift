@@ -15,13 +15,15 @@ struct SetupTextsTests {
         #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .notOwnedByBackupAccount(owner: "max")), config: config) == "“HDD”: the folder belongs to “max”, not to the backup account")
     }
 
-    @Test func commandNamesTheFolderOfEachDestinationThatIsNotReady() {
-        let hdd = Destination(name: "HDD", kind: .localFolder(path: "/Volumes/Max's HDD/Backups"))
-        let laptop = Destination(name: "Laptop", kind: .localFolder(path: "/Users/max/Files/Backups"))
-        let config = Config(destinations: [laptop, hdd])
-        #expect(SetupTexts.commands(for: [.destinationNotReady(id: hdd.id, .volumeIgnoresOwners)], config: config)
-            == ["sudo scripts/setup-storage.sh '/Volumes/Max'\\''s HDD/Backups'"])
-        #expect(SetupTexts.commands(for: [.accountMissing], config: config) == ["sudo scripts/setup-storage.sh '/Users/max/Files/Backups'"])
-        #expect(SetupTexts.commands(for: [.accountMissing], config: Config(destinations: [])) == [])
+    @Test func commandNamesTheScriptAndTheFolderOfEachDestinationThatIsNotReady() {
+        let disk = Destination(name: "Disk", kind: .localFolder(path: "/Volumes/Test Disk's/Backups"))
+        let laptop = Destination(name: "Laptop", kind: .localFolder(path: "/Users/someone/Files/Backups"))
+        let config = Config(destinations: [laptop, disk])
+        let script = "/Applications/Backup Everything.app/Contents/Resources/setup-storage.sh"
+        #expect(SetupTexts.commands(for: [.destinationNotReady(id: disk.id, .volumeIgnoresOwners)], config: config, script: script)
+            == ["sudo '/Applications/Backup Everything.app/Contents/Resources/setup-storage.sh' '/Volumes/Test Disk'\\''s/Backups'"])
+        #expect(SetupTexts.commands(for: [.accountMissing], config: config, script: script)
+            == ["sudo '/Applications/Backup Everything.app/Contents/Resources/setup-storage.sh' '/Users/someone/Files/Backups'"])
+        #expect(SetupTexts.commands(for: [.accountMissing], config: Config(destinations: []), script: script) == [])
     }
 }

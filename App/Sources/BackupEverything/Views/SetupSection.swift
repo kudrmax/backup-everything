@@ -19,7 +19,7 @@ struct SetupSection: View {
                     }
                 }
                 .foregroundStyle(.secondary)
-                let commands = SetupTexts.commands(for: model.setupProblems, config: model.config)
+                let commands = SetupTexts.commands(for: model.setupProblems, config: model.config, script: model.setupScript)
                 if commands.isEmpty {
                     Text(SetupTexts.noDestination).foregroundStyle(.secondary)
                 }

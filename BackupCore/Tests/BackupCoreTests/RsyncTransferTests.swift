@@ -93,23 +93,26 @@ struct RsyncTransferTests {
             "--link-dest=\(temp.path("dst/obsidian/2026-10-08_090000").path)",
         ])
         #expect(arguments.last == "backup:\(temp.path("dst/obsidian/2026-10-08_100000").path)/")
-        #expect(arguments.contains("--inplace") && arguments.contains("--mkpath") && arguments.contains("-aAX"))
-        #expect(arguments.contains("--chmod=Dg+rx,Fg+r"))
+        #expect(arguments.contains("--inplace") && arguments.contains("--mkpath") && arguments.contains("-rltDX"))
+        #expect(arguments.contains("--chmod=ugo=rwX"))
+        #expect(!arguments.contains { $0.hasPrefix("-a") || $0.hasPrefix("-p") || $0.hasPrefix("--perms") })
         #expect(!arguments.contains { $0.hasPrefix("--delete") })
     }
 
-    /// The copy belongs to the backup account; the person reads it through the group, whatever the modes of the originals.
-    @Test func copyIsReadableByTheGroupEvenFromAPrivateSource() async throws {
+    /// Modes of the originals are not kept: the receiver's umask decides them (the gate sets 027, here the default 022).
+    @Test func copyModesComeFromTheReceiverUmaskNotFromTheOriginals() async throws {
         defer { temp.remove() }
         try temp.file("src/secret.md", "alpha")
+        try temp.file("src/run.sh", "echo")
         #expect(chmod(temp.path("src").path, 0o700) == 0)
         #expect(chmod(temp.path("src/secret.md").path, 0o600) == 0)
+        #expect(chmod(temp.path("src/run.sh").path, 0o755) == 0)
         let copy = temp.path("dst/notes/2026-10-08_100000")
         _ = try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: copy, linkDests: [])
         let mode = { (relative: String) in try (FileManager.default.attributesOfItem(atPath: temp.path(relative).path)[.posixPermissions] as? Int ?? 0) }
-        #expect(try mode("dst/notes/2026-10-08_100000") & 0o050 == 0o050)
-        #expect(try mode("dst/notes/2026-10-08_100000/secret.md") & 0o040 == 0o040)
-        #expect(try mode("dst/notes/2026-10-08_100000/secret.md") & 0o007 == 0)
+        #expect(try mode("dst/notes/2026-10-08_100000") == 0o755)
+        #expect(try mode("dst/notes/2026-10-08_100000/secret.md") == 0o644)
+        #expect(try mode("dst/notes/2026-10-08_100000/run.sh") == 0o755)
     }
 
     /// Code 24: files vanished during the transfer (a live folder). Everything else is in the copy; it is a warning.

@@ -20,8 +20,9 @@ public struct RsyncTransfer: Sendable {
     private static let errorTailLength = 2000
     private static let vanishedFiles: Int32 = 24
     private static let host = "backup"
-    /// The copy belongs to the backup account; the person reads it through the group of the destination root.
-    private static let groupReadable = "--chmod=Dg+rx,Fg+r"
+    /// Modes of the originals are not kept: the receiver's umask (027 in the gate) decides them, the group comes from the
+    /// destination root, so the person reads every copy.
+    private static let copyFlags = ["-rltDX", "--inplace", "--mkpath", "--chmod=ugo=rwX"]
 
     private let rsync: URL
     private let receiver: ReceiverCommand?
@@ -38,7 +39,7 @@ public struct RsyncTransfer: Sendable {
     /// rsync looks for an unchanged file in `linkDests` in the given order. Returns what rsync said when files vanished
     /// during the transfer (code 24): the rest is in the copy.
     public func write(_ payload: Payload, into copy: URL, linkDests: [URL]) async throws -> String? {
-        var arguments = ["-aAX", "--inplace", "--mkpath", Self.groupReadable]
+        var arguments = Self.copyFlags
         arguments += linkDests.map { "--link-dest=\($0.path)" }
         arguments += payload.excludes.map { "--exclude=\($0)" }
         let isDirectory = PayloadWalker().isDirectory(payload)

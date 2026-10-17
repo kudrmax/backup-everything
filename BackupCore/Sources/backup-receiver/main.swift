@@ -15,6 +15,7 @@ case let .failure(error):
     FileHandle.standardError.write(Data("backup-receiver: \(error.message)\n".utf8))
     exit(2)
 case let .success(argv):
+    umask(0o027)
     let cArgs = ([rsync] + argv).map { strdup($0) } + [nil]
     execv(rsync, cArgs)
     FileHandle.standardError.write(Data("backup-receiver: cannot start \(rsync): \(String(cString: strerror(errno)))\n".utf8))
