@@ -14,6 +14,8 @@ struct SetupTextsTests {
         #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .volumeIgnoresOwners), config: config) == "“HDD”: the disk ignores file owners")
         #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .ancestorNotTraversable(path: "/Users/max/Documents")), config: config)
             == "“HDD”: “/Users/max/Documents” above it is private (700), so the backup account cannot reach it")
+        #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .notCanonicalPath(path: "/Volumes/HDD/Backups", real: "/Volumes/HDD/backups")), config: config)
+            == "“HDD”: “/Volumes/HDD/Backups” is not the folder's real path (a symlink or different letter case); set the destination to “/Volumes/HDD/backups”")
         #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .notOwnedByBackupAccount(owner: "max")), config: config) == "“HDD”: the folder belongs to “max”, not to the backup account")
     }
 

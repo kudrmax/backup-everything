@@ -24,6 +24,8 @@ struct CoreSupportTests {
             == "The disk ignores file owners, so copies there cannot be protected. Run the setup script: it enables ownership on the disk.")
         #expect(DestinationError.notReady(.ancestorNotTraversable(path: "/Users/max/Documents")).localizedDescription
             == "“/Users/max/Documents” does not let the backup account in (it is private, 700); choose a destination folder outside Desktop, Documents, Downloads and other private folders, or open that folder to others (chmod o+x)")
+        #expect(DestinationError.notReady(.notCanonicalPath(path: "/Users/max/backups", real: "/Users/max/Backups")).localizedDescription
+            == "“/Users/max/backups” is not the folder's real path (a symlink or different letter case); set the destination to “/Users/max/Backups”")
         #expect(DestinationError.notReady(.accountMissing).localizedDescription
             == "The backup account “_backupeverything” does not exist. Run the setup script.")
     }

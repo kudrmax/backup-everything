@@ -8,6 +8,7 @@ public enum DestinationReadiness: Equatable, Sendable {
     case volumeIgnoresOwners
     case accountMissing
     case ancestorNotTraversable(path: String)
+    case notCanonicalPath(path: String, real: String)
 }
 
 public protocol DestinationAccess: Sendable {
@@ -28,7 +29,8 @@ public struct SystemDestinationAccess: DestinationAccess {
 
     public func readiness(of root: URL) -> DestinationReadiness {
         var info = stat()
-        guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return .folderMissing }
+        guard let real = Self.realPath(of: root.path), lstat(real, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return .folderMissing }
+        guard real == root.path else { return .notCanonicalPath(path: root.path, real: real) }
         guard let account = getpwnam(roleAccount) else { return .accountMissing }
         var volume = statfs()
         guard statfs(root.path, &volume) == 0, volume.f_flags & UInt32(MNT_IGNORE_OWNERSHIP) == 0 else { return .volumeIgnoresOwners }
@@ -46,9 +48,16 @@ public struct SystemDestinationAccess: DestinationAccess {
         uid == 0 || owner == uid || mode & S_IXOTH != 0 || (mode & S_IXGRP != 0 && group == gid)
     }
 
-    /// The nearest folder above the root that the account cannot pass, on the root's real path.
+    /// The gate refuses any other path: the receiver must not be led through a symlink.
+    private static func realPath(of path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    /// The nearest folder above the root that the account cannot pass.
     private func untraversableAncestor(of root: URL, uid: uid_t, gid: gid_t) -> String? {
-        var ancestor = (root.resolvingSymlinksInPath().path as NSString).deletingLastPathComponent
+        var ancestor = (root.path as NSString).deletingLastPathComponent
         while true {
             var info = stat()
             guard stat(ancestor, &info) == 0 else { return ancestor }

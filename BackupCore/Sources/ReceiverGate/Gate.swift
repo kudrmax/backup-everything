@@ -37,7 +37,7 @@ public enum Gate {
         if rest.first == "rsync" { rest = rest.dropFirst() }
         guard rest.first == "--server" else { return .failure(GateError(message: "only rsync --server is accepted")) }
         var argv: [String] = []
-        var paths: [String] = []
+        var positionals: [Int] = []
         var linkDests: [String] = []
         var expectingLinkDest = false
         for argument in rest {
@@ -46,7 +46,7 @@ public enum Gate {
                 linkDests.append(value)
                 argv.append(value)
                 expectingLinkDest = false
-            } else if allowedLongOptions.contains(argument) || isAllowedShortCluster(argument) || argument == "." {
+            } else if allowedLongOptions.contains(argument) || isAllowedShortCluster(argument) {
                 argv.append(argument)
             } else if argument == linkDest {
                 argv.append(argument)
@@ -54,12 +54,11 @@ public enum Gate {
             } else if argument.hasPrefix("-") {
                 return .failure(GateError(message: "refused option \(argument)"))
             } else {
-                let path = unescape(argument)
-                paths.append(path)
-                argv.append(path)
+                positionals.append(argv.count)
+                argv.append(argument == "." ? argument : unescape(argument))
             }
         }
-        guard paths.count == 1, let target = paths.first else {
+        guard positionals == [argv.count - 2, argv.count - 1], argv[argv.count - 2] == ".", let target = argv.last, target != "." else {
             return .failure(GateError(message: "exactly one destination path is accepted"))
         }
         return claim(for: target, environment: environment).flatMap { claim in
@@ -89,7 +88,8 @@ public enum Gate {
         let letters = argument.dropFirst()
         let options = letters.prefix { $0 != "e" }
         let capabilities = letters.dropFirst(options.count).dropFirst()
-        return options.allSatisfy(allowedOptionLetters.contains) && capabilities.allSatisfy(allowedCapabilityLetters.contains)
+        let hasBareE = options.count < letters.count && capabilities.isEmpty
+        return !hasBareE && options.allSatisfy(allowedOptionLetters.contains) && capabilities.allSatisfy(allowedCapabilityLetters.contains)
     }
 
     /// The target must sit under a folder of the backup account, on a volume that honours owners, without symlinks on
@@ -108,6 +108,10 @@ public enum Gate {
         if target.hasSuffix("/") {
             claim = .folder(folder)
         } else if (target as NSString).lastPathComponent == completionMarker {
+            let copy = (target as NSString).deletingLastPathComponent
+            guard isCopyFolderName((copy as NSString).lastPathComponent), environment.fileExists(atPath: copy) else {
+                return .failure(GateError(message: "marker must be inside a copy folder"))
+            }
             claim = .marker(target)
         } else {
             return .failure(GateError(message: "the destination must be a new copy folder or its completion marker"))
@@ -117,7 +121,7 @@ public enum Gate {
             return .failure(GateError(message: "\(folder) is not inside a folder of the backup account"))
         }
         guard environment.realPath(ofPath: existing) == existing else {
-            return .failure(GateError(message: "\(folder) goes through a symlink"))
+            return .failure(GateError(message: "\(folder) is not the real path (symlink or letter case)"))
         }
         guard environment.volumeHonoursOwners(atPath: existing) else {
             return .failure(GateError(message: "the volume of \(folder) ignores file owners"))
@@ -134,6 +138,11 @@ public enum Gate {
         return environment.ownerUID(ofPath: existing) == environment.currentUID
             && environment.realPath(ofPath: existing) == existing
             && environment.volumeHonoursOwners(atPath: existing)
+    }
+
+    /// How the app names copy folders: local time, with the UTC offset in a repeated hour.
+    private static func isCopyFolderName(_ name: String) -> Bool {
+        name.wholeMatch(of: /\d{4}-\d{2}-\d{2}_\d{6}([+-]\d{4})?/) != nil
     }
 
     private static func isAbsoluteWithoutClimbing(_ path: String) -> Bool {

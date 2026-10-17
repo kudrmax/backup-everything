@@ -20,6 +20,10 @@ case let .success(plan):
         FileHandle.standardError.write(Data("backup-receiver: \(refused.message)\n".utf8))
         exit(2)
     }
+    guard chdir("/") == 0 else {
+        FileHandle.standardError.write(Data("backup-receiver: cannot change to /\n".utf8))
+        exit(2)
+    }
     let cArgs = ([rsync] + plan.argv).map { strdup($0) } + [nil]
     execv(rsync, cArgs)
     FileHandle.standardError.write(Data("backup-receiver: cannot start \(rsync): \(String(cString: strerror(errno)))\n".utf8))

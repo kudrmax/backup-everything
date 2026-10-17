@@ -172,7 +172,7 @@ struct GateTests {
         var environment = environment
         environment.realPaths["/Volumes/HDD/Backups/obsidian"] = "/Users/max/Documents"
         let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
-        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 goes through a symlink")))
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 is not the real path (symlink or letter case)")))
     }
 
     @Test func refusesALinkDestThroughASymlink() {
@@ -225,6 +225,46 @@ struct GateTests {
     func refusesChmod(option: String) {
         let plan = Gate.plan(arguments: server + [option, "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
         #expect(plan == .failure(GateError(message: "refused option \(option)")))
+    }
+
+    /// popt takes the argument after a bare `e` as its value: the gate would have checked it as something else.
+    @Test(arguments: ["-e", "-lDtre", "-lDtXre"])
+    func refusesAnEWithoutCapabilities(cluster: String) {
+        let plan = Gate.plan(arguments: ["backup", "rsync", "--server", cluster, ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "refused option \(cluster)")))
+    }
+
+    @Test(arguments: [
+        [".", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"],
+        ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/", "."],
+        [".", "--inplace", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"],
+        ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"],
+        ["."],
+    ])
+    func acceptsOnlyADotAndTheDestinationAsTheLastTwoArguments(tail: [String]) {
+        let plan = Gate.plan(arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu"] + tail, environment: environment)
+        #expect(plan == .failure(GateError(message: "exactly one destination path is accepted")))
+    }
+
+    @Test func acceptsADotThenTheDestination() {
+        let arguments = ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]
+        #expect(Gate.plan(arguments: arguments, environment: environment).map(\.argv) == .success(Array(arguments.dropFirst(2))))
+    }
+
+    @Test(arguments: ["/Volumes/HDD/Backups/.complete", "/Volumes/HDD/Backups/obsidian/.complete", "/Volumes/HDD/Backups/obsidian/latest/.complete"])
+    func refusesAMarkerOutsideACopyFolder(marker: String) {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/latest"] = 497
+        let plan = Gate.plan(arguments: ["backup", "rsync", "--server", "-e.LsfxCIvu", "--inplace", ".", marker], environment: environment)
+        #expect(plan == .failure(GateError(message: "marker must be inside a copy folder")))
+    }
+
+    @Test func passesAMarkerInACopyFolderNamedWithAnOffset() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-25_023000+0200"] = 497
+        let marker = "/Volumes/HDD/Backups/obsidian/2026-10-25_023000+0200/.complete"
+        let plan = Gate.plan(arguments: ["backup", "rsync", "--server", "-e.LsfxCIvu", "--inplace", ".", marker], environment: environment)
+        #expect(plan.map(\.claim) == .success(.marker(marker)))
     }
 
     @Test func refusesATargetUnderAFolderOwnedBySomeoneElse() {

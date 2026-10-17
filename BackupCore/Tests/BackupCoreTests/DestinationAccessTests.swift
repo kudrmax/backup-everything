@@ -13,19 +13,19 @@ struct DestinationAccessTests {
 
     @Test func folderOwnedByAnotherAccountIsNotReady() throws {
         defer { temp.remove() }
-        let root = try temp.directory("dest")
+        let root = try realDirectory("dest")
         #expect(SystemDestinationAccess(roleAccount: "root").readiness(of: root) == .notOwnedByBackupAccount(owner: NSUserName()))
     }
 
     @Test func unknownAccountIsReported() throws {
         defer { temp.remove() }
-        let root = try temp.directory("dest")
+        let root = try realDirectory("dest")
         #expect(SystemDestinationAccess(roleAccount: "_no_such_account_be").readiness(of: root) == .accountMissing)
     }
 
     @Test func ownFolderOnTheSystemDiskIsReadyForTheOwner() throws {
         defer { temp.remove() }
-        let root = try temp.directory("dest")
+        let root = try realDirectory("dest")
         #expect(SystemDestinationAccess(roleAccount: NSUserName()).readiness(of: root) == .ready)
         #expect(AlwaysReadyAccess().readiness(of: root) == .ready)
     }
@@ -34,13 +34,22 @@ struct DestinationAccessTests {
     /// keeps it out even when the root is its own.
     @Test func aPrivateFolderAboveTheRootKeepsTheAccountOut() throws {
         defer { temp.remove() }
-        let root = try temp.directory("private/dest")
+        let root = try realDirectory("private/dest")
         #expect(chmod(temp.path("private").path, 0o700) == 0)
-        let parent = temp.path("private").resolvingSymlinksInPath().path
+        let parent = root.deletingLastPathComponent().path
         #expect(SystemDestinationAccess(roleAccount: "nobody").readiness(of: root) == .ancestorNotTraversable(path: parent))
         #expect(SystemDestinationAccess(roleAccount: NSUserName()).readiness(of: root) == .ready)
         #expect(chmod(temp.path("private").path, 0o701) == 0)
         #expect(SystemDestinationAccess(roleAccount: "nobody").readiness(of: root) != .ancestorNotTraversable(path: parent))
+    }
+
+    /// The gate refuses a path that is not the real one, so the destination is not ready under such a path either.
+    @Test func aRootThroughASymlinkIsNotReady() throws {
+        defer { temp.remove() }
+        let real = try realDirectory("real")
+        let link = temp.path("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        #expect(SystemDestinationAccess(roleAccount: NSUserName()).readiness(of: link) == .notCanonicalPath(path: link.path, real: real.path))
     }
 
     @Test(arguments: [
@@ -53,5 +62,13 @@ struct DestinationAccessTests {
     ])
     func theAccountTraversesAFolderThroughOthersItsGroupOrOwnership(mode: mode_t, owner: uid_t, group: gid_t, traversable: Bool) {
         #expect(SystemDestinationAccess.canTraverse(mode: mode, owner: owner, group: group, uid: 497, gid: 20) == traversable)
+    }
+
+    /// Temporary folders are reached through `/var`, a symlink to `/private/var`.
+    private func realDirectory(_ relative: String) throws -> URL {
+        let url = try temp.directory(relative)
+        guard let resolved = realpath(url.path, nil) else { throw POSIXError(.ENOENT) }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
     }
 }

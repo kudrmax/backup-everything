@@ -34,6 +34,7 @@ enum SetupTexts {
         case let .notOwnedByBackupAccount(owner): "the folder belongs to “\(owner)”, not to the backup account"
         case .volumeIgnoresOwners: "the disk ignores file owners"
         case .accountMissing: "the backup account does not exist"
+        case .notCanonicalPath: DestinationError.describe(readiness)
         case let .ancestorNotTraversable(path): "“\(path)” above it is private (700), so the backup account cannot reach it"
         }
     }
