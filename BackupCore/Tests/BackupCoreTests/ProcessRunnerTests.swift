@@ -284,19 +284,19 @@ struct ProcessRunnerTests {
 
     @Test func groupLeftByAnEarlierLaunchIsKilledIfItIgnoresTheRequestToStop() async throws {
         let spawned = LockedBox<ProcessIdentity?>(nil)
+        let trapped = LockedBox(false)
         let task = Task { [shell] in
             try await SystemProcessRunner(groups: ProcessGroups()).run(
                 executable: shell,
-                arguments: ["-c", "trap '' TERM; while :; do sleep 0.1; done"],
+                arguments: ["-c", "trap '' TERM; echo trapped; while :; do sleep 0.1; done"],
                 environment: [:],
                 timeout: nil,
-                onOutput: nil,
+                onOutput: { line in if line == "trapped" { trapped.set(true) } },
                 onSpawn: { spawned.set($0) }
             )
         }
-        while spawned.get() == nil { try await Task.sleep(for: .milliseconds(20)) }
+        while spawned.get() == nil || !trapped.get() { try await Task.sleep(for: .milliseconds(20)) }
         let orphan = try #require(spawned.get())
-        try await Task.sleep(for: .milliseconds(200))
 
         orphan.terminateGroup(grace: 0.3)
 
