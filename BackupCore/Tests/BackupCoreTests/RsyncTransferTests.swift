@@ -93,10 +93,40 @@ struct RsyncTransferTests {
             "--link-dest=\(temp.path("dst/obsidian/2026-10-08_090000").path)",
         ])
         #expect(arguments.last == "backup:\(temp.path("dst/obsidian/2026-10-08_100000").path)/")
-        #expect(arguments.contains("--inplace") && arguments.contains("--mkpath") && arguments.contains("-rltDX"))
+        #expect(arguments.contains("--mkpath") && arguments.contains("-rltDX"))
+        #expect(!arguments.contains("--inplace"))
         #expect(arguments.contains("--chmod=ugo=rwX"))
         #expect(!arguments.contains { $0.hasPrefix("-a") || $0.hasPrefix("-p") || $0.hasPrefix("--perms") })
         #expect(!arguments.contains { $0.hasPrefix("--delete") })
+    }
+
+    /// Only the marker is written in place: it is a new empty file the gate has just created.
+    @Test func onlyTheMarkerIsWrittenInPlace() async throws {
+        defer { temp.remove() }
+        let runner = FakeProcessRunner()
+        let transfer = RsyncTransfer(rsync: RsyncTransfer.homebrewRsync, receiver: .standard, runner: runner, scratch: temp.path("scratch"))
+        let copy = temp.path("dst/obsidian/2026-10-08_100000")
+        _ = try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: copy, linkDests: [temp.path("dst/obsidian/2026-10-07_100000")])
+        try await transfer.markComplete(copy)
+        #expect(runner.calls.map { $0.arguments.contains("--inplace") } == [false, true])
+    }
+
+    /// On a volume that ignores letter case a second name of the source (`a.md` next to `A.md`) lands on the file
+    /// just hard-linked from the finished copy; written in place, the new content would go into the finished copy.
+    @Test func aNameDifferingOnlyInCaseLeavesTheFinishedCopyAlone() async throws {
+        defer { temp.remove() }
+        let source = try DiskImage(.caseSensitiveAPFS)
+        let src = source.root.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        try Data("ORIGINAL".utf8).write(to: src.appendingPathComponent("A.md"))
+        let first = temp.path("dst/obsidian/2026-10-07_100000")
+        _ = try await transfer.write(Payload(root: src, collectedAt: Date()), into: first, linkDests: [])
+        try await transfer.markComplete(first)
+        try Data("NEW".utf8).write(to: src.appendingPathComponent("a.md"))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: src.path).sorted() == ["A.md", "a.md"])
+        let second = temp.path("dst/obsidian/2026-10-08_100000")
+        _ = try await transfer.write(Payload(root: src, collectedAt: Date()), into: second, linkDests: [first])
+        #expect(try String(contentsOf: first.appendingPathComponent("A.md"), encoding: .utf8) == "ORIGINAL")
     }
 
     /// With secluded args (`-s`, which RSYNC_PROTECT_ARGS in the app's environment would switch on) rsync sends the

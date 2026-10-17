@@ -19,7 +19,7 @@ struct GateTests {
     private var environment: FakeEnvironment {
         FakeEnvironment(owners: ["/Volumes/HDD/Backups": 497, "/Volumes/HDD/Backups/obsidian": 497])
     }
-    private let server = ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/HDD/Backups/obsidian/2026-10-07_100000", "--inplace", "--mkpath", "."]
+    private let server = ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/HDD/Backups/obsidian/2026-10-07_100000", "--mkpath", "."]
 
     @Test func passesACopyIntoAnUnfinishedFolder() {
         let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
@@ -61,8 +61,8 @@ struct GateTests {
     }
 
     @Test func refusesATargetOutsideAFolderOfTheRoleAccount() {
-        let plan = Gate.plan(arguments: server + ["/Users/max/Documents/x/"], environment: environment)
-        #expect(plan == .failure(GateError(message: "/Users/max/Documents/x is not inside a folder of the backup account")))
+        let plan = Gate.plan(arguments: server + ["/Users/max/Documents/x/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Users/max/Documents/x/2026-10-08_100000 is not inside a folder of the backup account")))
     }
 
     @Test func refusesATargetOnAVolumeIgnoringOwners() {
@@ -132,12 +132,12 @@ struct GateTests {
     @Test func unescapesTheTargetAndTheLinkDestsBeforeCheckingAndPassing() {
         let environment = FakeEnvironment(owners: ["/Volumes/My Disk/B it's": 497, "/Volumes/My Disk/B it's/old": 497])
         let plan = Gate.plan(
-            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/My\\ Disk/B\\ it\\'s/old", "--inplace", "--mkpath", ".", "/Volumes/My\\ Disk/B\\ it\\'s/new/"],
+            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/My\\ Disk/B\\ it\\'s/old", "--mkpath", ".", "/Volumes/My\\ Disk/B\\ it\\'s/new\\ notes/2026-10-08_100000/"],
             environment: environment
         )
         #expect(plan == .success(GatePlan(
-            argv: ["--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/My Disk/B it's/old", "--inplace", "--mkpath", ".", "/Volumes/My Disk/B it's/new/"],
-            claim: .folder("/Volumes/My Disk/B it's/new")
+            argv: ["--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/My Disk/B it's/old", "--mkpath", ".", "/Volumes/My Disk/B it's/new notes/2026-10-08_100000/"],
+            claim: .folder("/Volumes/My Disk/B it's/new notes/2026-10-08_100000")
         )))
     }
 
@@ -151,7 +151,7 @@ struct GateTests {
         var environment = environment
         environment.owners["/Users/max/Documents"] = 501
         let plan = Gate.plan(
-            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", linkDest, "--inplace", "--mkpath", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"],
+            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", linkDest, "--mkpath", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"],
             environment: environment
         )
         #expect(plan == .failure(GateError(message: "refused link-dest \(linkDest)")))
@@ -189,7 +189,7 @@ struct GateTests {
     }
 
     /// A dated folder and its marker are written once: an unfinished attempt may hold hard links into a finished copy,
-    /// and rsync `--inplace` would write through them. The claim creates them, so two gates cannot both get one.
+    /// and a write into the attempt could reach them. The claim creates them, so two gates cannot both get one.
     @Test func aFolderIsClaimedOnceWithItsMissingParents() throws {
         let temp = try TemporaryFolder()
         defer { temp.remove() }
@@ -273,6 +273,78 @@ struct GateTests {
         let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/other/2026-10-08_100000/"], environment: environment)
         #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/other/2026-10-08_100000 is not inside a folder of the backup account")))
     }
+
+    /// A file written in place into a copy folder could be a hard link just made from a finished copy (a name that
+    /// differs only in letter case or Unicode form): only the marker, a new empty file, is written in place.
+    @Test func refusesInplaceForACopyFolder() {
+        let plan = Gate.plan(arguments: server.dropLast() + ["--inplace", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "refused option --inplace for a copy folder")))
+    }
+
+    @Test func passesACopyFolderWithoutInplaceAndAMarkerWithIt() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-07_100000"] = 497
+        let folder = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        let marker = Gate.plan(arguments: ["backup", "rsync", "--server", "-e.LsfxCIvu", "--inplace", ".", "/Volumes/HDD/Backups/obsidian/2026-10-07_100000/.complete"], environment: environment)
+        #expect(folder.map(\.claim) == .success(.folder("/Volumes/HDD/Backups/obsidian/2026-10-08_100000")))
+        #expect(marker.map(\.claim) == .success(.marker("/Volumes/HDD/Backups/obsidian/2026-10-07_100000/.complete")))
+    }
+
+    /// A folder claim is `<account folder>/<slug>/<copy name>/`: anything else would be a folder the app never reads,
+    /// or a `.complete` folder that would pass for a marker.
+    @Test(arguments: [
+        "/Volumes/HDD/Backups/obsidian/2026-10-08_110000/extra/",
+        "/Volumes/HDD/Backups/obsidian/2026-10-08_110000/.complete/",
+        "/Volumes/HDD/Backups/junk/",
+        "/Volumes/HDD/Backups/obsidian/.complete/",
+        "/Volumes/HDD/Backups/obsidian/2026-10-08_110000x/",
+    ])
+    func refusesAFolderNotNamedLikeACopy(target: String) {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_110000"] = 497
+        let plan = Gate.plan(arguments: server + [target], environment: environment)
+        #expect(plan == .failure(GateError(message: "copy folder name required")))
+    }
+
+    @Test(arguments: [
+        "/Volumes/HDD/Backups/obsidian/2026-10-08_110000/2026-10-08_120000",
+        "/Volumes/HDD/Backups/2026-10-08_110000/obsidian/2026-10-08_120000",
+        "/Volumes/HDD/Backups/.complete/obsidian/2026-10-08_120000",
+    ])
+    func refusesACopyFolderInsideACopyFolder(folder: String) {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_110000"] = 497
+        let plan = Gate.plan(arguments: server + [folder + "/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "\(folder) lies inside a copy folder")))
+    }
+
+    @Test func refusesAMarkerOfACopyFolderInsideACopyFolder() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_110000"] = 497
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_110000/2026-10-08_120000"] = 497
+        let plan = Gate.plan(arguments: ["backup", "rsync", "--server", "-e.LsfxCIvu", "--inplace", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_110000/2026-10-08_120000/.complete"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_110000/2026-10-08_120000 lies inside a copy folder")))
+    }
+
+    /// `--mkpath` may create the slug folder, and nothing more above the copy folder.
+    @Test func refusesACopyFolderWithMoreThanTheSlugFolderMissing() {
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/new/photos/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/new/photos/2026-10-08_100000 is not inside a folder of the backup account")))
+    }
+
+    @Test func refusesACopyFolderWhoseSlugFolderIsInAFolderOfSomeoneElse() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/other"] = 501
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/other/photos/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/other/photos/2026-10-08_100000 is not inside a folder of the backup account")))
+    }
+
+    @Test(arguments: ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000", "/Volumes/HDD/Backups/photos/2026-10-08_100000", "/Volumes/HDD/Backups/obsidian/2026-10-25_023000+0200"])
+    func passesACopyFolderWithOrWithoutItsSlugFolder(folder: String) {
+        let plan = Gate.plan(arguments: server + [folder + "/"], environment: environment)
+        #expect(plan.map(\.claim) == .success(.folder(folder)))
+    }
+
 }
 
 private func currentUmask() -> mode_t {

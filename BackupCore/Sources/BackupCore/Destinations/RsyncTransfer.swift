@@ -21,8 +21,10 @@ public struct RsyncTransfer: Sendable {
     private static let vanishedFiles: Int32 = 24
     private static let host = "backup"
     /// Modes of the originals are not kept: the receiver's umask (027 in the gate) decides them, the group comes from the
-    /// destination root, so the person reads every copy.
-    private static let copyFlags = ["-rltDX", "--inplace", "--mkpath", "--chmod=ugo=rwX"]
+    /// destination root, so the person reads every copy. Files are written into a temporary name and renamed, never in
+    /// place: a name that differs only in letter case or Unicode form from a file just hard-linked from an earlier copy
+    /// lands on that file, and writing it in place would change the earlier copy.
+    private static let copyFlags = ["-rltDX", "--mkpath", "--chmod=ugo=rwX"]
     /// Set over the app's own environment, so nothing inherited switches rsync to secluded args (`-s`), which would
     /// send the arguments past the gate, or to old-style arguments, which would stop escaping the destination path.
     private static let argumentMode = ["RSYNC_OLD_ARGS": "0"]

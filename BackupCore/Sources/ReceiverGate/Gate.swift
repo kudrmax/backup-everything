@@ -19,12 +19,13 @@ public struct GatePlan: Equatable, Sendable {
     public let claim: Claim
 }
 
-/// What rsync may ask the receiver to do: copy into a new copy folder owned by the backup account, or write the
-/// completion marker into a copy folder without one. Nothing else.
+/// What rsync may ask the receiver to do: copy into a new copy folder `<folder of the backup account>/<slug>/<copy name>/`,
+/// or write the completion marker into a copy folder without one. Nothing else.
 public enum Gate {
     public static let completionMarker = ".complete"
     private static let allowedLongOptions: Set<String> = ["--server", "--inplace", "--mkpath"]
     private static let linkDest = "--link-dest"
+    private static let inplace = "--inplace"
     /// The letters rsync 3 sends to the receiver for our data transfer and for the completion marker: options without a
     /// value, then `e` whose value (the rest of the cluster) lists the protocol capabilities of the client. Letters that
     /// keep modes, owners, groups, ACLs or hard links (`p o g A H`) are not among them: the gate's umask sets the modes.
@@ -40,6 +41,7 @@ public enum Gate {
         var positionals: [Int] = []
         var linkDests: [String] = []
         var expectingLinkDest = false
+        var writesInPlace = false
         for argument in rest {
             if expectingLinkDest {
                 let value = unescape(argument)
@@ -48,6 +50,7 @@ public enum Gate {
                 expectingLinkDest = false
             } else if allowedLongOptions.contains(argument) || isAllowedShortCluster(argument) {
                 argv.append(argument)
+                writesInPlace = writesInPlace || argument == inplace
             } else if argument == linkDest {
                 argv.append(argument)
                 expectingLinkDest = true
@@ -62,6 +65,9 @@ public enum Gate {
             return .failure(GateError(message: "exactly one destination path is accepted"))
         }
         return claim(for: target, environment: environment).flatMap { claim in
+            if case .folder = claim, writesInPlace {
+                return .failure(GateError(message: "refused option \(inplace) for a copy folder"))
+            }
             if let refused = linkDests.first(where: { !isAcceptable(linkDest: $0, claim: claim, environment: environment) }) {
                 return .failure(GateError(message: "refused link-dest \(refused)"))
             }
@@ -93,7 +99,7 @@ public enum Gate {
     }
 
     /// The target must sit under a folder of the backup account, on a volume that honours owners, without symlinks on
-    /// the way, and must not be (or lie in) a finished copy.
+    /// the way, and must not be (or lie in) a finished copy. A copy folder may lack only its slug folder above it.
     private static func claim(for target: String, environment: any GateEnvironment) -> Result<Claim, GateError> {
         guard isAbsoluteWithoutClimbing(target) else { return .failure(GateError(message: "path must be absolute without “..”")) }
         let folder = target.hasSuffix("/") ? String(target.dropLast()) : target
@@ -105,10 +111,15 @@ public enum Gate {
             level = (level as NSString).deletingLastPathComponent
         }
         let claim: Claim
+        let copy: String
         if target.hasSuffix("/") {
+            guard isCopyFolderName((folder as NSString).lastPathComponent) else {
+                return .failure(GateError(message: "copy folder name required"))
+            }
+            copy = folder
             claim = .folder(folder)
         } else if (target as NSString).lastPathComponent == completionMarker {
-            let copy = (target as NSString).deletingLastPathComponent
+            copy = (target as NSString).deletingLastPathComponent
             guard isCopyFolderName((copy as NSString).lastPathComponent), environment.fileExists(atPath: copy) else {
                 return .failure(GateError(message: "marker must be inside a copy folder"))
             }
@@ -116,8 +127,16 @@ public enum Gate {
         } else {
             return .failure(GateError(message: "the destination must be a new copy folder or its completion marker"))
         }
-        guard let existing = nearestExisting(folder, environment: environment),
-              environment.ownerUID(ofPath: existing) == environment.currentUID else {
+        let ancestors = (copy as NSString).deletingLastPathComponent.split(separator: "/").map(String.init)
+        guard !ancestors.contains(where: { isCopyFolderName($0) || $0 == completionMarker }) else {
+            return .failure(GateError(message: "\(copy) lies inside a copy folder"))
+        }
+        let slugFolder = (copy as NSString).deletingLastPathComponent
+        let accountFolder = (slugFolder as NSString).deletingLastPathComponent
+        guard let existing = nearestExisting(copy, environment: environment),
+              [copy, slugFolder, accountFolder].contains(existing),
+              environment.ownerUID(ofPath: existing) == environment.currentUID,
+              environment.ownerUID(ofPath: accountFolder) == environment.currentUID else {
             return .failure(GateError(message: "\(folder) is not inside a folder of the backup account"))
         }
         guard environment.realPath(ofPath: existing) == existing else {

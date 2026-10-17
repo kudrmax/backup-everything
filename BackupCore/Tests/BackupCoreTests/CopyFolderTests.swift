@@ -18,6 +18,16 @@ struct CopyFolderTests {
         #expect(try folder.newestCopy(of: "obsidian") == Fixtures.snapshot("2026-10-07 10:00:00"))
     }
 
+    /// Only a file marks a copy complete: a `.complete` folder or link is something else that took the name.
+    @Test func aMarkerThatIsNotAFileDoesNotCount() throws {
+        defer { temp.remove() }
+        try temp.directory("obsidian/2026-10-07_100000/.complete")
+        try temp.file("obsidian/2026-10-08_100000/a.md")
+        try FileManager.default.createSymbolicLink(at: temp.path("obsidian/2026-10-08_100000/.complete"), withDestinationURL: temp.path("obsidian/2026-10-08_100000/a.md"))
+        #expect(try folder.copies(of: "obsidian") == [])
+        #expect(try folder.unfinished(of: "obsidian").map(\.name) == ["2026-10-07_100000", "2026-10-08_100000"])
+    }
+
     @Test func sortsCopiesByDate() throws {
         defer { temp.remove() }
         try temp.file("obsidian/2026-10-08_100000/.complete", "")

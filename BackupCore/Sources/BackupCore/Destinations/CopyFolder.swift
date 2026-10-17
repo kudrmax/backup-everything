@@ -33,8 +33,10 @@ public struct CopyFolder: Sendable {
         root.appendingPathComponent(try Slug.folderName(slug), isDirectory: true)
     }
 
+    /// The marker is a regular file; a folder or a link with its name does not count.
     private func isComplete(_ folder: URL) -> Bool {
-        FileManager.default.fileExists(atPath: folder.appendingPathComponent(Self.completionMarker).path)
+        let marker = folder.appendingPathComponent(Self.completionMarker).path
+        return (try? FileManager.default.attributesOfItem(atPath: marker)[.type] as? FileAttributeType) == .typeRegular
     }
 
     private func datedFolders(of slug: String) throws -> [(url: URL, snapshot: Snapshot)] {

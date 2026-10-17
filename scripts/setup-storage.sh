@@ -14,7 +14,7 @@ SKIPPED=()
 usage() { echo "usage: sudo $0 \"<empty folder>\" | --undo \"<folder>\" | --uninstall"; exit 1; }
 q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 step() { echo; echo "$1"; local title=$1; shift; printf '+ %s\n' "$@"; read -rp "Run? [y/N] " a </dev/tty
-  if [ "$a" = y ]; then for c in "$@"; do eval "$c"; done; else echo "skipped"; SKIPPED+=("$title"); fi; }
+  case "$a" in y|Y|yes) for c in "$@"; do eval "$c"; done ;; *) echo "skipped"; SKIPPED+=("$title") ;; esac; }
 ran() { [ "${#SKIPPED[@]}" = 0 ] || [ "${SKIPPED[${#SKIPPED[@]}-1]}" != "$1" ]; }
 finish() { echo; if [ "${#SKIPPED[@]}" = 0 ]; then echo "Done. Check in the app: Destinations → Setup."
   else echo "Skipped:"; printf '  %s\n' "${SKIPPED[@]}"; echo "Run the script again to finish."; fi; exit 0; }
@@ -27,7 +27,7 @@ case "$#:${1:-}" in
 esac
 [ "$(id -u)" = 0 ] && [ -n "$OWNER" ] && [ "$OWNER" != root ] || { echo "run it with sudo as your own user"; exit 1; }
 if [ "$MODE" = uninstall ]; then
-  if [ -e "$RULE_FILE" ]; then step "Remove the sudo rule: the app can no longer write copies." "/usr/bin/trash $RULE_FILE"; fi
+  if [ -e "$RULE_FILE" ]; then step "Remove the sudo rule: the app can no longer write copies." "/usr/bin/trash $RULE_FILE || mv $RULE_FILE $RULE_FILE.removed"; fi
   if [ -e "$LIBEXEC" ]; then step "Remove the receiver gate." "/usr/bin/trash $LIBEXEC"; fi
   if id "$ACCOUNT" >/dev/null 2>&1; then step "Remove the account $ACCOUNT (UID $(id -u "$ACCOUNT")); its folders \
 show this number as owner until --undo." "dscl . -delete /Users/$ACCOUNT"; fi
@@ -60,6 +60,8 @@ fi
 id "$ACCOUNT" >/dev/null 2>&1 || { echo "the account $ACCOUNT is missing; the next steps need it"; exit 1; }
 [ -z "$(ls -A "$FOLDER" | grep -Fvx .DS_Store)" ] || [ "$(stat -f %u "$FOLDER")" = "$(id -u "$ACCOUNT")" ] ||
   { echo "move your files out of $FOLDER first; the script protects an empty folder"; exit 1; }
+[ "$(stat -f %u /usr/local)" = 0 ] && [ "$(stat -f %u /usr/local/libexec 2>/dev/null || echo 0)" = 0 ] ||
+  { echo "/usr/local is not owned by root; the sudo rule would not be safe"; exit 1; }
 step "Install the receiver gate, owned by root: it lets rsync only add new copies, as $ACCOUNT." \
   "install -d -o root -g wheel -m 755 $LIBEXEC" "install -o root -g wheel -m 755 $(q "$SOURCE_GATE") $GATE"
 RULE="$OWNER ALL=($ACCOUNT) NOPASSWD: $GATE"
@@ -74,6 +76,7 @@ HANDOVER="Hand $FOLDER to $ACCOUNT: only it can write there, you keep reading th
 step "$HANDOVER" "chown $ACCOUNT:staff $(q "$FOLDER")" "chmod 750 $(q "$FOLDER")" "chmod -N $(q "$FOLDER")"
 if ran "$HANDOVER" && ! sudo -u "$ACCOUNT" /bin/test -r "$FOLDER" -a -w "$FOLDER" -a -x "$FOLDER"; then
   echo "the account cannot reach $FOLDER: a parent folder is private (700). Pick a folder outside Desktop, Documents, \
-Downloads, or run: chmod o+x <parent>"; exit 1
+Downloads, or run: chmod o+x <parent>"
+  echo "run: sudo $0 --undo $(q "$FOLDER") to take the folder back"; exit 1
 fi
 finish
