@@ -7,10 +7,12 @@ struct FakeEnvironment: GateEnvironment {
     var owners: [String: uid_t] = [:]
     var noOwners: Set<String> = []
     var existing: Set<String> = []
+    var realPaths: [String: String] = [:]
 
     func ownerUID(ofPath path: String) -> uid_t? { owners[path] }
     func volumeHonoursOwners(atPath path: String) -> Bool { !noOwners.contains(path) }
     func fileExists(atPath path: String) -> Bool { existing.contains(path) || owners[path] != nil }
+    func realPath(ofPath path: String) -> String? { fileExists(atPath: path) ? realPaths[path] ?? path : nil }
 }
 
 struct GateTests {
@@ -21,15 +23,23 @@ struct GateTests {
 
     @Test func passesACopyIntoAnUnfinishedFolder() {
         let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
-        #expect(plan == .success(Array(server.dropFirst(2)) + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]))
+        #expect(plan == .success(GatePlan(
+            argv: Array(server.dropFirst(2)) + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"],
+            claim: .folder("/Volumes/HDD/Backups/obsidian/2026-10-08_100000")
+        )))
     }
 
     @Test func passesTheCompletionMarker() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_100000"] = 497
         let plan = Gate.plan(
-            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"],
+            arguments: ["backup", "rsync", "--server", "-e.LsfxCIvu", "--inplace", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"],
             environment: environment
         )
-        #expect(plan == .success(["--server", "-lDtXre.iLsfxCIvu", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"]))
+        #expect(plan == .success(GatePlan(
+            argv: ["--server", "-e.LsfxCIvu", "--inplace", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"],
+            claim: .marker("/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete")
+        )))
     }
 
     @Test(arguments: ["--delete", "--delete-after", "--remove-source-files", "--sender", "--rsync-path=/bin/sh", "--files-from=/etc/passwd", "--backup-dir=/tmp"])
@@ -86,25 +96,9 @@ struct GateTests {
         #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 is a finished copy")))
     }
 
-    /// A dated folder is written once: an unfinished attempt may hold hard links into a finished copy, and rsync
-    /// `--inplace` would write through them.
-    @Test func refusesAnExistingUnfinishedFolderAsTarget() {
-        var environment = environment
-        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_100000"] = 497
-        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
-        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 already exists")))
-    }
-
-    @Test func passesTheMarkerIntoAFolderWithoutOne() {
-        var environment = environment
-        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-08_100000"] = 497
-        let arguments = ["backup", "rsync", "--server", "-e.LsfxCIvu", "--inplace", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/.complete"]
-        #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
-    }
-
-    @Test func passesADataTransferIntoANewFolderUnderAnOwnedParent() {
-        let arguments = server + ["/Volumes/HDD/Backups/obsidian/2026-10-09_100000/"]
-        #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
+    @Test func refusesATargetThatIsNeitherACopyFolderNorItsMarker() {
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/notes.md"], environment: environment)
+        #expect(plan == .failure(GateError(message: "the destination must be a new copy folder or its completion marker")))
     }
 
     @Test(arguments: ["-K", "-b", "-T", "-f", "-y", "-B", "-E", "-O", "-J", "-W", "-lDtXrKe.iLsfxCIvu"])
@@ -120,10 +114,110 @@ struct GateTests {
         #expect(plan == .failure(GateError(message: "refused option \(cluster)")))
     }
 
-    @Test(arguments: ["-lDtXre.iLsfxCIvu", "-lDtXrLe.iLsfxCIvu", "-e.LsfxCIvu"])
+    @Test(arguments: ["-lDtXre.iLsfxCIvu", "-lDtrXe.iLsfxCIvu", "-e.LsfxCIvu"])
     func passesTheShortOptionsOfOurTwoTransfers(cluster: String) {
         let arguments = ["backup", "rsync", "--server", cluster, ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]
-        #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
+        #expect(Gate.plan(arguments: arguments, environment: environment).map(\.argv) == .success(Array(arguments.dropFirst(2))))
+    }
+
+    /// `s` (secluded args) would make rsync read a second argv from the protocol, past the gate. Letters rsync sends
+    /// for us before `e` are only `l D t r X`.
+    @Test(arguments: ["-slDtXre.iLsfxCIvu", "-lDtXrLe.iLsfxCIvu", "-ilDtXre.iLsfxCIvu", "-xlDtXre.iLsfxCIvu", "-lDtXrCe.iLsfxCIvu", "-lDtXrIe.iLsfxCIvu", "-vlDtXre.iLsfxCIvu", "-ulDtXre.iLsfxCIvu", "-s", "-.e.LsfxCIvu"])
+    func refusesLettersRsyncDoesNotSendBeforeE(cluster: String) {
+        let plan = Gate.plan(arguments: ["backup", "rsync", "--server", cluster, ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "refused option \(cluster)")))
+    }
+
+    /// rsync escapes paths for a remote shell; `sudo` runs the gate without one, so the gate removes the escapes.
+    @Test func unescapesTheTargetAndTheLinkDestsBeforeCheckingAndPassing() {
+        let environment = FakeEnvironment(owners: ["/Volumes/My Disk/B it's": 497, "/Volumes/My Disk/B it's/old": 497])
+        let plan = Gate.plan(
+            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/My\\ Disk/B\\ it\\'s/old", "--inplace", "--mkpath", ".", "/Volumes/My\\ Disk/B\\ it\\'s/new/"],
+            environment: environment
+        )
+        #expect(plan == .success(GatePlan(
+            argv: ["--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/My Disk/B it's/old", "--inplace", "--mkpath", ".", "/Volumes/My Disk/B it's/new/"],
+            claim: .folder("/Volumes/My Disk/B it's/new")
+        )))
+    }
+
+    @Test(arguments: [("a\\\\b", "a\\b"), ("\\$x\\\"\\*", "$x\"*"), ("plain", "plain"), ("end\\", "end\\")])
+    func unescapingDropsOneBackslashBeforeAnyCharacter(escaped: String, plain: String) {
+        #expect(Gate.unescape(escaped) == plain)
+    }
+
+    @Test(arguments: ["/Users/max/Documents", "/Volumes/HDD/Backups/obsidian/../../../Users/max", "Backups/obsidian/2026-10-07_100000", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000"])
+    func refusesALinkDestOutsideTheFoldersOfTheBackupAccount(linkDest: String) {
+        var environment = environment
+        environment.owners["/Users/max/Documents"] = 501
+        let plan = Gate.plan(
+            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", linkDest, "--inplace", "--mkpath", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"],
+            environment: environment
+        )
+        #expect(plan == .failure(GateError(message: "refused link-dest \(linkDest)")))
+    }
+
+    @Test func refusesALinkDestOnAVolumeIgnoringOwners() {
+        var environment = environment
+        environment.owners["/Volumes/Other/Backups"] = 497
+        environment.noOwners.insert("/Volumes/Other/Backups")
+        let plan = Gate.plan(
+            arguments: ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--link-dest", "/Volumes/Other/Backups/x", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"],
+            environment: environment
+        )
+        #expect(plan == .failure(GateError(message: "refused link-dest /Volumes/Other/Backups/x")))
+    }
+
+    @Test func refusesATargetThroughASymlink() {
+        var environment = environment
+        environment.realPaths["/Volumes/HDD/Backups/obsidian"] = "/Users/max/Documents"
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/obsidian/2026-10-08_100000 goes through a symlink")))
+    }
+
+    @Test func refusesALinkDestThroughASymlink() {
+        var environment = environment
+        environment.owners["/Volumes/HDD/Backups/obsidian/2026-10-07_100000"] = 497
+        environment.realPaths["/Volumes/HDD/Backups/obsidian/2026-10-07_100000"] = "/Users/max/Documents"
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
+        #expect(plan == .failure(GateError(message: "refused link-dest /Volumes/HDD/Backups/obsidian/2026-10-07_100000")))
+    }
+
+    @Test func claimsAFolderUnderAMissingParent() {
+        let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/photos/2026-10-08_100000/"], environment: environment)
+        #expect(plan.map(\.claim) == .success(.folder("/Volumes/HDD/Backups/photos/2026-10-08_100000")))
+    }
+
+    /// A dated folder and its marker are written once: an unfinished attempt may hold hard links into a finished copy,
+    /// and rsync `--inplace` would write through them. The claim creates them, so two gates cannot both get one.
+    @Test func aFolderIsClaimedOnceWithItsMissingParents() throws {
+        let temp = try TemporaryFolder()
+        defer { temp.remove() }
+        let folder = temp.path + "/obsidian/2026-10-08_100000"
+        #expect(Claimer.claim(.folder(folder)) == nil)
+        #expect(Claimer.claim(.folder(folder)) == GateError(message: "\(folder) already exists"))
+        var info = stat()
+        #expect(lstat(folder, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR)
+        #expect(info.st_mode & 0o7777 == 0o750 & ~currentUmask())
+    }
+
+    @Test func aMarkerIsClaimedOnce() throws {
+        let temp = try TemporaryFolder()
+        defer { temp.remove() }
+        let marker = temp.path + "/.complete"
+        #expect(Claimer.claim(.marker(marker)) == nil)
+        #expect(Claimer.claim(.marker(marker)) == GateError(message: "\(marker) is a finished copy"))
+        var info = stat()
+        #expect(lstat(marker, &info) == 0 && info.st_mode & S_IFMT == S_IFREG && info.st_size == 0)
+        #expect(info.st_mode & 0o7777 == 0o640 & ~currentUmask())
+    }
+
+    @Test func aMarkerIsNotClaimedThroughASymlink() throws {
+        let temp = try TemporaryFolder()
+        defer { temp.remove() }
+        #expect(symlink(temp.path + "/elsewhere", temp.path + "/.complete") == 0)
+        #expect(Claimer.claim(.marker(temp.path + "/.complete")) == GateError(message: "\(temp.path)/.complete is a finished copy"))
+        #expect(!FileManager.default.fileExists(atPath: temp.path + "/elsewhere"))
     }
 
     /// rsync applies `--chmod` on the client and never sends it to the receiver.
@@ -138,5 +232,25 @@ struct GateTests {
         environment.owners["/Volumes/HDD/Backups/other"] = 501
         let plan = Gate.plan(arguments: server + ["/Volumes/HDD/Backups/other/2026-10-08_100000/"], environment: environment)
         #expect(plan == .failure(GateError(message: "/Volumes/HDD/Backups/other/2026-10-08_100000 is not inside a folder of the backup account")))
+    }
+}
+
+private func currentUmask() -> mode_t {
+    let mask = umask(0)
+    umask(mask)
+    return mask
+}
+
+private struct TemporaryFolder {
+    let path: String
+
+    init() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("gate-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        path = url.resolvingSymlinksInPath().path
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(atPath: path)
     }
 }

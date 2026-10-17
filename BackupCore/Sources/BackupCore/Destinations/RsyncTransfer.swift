@@ -23,6 +23,9 @@ public struct RsyncTransfer: Sendable {
     /// Modes of the originals are not kept: the receiver's umask (027 in the gate) decides them, the group comes from the
     /// destination root, so the person reads every copy.
     private static let copyFlags = ["-rltDX", "--inplace", "--mkpath", "--chmod=ugo=rwX"]
+    /// Set over the app's own environment, so nothing inherited switches rsync to secluded args (`-s`), which would
+    /// send the arguments past the gate, or to old-style arguments, which would stop escaping the destination path.
+    private static let argumentMode = ["RSYNC_OLD_ARGS": "0"]
 
     private let rsync: URL
     private let receiver: ReceiverCommand?
@@ -66,7 +69,7 @@ public struct RsyncTransfer: Sendable {
     private func run(_ arguments: [String]) async throws -> ProcessResult {
         guard FileManager.default.isExecutableFile(atPath: rsync.path) else { throw DestinationError.rsyncMissing }
         let rsh = receiver.map { ["--rsh=\($0.rsh)"] } ?? []
-        return try await runner.run(executable: rsync, arguments: rsh + arguments, environment: [:], timeout: nil)
+        return try await runner.run(executable: rsync, arguments: rsh + arguments, environment: Self.argumentMode, timeout: nil)
     }
 
     private func check(_ result: ProcessResult) throws {

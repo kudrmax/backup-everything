@@ -5,6 +5,7 @@ public protocol GateEnvironment {
     func ownerUID(ofPath path: String) -> uid_t?
     func volumeHonoursOwners(atPath path: String) -> Bool
     func fileExists(atPath path: String) -> Bool
+    func realPath(ofPath path: String) -> String?
 }
 
 public struct SystemGateEnvironment: GateEnvironment {
@@ -27,5 +28,11 @@ public struct SystemGateEnvironment: GateEnvironment {
     public func fileExists(atPath path: String) -> Bool {
         var info = stat()
         return lstat(path, &info) == 0
+    }
+
+    public func realPath(ofPath path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 }

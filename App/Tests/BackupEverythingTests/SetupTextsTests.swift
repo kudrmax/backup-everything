@@ -12,6 +12,8 @@ struct SetupTextsTests {
         #expect(SetupTexts.line(.receiverMissing, config: config) == "The receiver gate is not installed")
         #expect(SetupTexts.line(.sudoRuleMissing, config: config) == "The sudo rule for the receiver gate is missing or outdated")
         #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .volumeIgnoresOwners), config: config) == "“HDD”: the disk ignores file owners")
+        #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .ancestorNotTraversable(path: "/Users/max/Documents")), config: config)
+            == "“HDD”: “/Users/max/Documents” above it is private (700), so the backup account cannot reach it")
         #expect(SetupTexts.line(.destinationNotReady(id: hdd.id, .notOwnedByBackupAccount(owner: "max")), config: config) == "“HDD”: the folder belongs to “max”, not to the backup account")
     }
 

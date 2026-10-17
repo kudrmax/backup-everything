@@ -32,6 +32,8 @@ public enum DestinationError: Error, Equatable, LocalizedError {
         case let .notOwnedByBackupAccount(owner): "The destination folder belongs to “\(owner)”, not to the backup account. Run the setup script."
         case .volumeIgnoresOwners: "The disk ignores file owners, so copies there cannot be protected. Run the setup script: it enables ownership on the disk."
         case .accountMissing: "The backup account “\(SystemDestinationAccess.roleAccount)” does not exist. Run the setup script."
+        case let .ancestorNotTraversable(path):
+            "“\(path)” does not let the backup account in (it is private, 700); choose a destination folder outside Desktop, Documents, Downloads and other private folders, or open that folder to others (chmod o+x)"
         }
     }
 }

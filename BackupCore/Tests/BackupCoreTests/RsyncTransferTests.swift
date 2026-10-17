@@ -99,6 +99,19 @@ struct RsyncTransferTests {
         #expect(!arguments.contains { $0.hasPrefix("--delete") })
     }
 
+    /// With secluded args (`-s`, which RSYNC_PROTECT_ARGS in the app's environment would switch on) rsync sends the
+    /// arguments past the gate; RSYNC_OLD_ARGS=0 rules that out and keeps the escaping the gate removes.
+    @Test func everyRsyncCallFixesTheArgumentMode() async throws {
+        defer { temp.remove() }
+        let runner = FakeProcessRunner()
+        let transfer = RsyncTransfer(rsync: RsyncTransfer.homebrewRsync, receiver: .standard, runner: runner, scratch: temp.path("scratch"))
+        let copy = temp.path("dst/obsidian/2026-10-08_100000")
+        _ = try await transfer.write(Payload(root: temp.path("src"), collectedAt: Date()), into: copy, linkDests: [])
+        try await transfer.markComplete(copy)
+        #expect(runner.calls.count == 2)
+        #expect(runner.calls.allSatisfy { $0.environment == ["RSYNC_OLD_ARGS": "0"] })
+    }
+
     /// Modes of the originals are not kept: the receiver's umask decides them (the gate sets 027, here the default 022).
     @Test func copyModesComeFromTheReceiverUmaskNotFromTheOriginals() async throws {
         defer { temp.remove() }
