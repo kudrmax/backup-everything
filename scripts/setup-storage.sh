@@ -70,15 +70,14 @@ if [ -n "$VOLUME" ]; then
   step "Make $VOLUME honour file owners, so the protection holds there; this also makes the disk honour the owners \
 recorded on every other file on it." "diskutil enableOwnership $(q "$VOLUME")"
 fi
-holds_data() { [ "$(stat -f %u "$1")" != "$2" ] && [ -n "$(ls -A "$1" | grep -Fvx .DS_Store)" ]; }
-if holds_data "$FOLDER" "$(id -u "$ACCOUNT")"; then
-  ITEMS=$(find "$FOLDER" -mindepth 1 | wc -l | tr -d ' ') || ITEMS="?"
-  HANDOVER="Hand $FOLDER AND everything inside it ($ITEMS items, currently owned by $(stat -f %Su "$FOLDER")) to \
-$ACCOUNT: you keep reading (files inside get read for the group, nobody but the account can write), you can no \
-longer delete or change anything there without sudo (--undo gives it back). Folders without a .complete marker \
-inside it will show in the app as unfinished attempts."
-  COMMANDS=("chown -R $ACCOUNT:staff $(q "$FOLDER")" "chmod -R g+rX,go-w $(q "$FOLDER")" "chmod -R -N $(q "$FOLDER")" \
-    "chmod 750 $(q "$FOLDER")")
+if [ -n "$(ls -A "$FOLDER" | grep -Fvx .DS_Store)" ]; then
+  HANDOVER="Hand $FOLDER AND everything inside it (now owned by $(stat -f %Su "$FOLDER")) to $ACCOUNT: you keep \
+reading (files inside get read for the group, nobody but the account can write), you can no longer delete or change \
+anything there without sudo. --undo returns ownership only (removed write bits and ACLs are not restored); Finder \
+locks inside are removed; files hard-linked from outside this folder change too; on a big disk this can take \
+minutes. Folders without a .complete marker inside it will show in the app as unfinished attempts."
+  COMMANDS=("chflags -R nouchg,nouappnd $(q "$FOLDER")" "chmod -R g+rX,go-w $(q "$FOLDER")" "chmod -R -N $(q "$FOLDER")" \
+    "chown -R $ACCOUNT:staff $(q "$FOLDER")" "chmod 750 $(q "$FOLDER")")
 else
   HANDOVER="Hand $FOLDER to $ACCOUNT: only it can write there, you keep reading through the group staff."
   COMMANDS=("chown $ACCOUNT:staff $(q "$FOLDER")" "chmod 750 $(q "$FOLDER")" "chmod -N $(q "$FOLDER")")
