@@ -126,13 +126,9 @@ struct GateTests {
         #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
     }
 
-    @Test func passesTheFixedChmod() {
-        let arguments = ["backup", "rsync", "--server", "-lDtXre.iLsfxCIvu", "--chmod=ugo=rwX", ".", "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"]
-        #expect(Gate.plan(arguments: arguments, environment: environment) == .success(Array(arguments.dropFirst(2))))
-    }
-
-    @Test(arguments: ["--chmod=Dg+rx,Fg+r", "--chmod=ugo=rwx", "--chmod=u+s", "--chmod=ugo=rwX,o+w", "--chmod=", "--chmod"])
-    func refusesAnyOtherChmod(option: String) {
+    /// rsync applies `--chmod` on the client and never sends it to the receiver.
+    @Test(arguments: ["--chmod=ugo=rwX", "--chmod=Dg+rx,Fg+r", "--chmod=u+s", "--chmod"])
+    func refusesChmod(option: String) {
         let plan = Gate.plan(arguments: server + [option, "/Volumes/HDD/Backups/obsidian/2026-10-08_100000/"], environment: environment)
         #expect(plan == .failure(GateError(message: "refused option \(option)")))
     }

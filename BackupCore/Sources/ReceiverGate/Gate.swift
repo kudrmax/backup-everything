@@ -11,7 +11,7 @@ public struct GateError: Error, Equatable {
 /// What rsync may ask the receiver to do: copy into an unfinished copy folder owned by the backup account. Nothing else.
 public enum Gate {
     public static let completionMarker = ".complete"
-    private static let allowedLongOptions: Set<String> = ["--server", "--inplace", "--mkpath", "--chmod=ugo=rwX"]
+    private static let allowedLongOptions: Set<String> = ["--server", "--inplace", "--mkpath"]
     private static let optionsWithValue: Set<String> = ["--link-dest"]
     /// The letters rsync 3 sends to the receiver for our data transfer and for the completion marker: options without a
     /// value, then `e` whose value (the rest of the cluster) lists the protocol capabilities of the client. Letters that
