@@ -74,16 +74,14 @@ holds_data() { [ "$(stat -f %u "$1")" != "$2" ] && [ -n "$(ls -A "$1" | grep -Fv
 if holds_data "$FOLDER" "$(id -u "$ACCOUNT")"; then
   ITEMS=$(find "$FOLDER" -mindepth 1 | wc -l | tr -d ' ') || ITEMS="?"
   HANDOVER="Hand $FOLDER AND everything inside it ($ITEMS items, currently owned by $(stat -f %Su "$FOLDER")) to \
-$ACCOUNT: you keep reading (files inside get read for the group, nobody but the account can write), you can no \
-longer delete or change anything there without sudo (--undo gives it back). Folders without a .complete marker \
-inside it will show in the app as unfinished attempts."
-  COMMANDS=("chown -R $ACCOUNT:staff $(q "$FOLDER")" "chmod -R g+rX,go-w $(q "$FOLDER")" "chmod -R -N $(q "$FOLDER")" \
-    "chmod 750 $(q "$FOLDER")")
+$ACCOUNT: you keep reading, you can no longer delete or change anything there without sudo (--undo gives it back). \
+Folders without a .complete marker inside it will show in the app as unfinished attempts."
+  CHOWN="chown -R $ACCOUNT:staff $(q "$FOLDER")"
 else
   HANDOVER="Hand $FOLDER to $ACCOUNT: only it can write there, you keep reading through the group staff."
-  COMMANDS=("chown $ACCOUNT:staff $(q "$FOLDER")" "chmod 750 $(q "$FOLDER")" "chmod -N $(q "$FOLDER")")
+  CHOWN="chown $ACCOUNT:staff $(q "$FOLDER")"
 fi
-step "$HANDOVER" "${COMMANDS[@]}"
+step "$HANDOVER" "$CHOWN" "chmod 750 $(q "$FOLDER")" "chmod -N $(q "$FOLDER")"
 if ran "$HANDOVER" && ! sudo -u "$ACCOUNT" /bin/test -r "$FOLDER" -a -w "$FOLDER" -a -x "$FOLDER"; then
   echo "the account cannot reach $FOLDER: a parent folder is private (700). Pick a folder outside Desktop, Documents, \
 Downloads, or run: chmod o+x <parent>"
