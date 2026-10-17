@@ -1,7 +1,7 @@
 #!/bin/bash
 # Protects Backup Everything copies: they live in a folder owned by a separate account, so the app can add copies but
 # never delete or change them. Each step says what it does, shows its exact commands and asks before running them.
-#   sudo setup-storage.sh "<folder>" | --undo "<folder>" | --uninstall
+#   sudo setup-storage.sh "<empty folder>" | --undo "<folder>" | --uninstall
 set -euo pipefail
 
 ACCOUNT=_backupeverything
@@ -11,7 +11,7 @@ RULE_FILE=/etc/sudoers.d/backup-everything
 OWNER="${SUDO_USER:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 SKIPPED=()
-usage() { echo "usage: sudo $0 \"<folder>\" | --undo \"<folder>\" | --uninstall"; exit 1; }
+usage() { echo "usage: sudo $0 \"<empty folder>\" | --undo \"<folder>\" | --uninstall"; exit 1; }
 q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 step() { echo; echo "$1"; local title=$1; shift; printf '+ %s\n' "$@"; read -rp "Run? [y/N] " a </dev/tty
   case "$a" in y|Y|yes) for c in "$@"; do eval "$c"; done ;; *) echo "skipped"; SKIPPED+=("$title") ;; esac; }
@@ -58,6 +58,8 @@ if ! id "$ACCOUNT" >/dev/null 2>&1; then
     "sysadminctl -addUser $ACCOUNT -UID $ID -roleAccount -shell /usr/bin/false -home /var/empty"
 fi
 id "$ACCOUNT" >/dev/null 2>&1 || { echo "the account $ACCOUNT is missing; the next steps need it"; exit 1; }
+[ -z "$(ls -A "$FOLDER" | grep -Fvx .DS_Store)" ] || [ "$(stat -f %u "$FOLDER")" = "$(id -u "$ACCOUNT")" ] ||
+  { echo "move your files out of $FOLDER first; the script protects an empty folder"; exit 1; }
 [ "$(stat -f %u /usr/local)" = 0 ] && [ "$(stat -f %u /usr/local/libexec 2>/dev/null || echo 0)" = 0 ] ||
   { echo "/usr/local is not owned by root; the sudo rule would not be safe"; exit 1; }
 step "Install the receiver gate, owned by root: it lets rsync only add new copies, as $ACCOUNT." \
@@ -70,18 +72,8 @@ if [ -n "$VOLUME" ]; then
   step "Make $VOLUME honour file owners, so the protection holds there; this also makes the disk honour the owners \
 recorded on every other file on it." "diskutil enableOwnership $(q "$VOLUME")"
 fi
-holds_data() { [ "$(stat -f %u "$1")" != "$2" ] && [ -n "$(ls -A "$1" | grep -Fvx .DS_Store)" ]; }
-if holds_data "$FOLDER" "$(id -u "$ACCOUNT")"; then
-  ITEMS=$(find "$FOLDER" -mindepth 1 | wc -l | tr -d ' ') || ITEMS="?"
-  HANDOVER="Hand $FOLDER AND everything inside it ($ITEMS items, currently owned by $(stat -f %Su "$FOLDER")) to \
-$ACCOUNT: you keep reading, you can no longer delete or change anything there without sudo (--undo gives it back). \
-Folders without a .complete marker inside it will show in the app as unfinished attempts."
-  CHOWN="chown -R $ACCOUNT:staff $(q "$FOLDER")"
-else
-  HANDOVER="Hand $FOLDER to $ACCOUNT: only it can write there, you keep reading through the group staff."
-  CHOWN="chown $ACCOUNT:staff $(q "$FOLDER")"
-fi
-step "$HANDOVER" "$CHOWN" "chmod 750 $(q "$FOLDER")" "chmod -N $(q "$FOLDER")"
+HANDOVER="Hand $FOLDER to $ACCOUNT: only it can write there, you keep reading through the group staff."
+step "$HANDOVER" "chown $ACCOUNT:staff $(q "$FOLDER")" "chmod 750 $(q "$FOLDER")" "chmod -N $(q "$FOLDER")"
 if ran "$HANDOVER" && ! sudo -u "$ACCOUNT" /bin/test -r "$FOLDER" -a -w "$FOLDER" -a -x "$FOLDER"; then
   echo "the account cannot reach $FOLDER: a parent folder is private (700). Pick a folder outside Desktop, Documents, \
 Downloads, or run: chmod o+x <parent>"
