@@ -2,7 +2,7 @@
 
 Личное macOS-приложение для бэкапов. Спецификация поведения: `docs/superpowers/specs/2026-09-30-backup-manager-design.md`; хранение копий (rsync, защищённые назначения) описано в `docs/superpowers/specs/2026-10-07-storage-rework-design.md`. Спецификации нужно обновлять вместе с каждым изменением поведения.
 
-- `BackupCore/` — ядро без UI (Swift Package, macOS 14+).
+- `BackupCore/` — ядро без UI (Swift Package, macOS 14+). Там же шлюз: цель `backup-receiver` (`Sources/backup-receiver/main.swift`) поверх библиотеки `ReceiverGate` (`Gate` разбирает и проверяет аргументы, `Claimer` атомарно занимает папку копии или метку).
 - `App/` — приложение на SwiftUI (исполняемый таргет `BackupEverything`, macOS 15+). Зависит от ядра, ядро от него — нет.
 - `scripts/build-app.sh` — сборка `.app`.
 - `scripts/setup-storage.sh` — установка хранилища: служебная учётка, шлюз, правило sudo, права на назначения (запускается под `sudo`, см. «Установка хранилища»). В сборке лежит в `Contents/Resources/`.
@@ -47,15 +47,31 @@ sudo dist/BackupEverything.app/Contents/Resources/setup-storage.sh --uninstall
 
 Allow-list шлюза привязан к буквам, которые шлёт получателю rsync 3.5.1. После `brew upgrade rsync` каждая копия может громко падать с “refused option …”, пока шлюз не обновят под новый rsync; это намеренное поведение (шлюз закрыт по умолчанию), а не поломка. Запускать скрипт только после согласования с Максом: он меняет системные настройки и владельца папки с копиями. Повторный запуск нужен на каждое новое назначение и после пересборки шлюза.
 
-Какой папке чего не хватает, приложение показывает в полосе “Setup” раздела “Destinations” вместе с готовой командой.
+Какой папке чего не хватает, приложение показывает в полосе “Setup” раздела “Destinations” вместе с готовой командой. Проверить правило sudo руками:
+
+```bash
+sudo -u _backupeverything /usr/local/libexec/backup-everything/backup-receiver --check
+```
+
+Копии прошлой версии приложения (с `_snapshot.json` внутри) становятся копиями после расстановки меток; команда из спеки хранения (8), выполняется под `sudo`, когда папка уже передана учётке:
+
+```bash
+sudo find "<папка назначения>" -mindepth 2 -maxdepth 2 -type d -name '20*' -exec sh -c '[ -e "$1/_snapshot.json" ] && [ ! -e "$1/_unfinished" ] && touch "$1/.complete"' _ {} \;
+```
+
+Finder и `sudo` могут менять и удалять копии после ввода пароля администратора: это сознательное действие Макса, оно задумано так. Приложение пароль спросить не может, других правил sudo у него нет.
+
+### Что установлено у Макса
+
+Хранилище переведено на новую схему 2026-10-18: учётка `_backupeverything` (UID 450), шлюз и правило sudo стоят, назначение “Laptop folder” (`~/Files/BackupsTest`) передано учётке, старые копии помечены `.complete`, новые копии пишутся через шлюз. Назначение “HDD” (`/Volumes/MAX'S HDD/Backups`) ещё не передано: когда диск подключён, выполнить команду из полосы “Setup” и команду расстановки меток выше. Остаточная учётка `_betest` от испытаний не нужна: `sudo sysadminctl -deleteUser _betest` после согласования.
 
 ## Прод не должен потеряться
 
 Прод — это приложение, которым Макс пользуется каждый день, и его данные:
 
 - запущенное `dist/BackupEverything.app` (bundle id `local.backup-everything`);
-- `~/BackupEverything/` — `config.json`, `state.json`, `history/`, `templates/`, `icons/`;
-- `~/Library/Application Support/BackupEverything/` — рабочие файлы;
+- `~/BackupEverything/` — `config.json` (схема 3), `state.json` (схема 2), `history/`, `templates/`, `icons/`. Перед первой записью в новом формате старый файл настроек остаётся рядом как `config.v<N>.json`: с ним можно вернуться на прошлую версию приложения. Копии данных до перехода на новое хранение лежат в `before-storage-rework/`;
+- `~/Library/Application Support/BackupEverything/` — рабочие файлы: `pending/` (пакеты для назначений, которых не было на связи), `staging/`, `chains/`, `scratch/`;
 - сами копии в назначениях.
 
 Правила:
@@ -66,6 +82,11 @@ Allow-list шлюза привязан к буквам, которые шлёт 
 4. Копии в назначениях не трогать. Приложение не умеет удалять копии; команды из раздела “Excess copies” (копии сверх правила хранения) выполняет только Макс.
 5. Встроенные шаблоны записываются в `~/BackupEverything/templates/` только если файла ещё нет. Поменялся шаблон в коде — обновить и файл у Макса, и уже созданный из него источник в `config.json`.
 6. Удалять что угодно только через `trash`.
+
+## Известные проблемы
+
+- Два теста ядра изредка падают под нагрузкой: `UndecodableNameTests.listingNamesTheFolder` и `ProcessRunnerTests.stopsProcessOnTimeout`. Это блокер, который нужно починить, а не перезапустить.
+- В `state.json`, перенесённом из первой версии хранения, у назначений могут остаться старые `lastError` и `retryAfter` (в Overview — “The destination is out of space”). Они уходят после первого успешного прогона; чистка при миграции не сделана.
 
 ## Песочница
 
